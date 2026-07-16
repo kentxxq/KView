@@ -10,16 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "KView",
-        "width": 960,
-        "height": 680,
-        "minWidth": 640,
-        "minHeight": 480,
-        "center": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1421"
     }
@@ -33,6 +24,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["jpg", "jpeg", "png", "webp", "gif", "svg", "txt", "log", "json", "yaml", "yml", "xml", "toml", "ini", "env", "conf", "sql", "md", "markdown", "pdf", "docx", "xlsx", "mp4", "webm"],
+        "name": "KView 支持的文件",
+        "description": "使用 KView 快速查看文件",
+        "role": "Viewer"
+      }
     ]
   }
 }

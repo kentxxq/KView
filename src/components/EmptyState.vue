@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const emit = defineEmits<{ select: [] }>();
+defineProps<{ dragActive?: boolean }>();
 
 const formats = ["图片", "文本", "JSON / YAML", "Markdown"];
 </script>
@@ -7,7 +8,8 @@ const formats = ["图片", "文本", "JSON / YAML", "Markdown"];
 <template>
   <section class="w-full max-w-2xl text-center" aria-labelledby="empty-title">
     <div
-      class="group relative overflow-hidden rounded-3xl border border-dashed border-accented bg-elevated px-6 py-14 shadow-sm sm:px-12 sm:py-16"
+      class="group relative overflow-hidden rounded-3xl border border-dashed px-6 py-14 shadow-sm transition sm:px-12 sm:py-16"
+      :class="dragActive ? 'border-primary bg-primary/5 ring-4 ring-primary/10' : 'border-accented bg-elevated'"
     >
       <div
         class="pointer-events-none absolute inset-x-20 top-0 h-32 rounded-full bg-primary/10 blur-3xl"
@@ -21,7 +23,7 @@ const formats = ["图片", "文本", "JSON / YAML", "Markdown"];
         </div>
 
         <h1 id="empty-title" class="text-2xl font-semibold tracking-tight text-highlighted">
-          打开文件，快速查看
+          {{ dragActive ? "松开即可打开文件" : "打开文件，快速查看" }}
         </h1>
         <p class="mt-3 max-w-md text-sm leading-6 text-muted">
           将文件拖到这里，或从电脑中选择一个文件。KView 会在本机完成读取与展示。
