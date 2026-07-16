@@ -406,12 +406,12 @@ PDF.js Worker、字体和相关资源必须本地打包。MVP 后实现，不包
 
 范围与交付物：
 
-- [ ] 接入 TailwindCSS、Nuxt UI 和基础主题。
-- [ ] 删除模板欢迎页与 `greet` 示例。
-- [ ] 建立应用外壳、空白拖拽页和统一错误页。
-- [ ] 建立 Viewer 注册表、文件状态和文档状态模型。
-- [ ] 配置最小 CSP、Tauri capability 和开发命令。
-- [ ] 固化 `OpenedFile`、`ViewerKind`、`ViewerDefinition`、`DocumentState` 类型。
+- [x] 接入 TailwindCSS、Nuxt UI 和基础主题。
+- [x] 删除模板欢迎页与 `greet` 示例。
+- [x] 建立应用外壳、空白拖拽页和统一错误页。
+- [x] 建立 Viewer 注册表、文件状态和文档状态模型。
+- [x] 配置最小 CSP、Tauri capability 和开发命令。
+- [x] 固化 `OpenedFile`、`ViewerKind`、`ViewerDefinition`、`DocumentState` 类型。
 
 验收门槛：
 
