@@ -1,5 +1,9 @@
+<script setup lang="ts">
+defineProps<{ immersive?: boolean }>();
+</script>
+
 <template>
-  <div class="flex min-h-screen flex-col bg-default text-default">
+  <div class="flex h-screen min-h-0 flex-col bg-default text-default">
     <header
       class="flex h-14 shrink-0 items-center justify-between border-b border-muted px-5"
     >
@@ -18,15 +22,20 @@
       <slot name="actions" />
     </header>
 
-    <main class="flex min-h-0 flex-1 items-center justify-center p-6 sm:p-10">
+    <main
+      class="flex min-h-0 flex-1"
+      :class="immersive ? 'items-stretch justify-stretch' : 'items-center justify-center p-6 sm:p-10'"
+    >
       <slot />
     </main>
 
     <footer
       class="flex h-9 shrink-0 items-center justify-between border-t border-muted px-5 text-xs text-muted"
     >
-      <span>准备就绪</span>
-      <span>文件仅在本机处理</span>
+      <slot name="status">
+        <span>准备就绪</span>
+        <span>文件仅在本机处理</span>
+      </slot>
     </footer>
   </div>
 </template>

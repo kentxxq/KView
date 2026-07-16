@@ -1,4 +1,6 @@
 use std::{
+    fs::File,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -8,6 +10,7 @@ use std::{
 };
 
 use serde::Serialize;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -37,6 +40,36 @@ struct OpenedFile {
     read_only: bool,
 }
 
+const MAX_EDITABLE_TEXT_BYTES: u64 = 20 * 1024 * 1024;
+const LARGE_TEXT_PREVIEW_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 100 * 1024 * 1024;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TextDocument {
+    content: String,
+    encoding: &'static str,
+    line_ending: &'static str,
+    bom: bool,
+    read_only: bool,
+    truncated: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageDocument {
+    data_url: String,
+    mime_type: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveResult {
+    path: String,
+    name: String,
+    modified_at: u64,
+}
+
 fn viewer_kind(extension: &str) -> &'static str {
     match extension {
         "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" => "image",
@@ -61,6 +94,232 @@ fn display_path(path: &Path) -> String {
     }
 }
 
+fn modified_millis(metadata: &std::fs::Metadata) -> u64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+fn detect_line_ending(content: &str) -> &'static str {
+    let crlf = content.matches("\r\n").count();
+    let without_crlf = content.replace("\r\n", "");
+    let lf = without_crlf.matches('\n').count();
+    let cr = without_crlf.matches('\r').count();
+
+    if crlf >= lf && crlf >= cr && crlf > 0 {
+        "crlf"
+    } else if cr > lf && cr > 0 {
+        "cr"
+    } else {
+        "lf"
+    }
+}
+
+fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, bool), String> {
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        let content = if truncated {
+            String::from_utf8_lossy(&bytes[3..]).into_owned()
+        } else {
+            String::from_utf8(bytes[3..].to_vec()).map_err(|_| "UTF-8 BOM 文件包含无效文本")?
+        };
+        return Ok((content, "utf-8-bom", true));
+    }
+
+    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        let little_endian = bytes.starts_with(&[0xFF, 0xFE]);
+        let mut payload = &bytes[2..];
+        if payload.len() % 2 != 0 {
+            payload = &payload[..payload.len() - 1];
+        }
+        let units: Vec<u16> = payload
+            .chunks_exact(2)
+            .map(|pair| {
+                if little_endian {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                }
+            })
+            .collect();
+        let content = String::from_utf16(&units).map_err(|_| "UTF-16 文件包含无效文本")?;
+        return Ok((
+            content,
+            if little_endian { "utf-16-le" } else { "utf-16-be" },
+            true,
+        ));
+    }
+
+    if bytes.iter().take(8192).any(|byte| *byte == 0) {
+        return Err("文件包含二进制内容，不能作为文本打开".into());
+    }
+
+    let content = if truncated {
+        String::from_utf8_lossy(bytes).into_owned()
+    } else {
+        String::from_utf8(bytes.to_vec()).map_err(|_| "文件不是有效的 UTF-8 文本")?
+    };
+    Ok((content, "utf-8", false))
+}
+
+#[tauri::command]
+fn read_text(path: String) -> Result<TextDocument, String> {
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+
+    let truncated = metadata.len() > MAX_EDITABLE_TEXT_BYTES;
+    let read_limit = if truncated {
+        LARGE_TEXT_PREVIEW_BYTES
+    } else {
+        metadata.len()
+    };
+    let mut bytes = Vec::with_capacity(read_limit.min(usize::MAX as u64) as usize);
+    File::open(&canonical)
+        .map_err(|error| format!("无法打开文件：{error}"))?
+        .take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("无法读取文件：{error}"))?;
+    let (content, encoding, bom) = decode_text(&bytes, truncated)?;
+    let line_ending = detect_line_ending(&content);
+
+    Ok(TextDocument {
+        content,
+        encoding,
+        line_ending,
+        bom,
+        read_only: truncated,
+        truncated,
+    })
+}
+
+#[tauri::command]
+fn read_image(path: String) -> Result<ImageDocument, String> {
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if metadata.len() > MAX_IMAGE_BYTES {
+        return Err("图片超过 100 MiB 安全限制".into());
+    }
+
+    let extension = canonical
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    let mime_type = match extension.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        _ => return Err("不支持的图片格式".into()),
+    };
+    let bytes = std::fs::read(&canonical).map_err(|error| format!("无法读取图片：{error}"))?;
+
+    Ok(ImageDocument {
+        data_url: format!("data:{mime_type};base64,{}", BASE64.encode(bytes)),
+        mime_type,
+    })
+}
+
+fn encode_text(content: &str, encoding: &str, bom: bool) -> Result<Vec<u8>, String> {
+    match encoding {
+        "utf-8" | "utf-8-bom" => {
+            let mut bytes = Vec::with_capacity(content.len() + 3);
+            if bom || encoding == "utf-8-bom" {
+                bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+            }
+            bytes.extend_from_slice(content.as_bytes());
+            Ok(bytes)
+        }
+        "utf-16-le" | "utf-16-be" => {
+            let little_endian = encoding == "utf-16-le";
+            let mut bytes = Vec::with_capacity(content.len() * 2 + 2);
+            if bom {
+                bytes.extend_from_slice(if little_endian { &[0xFF, 0xFE] } else { &[0xFE, 0xFF] });
+            }
+            for unit in content.encode_utf16() {
+                let encoded = if little_endian {
+                    unit.to_le_bytes()
+                } else {
+                    unit.to_be_bytes()
+                };
+                bytes.extend_from_slice(&encoded);
+            }
+            Ok(bytes)
+        }
+        _ => Err("不支持的文本编码".into()),
+    }
+}
+
+#[tauri::command]
+fn save_text(
+    path: String,
+    content: String,
+    encoding: String,
+    line_ending: String,
+    bom: bool,
+    expected_modified_at: Option<u64>,
+) -> Result<SaveResult, String> {
+    let target = PathBuf::from(&path);
+    let parent = target.parent().ok_or_else(|| "保存路径无效".to_string())?;
+
+    if target.exists() {
+        let metadata = target
+            .metadata()
+            .map_err(|error| format!("无法读取目标文件信息：{error}"))?;
+        if let Some(expected) = expected_modified_at {
+            if modified_millis(&metadata) != expected {
+                return Err("external-modified: 文件已被其他程序修改，请另存为或重新打开".into());
+            }
+        }
+    }
+
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let restored = match line_ending.as_str() {
+        "crlf" => normalized.replace('\n', "\r\n"),
+        "cr" => normalized.replace('\n', "\r"),
+        _ => normalized,
+    };
+    let bytes = encode_text(&restored, &encoding, bom)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("无法创建同目录临时文件：{error}"))?;
+    temporary
+        .write_all(&bytes)
+        .and_then(|_| temporary.as_file().sync_all())
+        .map_err(|error| format!("无法写入临时文件：{error}"))?;
+    temporary
+        .persist(&target)
+        .map_err(|error| format!("无法原子替换目标文件：{}", error.error))?;
+
+    let metadata = target
+        .metadata()
+        .map_err(|error| format!("保存后无法读取文件信息：{error}"))?;
+    let name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_string();
+
+    Ok(SaveResult {
+        path: display_path(&target),
+        name,
+        modified_at: modified_millis(&metadata),
+    })
+}
+
 #[tauri::command]
 fn inspect_file(path: String) -> Result<OpenedFile, String> {
     let canonical = Path::new(&path)
@@ -79,17 +338,15 @@ fn inspect_file(path: String) -> Result<OpenedFile, String> {
         .and_then(|value| value.to_str())
         .ok_or_else(|| "文件名不是有效的 Unicode 文本".to_string())?
         .to_string();
-    let extension = canonical
+    let mut extension = canonical
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or_default()
         .to_lowercase();
-    let modified_at = metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|value| value.as_millis() as u64)
-        .unwrap_or_default();
+    if extension.is_empty() && name.starts_with('.') && name.matches('.').count() == 1 {
+        extension = name.trim_start_matches('.').to_lowercase();
+    }
+    let modified_at = modified_millis(&metadata);
 
     Ok(OpenedFile {
         path: display_path(&canonical),
@@ -254,6 +511,9 @@ pub fn run() {
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
+            read_text,
+            read_image,
+            save_text,
             take_pending_paths,
             destroy_main_window
         ])

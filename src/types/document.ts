@@ -50,5 +50,30 @@ export interface DocumentState {
   buffer: string | null;
   dirty: boolean;
   sourceModifiedAt: number | null;
+  encoding: TextEncoding | null;
+  lineEnding: LineEnding | null;
+  bom: boolean;
+  readOnly: boolean;
+  truncated: boolean;
   error: DocumentError | null;
+}
+
+export interface TextDocument {
+  content: string;
+  encoding: TextEncoding;
+  lineEnding: LineEnding;
+  bom: boolean;
+  readOnly: boolean;
+  truncated: boolean;
+}
+
+export interface ImageDocument {
+  dataUrl: string;
+  mimeType: string;
+}
+
+export interface SaveResult {
+  path: string;
+  name: string;
+  modifiedAt: number;
 }

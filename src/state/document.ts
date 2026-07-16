@@ -8,6 +8,11 @@ const initialState = (): DocumentState => ({
   buffer: null,
   dirty: false,
   sourceModifiedAt: null,
+  encoding: null,
+  lineEnding: null,
+  bom: false,
+  readOnly: true,
+  truncated: false,
   error: null,
 });
 

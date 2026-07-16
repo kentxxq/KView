@@ -15,12 +15,17 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-autostart": "~2.5.1",
     "@tauri-apps/plugin-dialog": "~2.7.1",
+    "dompurify": "^3.4.12",
+    "markdown-it": "^14.3.0",
+    "monaco-editor": "^0.55.1",
     "tailwindcss": "^4.3.2",
     "vue": "^3.5.13",
-    "vue-router": "^5.2.0"
+    "vue-router": "^5.2.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@types/markdown-it": "^14.1.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",

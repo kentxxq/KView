@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface DesktopLifecycleHandlers {
   onPaths: (paths: string[]) => void | Promise<void>;
+  onRequestClose: () => boolean | Promise<boolean>;
   onDragStateChange: (active: boolean) => void;
 }
 
@@ -32,7 +33,7 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
   unlisteners.push(
     await getCurrentWindow().onCloseRequested(async (event) => {
       event.preventDefault();
-      await invoke("destroy_main_window");
+      if (await handlers.onRequestClose()) await invoke("destroy_main_window");
     }),
   );
 
