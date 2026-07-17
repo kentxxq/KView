@@ -60,7 +60,6 @@ let tabResizeObserver: ResizeObserver | undefined;
 const activeTab = computed(() => tabs.find((tab) => tab.id === activeTabId.value) ?? null);
 const dirtyTabs = computed(() => tabs.filter((tab) => tab.state.dirty));
 const hasViewer = computed(() => !!documentState.file && !!resolveViewer(documentState.file));
-const canSave = computed(() => !!documentState.file && !documentState.readOnly && documentState.status === "ready");
 const currentFavorite = computed(() => !!documentState.file && isFavorite(documentState.file.path));
 
 function errorMessage(error: unknown) {
@@ -92,7 +91,11 @@ function activateTab(id: string) {
 
 function updateTabScrollState() {
   const element = tabStrip.value;
-  if (!element) return;
+  if (!element) {
+    canScrollTabsLeft.value = false;
+    canScrollTabsRight.value = false;
+    return;
+  }
   canScrollTabsLeft.value = element.scrollLeft > 1;
   canScrollTabsRight.value = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
 }
@@ -101,13 +104,6 @@ function scrollActiveTabIntoView() {
   const element = tabStrip.value;
   const activeElement = element?.querySelector<HTMLElement>(`[data-tab-id="${activeTabId.value}"]`);
   activeElement?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-  window.setTimeout(updateTabScrollState, 180);
-}
-
-function scrollTabs(direction: number) {
-  const element = tabStrip.value;
-  if (!element) return;
-  element.scrollBy({ left: direction * Math.max(160, element.clientWidth * 0.65), behavior: "smooth" });
   window.setTimeout(updateTabScrollState, 180);
 }
 
@@ -454,24 +450,31 @@ onBeforeUnmount(() => {
 
 <template>
   <AppShell :immersive="tabs.length > 0">
-    <template #left-actions>
-      <UTooltip text="打开文件" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" @click="selectFile" /></UTooltip>
-    </template>
-
-    <template #actions>
-      <UTooltip v-if="canSave" text="保存" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-save" aria-label="保存" :disabled="!documentState.dirty" @click="saveDocument(false)" /></UTooltip>
-      <UTooltip v-if="documentState.file" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
-      <UTooltip text="文件库" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" @click="libraryOpen = true" /></UTooltip>
-      <UTooltip text="设置" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" /></UTooltip>
-    </template>
-
-    <div v-if="tabs.length" class="flex size-full min-h-0 flex-col">
-      <div class="relative h-10 shrink-0 border-b border-muted bg-muted/40">
-        <div ref="tabStrip" class="workspace-tab-strip flex h-full items-end gap-1 overflow-x-auto px-2 pt-1" @scroll="updateTabScrollState" @wheel="handleTabWheel">
+    <template #title-content>
+      <div v-if="tabs.length" class="workspace-tab-viewport relative h-full max-w-full" data-tauri-drag-region>
+        <div
+          ref="tabStrip"
+          class="workspace-tab-strip flex h-full items-center gap-1 overflow-x-auto"
+          role="tablist"
+          aria-label="已打开文件"
+          @scroll="updateTabScrollState"
+          @wheel="handleTabWheel"
+        >
           <UContextMenu v-for="tab in tabs" :key="tab.id" :items="tabContextItems(tab)" :content="{ alignOffset: -4 }">
-            <div :data-tab-id="tab.id" class="group flex max-w-56 shrink-0 items-center rounded-t-lg border border-b-0 px-1 transition-colors" :class="tab.id === activeTabId ? 'border-primary/30 bg-primary/10 text-primary' : 'border-transparent text-muted hover:bg-elevated hover:text-highlighted'" @contextmenu="activateTab(tab.id)">
+            <div
+              :data-tab-id="tab.id"
+              class="workspace-tab group flex h-7 max-w-52 shrink-0 items-center rounded-md border px-1 transition-colors"
+              :class="tab.id === activeTabId ? 'border-primary/30 bg-primary/10 text-primary' : 'border-transparent text-muted hover:bg-accented hover:text-highlighted'"
+              @contextmenu="activateTab(tab.id)"
+            >
               <UTooltip :text="tab.state.file?.path ?? tab.fallbackName" :delay-duration="2000" :content="{ side: 'bottom', align: 'center', sideOffset: 6 }" :ui="{ content: 'max-w-md break-all font-mono' }">
-                <button class="flex min-w-0 items-center gap-2 px-2 py-2 text-xs" @click="activateTab(tab.id)">
+                <button
+                  class="flex h-full min-w-0 items-center gap-2 px-2 text-xs"
+                  role="tab"
+                  :aria-selected="tab.id === activeTabId"
+                  :tabindex="tab.id === activeTabId ? 0 : -1"
+                  @click="activateTab(tab.id)"
+                >
                   <span v-if="tab.state.dirty" class="size-1.5 shrink-0 rounded-full bg-amber-500" />
                   <span class="truncate">{{ tab.state.file?.name ?? tab.fallbackName }}</span>
                 </button>
@@ -480,18 +483,19 @@ onBeforeUnmount(() => {
             </div>
           </UContextMenu>
         </div>
-        <UTooltip v-if="canScrollTabsLeft" text="向左滚动标签" :delay-duration="500">
-          <button class="workspace-tab-scroll-button left-0" type="button" aria-label="向左滚动标签" @click="scrollTabs(-1)">
-            <UIcon name="i-lucide-chevron-left" class="size-4" />
-          </button>
-        </UTooltip>
-        <UTooltip v-if="canScrollTabsRight" text="向右滚动标签" :delay-duration="500">
-          <button class="workspace-tab-scroll-button right-0" type="button" aria-label="向右滚动标签" @click="scrollTabs(1)">
-            <UIcon name="i-lucide-chevron-right" class="size-4" />
-          </button>
-        </UTooltip>
+        <div v-if="canScrollTabsLeft" class="workspace-tab-fade workspace-tab-fade-left" aria-hidden="true" />
+        <div v-if="canScrollTabsRight" class="workspace-tab-fade workspace-tab-fade-right" aria-hidden="true" />
       </div>
+    </template>
 
+    <template #actions>
+      <UTooltip text="打开文件" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" @click="selectFile" /></UTooltip>
+      <UTooltip v-if="documentState.file" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
+      <UTooltip text="文件库" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" @click="libraryOpen = true" /></UTooltip>
+      <UTooltip text="设置" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" /></UTooltip>
+    </template>
+
+    <div v-if="tabs.length" class="flex size-full min-h-0 flex-col">
       <div v-if="documentState.error" class="flex min-h-0 flex-1 flex-col">
         <div class="grid min-h-0 flex-1 place-items-center p-6">
           <ErrorState

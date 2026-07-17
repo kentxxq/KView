@@ -106,36 +106,48 @@ button,
 }
 
 .workspace-tab-strip {
+  width: 100%;
   scrollbar-width: none;
   overscroll-behavior-inline: contain;
 }
 
 .workspace-tab-strip::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 
 .workspace-tab-strip [data-tab-id] {
-  scroll-margin-inline: 2.25rem;
+  scroll-margin-inline: 1.5rem;
 }
 
-.workspace-tab-scroll-button {
+.workspace-tab-viewport {
+  width: fit-content;
+  min-width: 0;
+}
+
+.workspace-tab,
+.workspace-tab-strip {
+  -webkit-app-region: no-drag;
+}
+
+.workspace-tab-fade {
   position: absolute;
   top: 0;
-  z-index: 10;
-  display: grid;
-  width: 2rem;
+  z-index: 20;
+  width: 1.5rem;
   height: 100%;
-  place-items: center;
-  border-inline: 1px solid var(--ui-border-muted);
-  background: var(--ui-bg-elevated);
-  color: var(--ui-text-muted);
-  box-shadow: 0 0 12px rgb(0 0 0 / 10%);
+  pointer-events: none;
 }
 
-.workspace-tab-scroll-button:hover,
-.workspace-tab-scroll-button:focus-visible {
-  background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
+.workspace-tab-fade-left {
+  left: 0;
+  background: linear-gradient(to right, var(--ui-bg-elevated), transparent);
+}
+
+.workspace-tab-fade-right {
+  right: 0;
+  background: linear-gradient(to left, var(--ui-bg-elevated), transparent);
 }
 
 .markdown-preview h1,

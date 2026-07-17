@@ -31,12 +31,11 @@ function closeWindow() {
           <UIcon name="i-lucide-scan-eye" class="size-3.5" />
         </div>
         <span class="text-xs font-semibold text-highlighted">KView</span>
-        <div class="ml-1 flex items-center">
-          <slot name="left-actions" />
-        </div>
       </div>
 
-      <div class="min-w-0 flex-1" data-tauri-drag-region />
+      <div class="min-w-0 flex-1" data-tauri-drag-region>
+        <slot name="title-content" />
+      </div>
 
       <div class="flex shrink-0 items-stretch">
         <div class="flex items-center gap-0.5 border-l border-muted/60 px-1.5">
