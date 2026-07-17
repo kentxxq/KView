@@ -227,17 +227,25 @@ fn record_diagnostic(app: AppHandle, category: String, code: String, duration_ms
     append_diagnostic(&app, &category, &code, duration_ms);
 }
 
-fn viewer_kind(extension: &str) -> &'static str {
+fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
     match extension {
         "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" => "image",
         "md" | "markdown" => "markdown",
         "json" => "json",
         "yaml" | "yml" => "yaml",
-        "txt" | "log" | "xml" | "toml" | "ini" | "env" | "conf" | "sql" => "text",
+        "txt" | "log" | "xml" | "toml" | "ini" | "env" | "conf" | "config"
+        | "properties" | "sql" | "csv" | "tsv" | "js" | "jsx" | "mjs" | "cjs"
+        | "ts" | "tsx" | "mts" | "cts" | "vue" | "html" | "htm" | "css" | "scss"
+        | "sass" | "less" | "py" | "java" | "kt" | "kts" | "c" | "h" | "cc"
+        | "cpp" | "cxx" | "hpp" | "cs" | "go" | "rs" | "php" | "rb" | "swift"
+        | "dart" | "lua" | "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd"
+        | "graphql" | "gql" | "proto" | "dockerfile" | "gitignore" | "gitattributes"
+        | "editorconfig" => "text",
         "pdf" => "pdf",
         "docx" => "docx",
         "xlsx" => "xlsx",
         "mp4" | "webm" | "mov" => "video",
+        _ if matches!(file_name.to_ascii_lowercase().as_str(), "dockerfile" | "makefile" | "cmakelists.txt") => "text",
         _ => "unsupported",
     }
 }
@@ -504,11 +512,12 @@ fn inspect_file(path: String) -> Result<OpenedFile, String> {
         extension = name.trim_start_matches('.').to_lowercase();
     }
     let modified_at = modified_millis(&metadata);
+    let kind = viewer_kind(&extension, &name);
 
     Ok(OpenedFile {
         path: display_path(&canonical),
         name,
-        kind: viewer_kind(&extension),
+        kind,
         extension,
         size: metadata.len(),
         modified_at,

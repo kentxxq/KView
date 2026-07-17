@@ -31,6 +31,7 @@ export interface OpenedFile {
 export interface ViewerDefinition {
   kind: ViewerKind;
   extensions: readonly string[];
+  fileNames?: readonly string[];
   readOnly: boolean;
   maxEditableBytes: number | null;
   load: () => Promise<{ default: Component }>;

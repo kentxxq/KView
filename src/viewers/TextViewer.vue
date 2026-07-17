@@ -1,8 +1,41 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import "monaco-editor/min/vs/editor/editor.main.css";
 import type { OpenedFile } from "../types/document";
+import { resolveLanguage } from "./languages";
+
+import "monaco-editor/esm/vs/language/json/monaco.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/bat/bat.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/css/css.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/dart/dart.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/go/go.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/html/html.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/ini/ini.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/java/java.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/kotlin/kotlin.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/less/less.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/lua/lua.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/php/php.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/protobuf/protobuf.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/python/python.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/ruby/ruby.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/rust/rust.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/scss/scss.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/shell/shell.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/swift/swift.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const emit = defineEmits<{ "update:content": [value: string] }>();
@@ -12,30 +45,16 @@ let editor: import("monaco-editor").editor.IStandaloneCodeEditor | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let applyingExternalValue = false;
 
-const languageByExtension: Record<string, string> = {
-  json: "json",
-  yaml: "yaml",
-  yml: "yaml",
-  md: "markdown",
-  markdown: "markdown",
-  xml: "xml",
-  toml: "ini",
-  ini: "ini",
-  env: "ini",
-  conf: "ini",
-  sql: "sql",
-  log: "plaintext",
-  txt: "plaintext",
-};
-
 onMounted(async () => {
-  self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
+  self.MonacoEnvironment = {
+    getWorker: (_, label) => label === "json" ? new JsonWorker() : new EditorWorker(),
+  };
   const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
   if (!editorElement.value) return;
 
   const instance = monaco.editor.create(editorElement.value, {
     value: props.content,
-    language: languageByExtension[props.file.extension] ?? "plaintext",
+    language: resolveLanguage(props.file),
     theme: "vs-dark",
     readOnly: props.readOnly,
     automaticLayout: false,
