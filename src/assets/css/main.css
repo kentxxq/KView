@@ -30,6 +30,60 @@ button,
   -webkit-app-region: no-drag;
 }
 
+.titlebar-button {
+  display: grid;
+  width: 2.75rem;
+  place-items: center;
+  color: var(--ui-text-muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.titlebar-button:hover {
+  background: var(--ui-bg-accented);
+  color: var(--ui-text-highlighted);
+}
+
+.titlebar-button:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: -2px;
+}
+
+.titlebar-action {
+  color: var(--ui-text-muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.titlebar-action:hover {
+  background: var(--ui-bg-accented);
+  color: var(--ui-text-highlighted);
+}
+
+.titlebar-action:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: -2px;
+}
+
+.titlebar-favorite-active,
+.titlebar-favorite-active:hover {
+  color: #eab308;
+}
+
+.titlebar-close:hover {
+  background: #c42b1c;
+  color: white;
+}
+
+.compatibility-popover {
+  z-index: 100;
+  max-width: 24rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 0.5rem;
+  background-color: var(--ui-bg-elevated);
+  padding: 0.75rem;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
+  isolation: isolate;
+}
+
 .markdown-preview h1,
 .markdown-preview h2,
 .markdown-preview h3 {

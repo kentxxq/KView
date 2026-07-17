@@ -1,65 +1,3 @@
-export const textExtensions = [
-  "txt",
-  "log",
-  "xml",
-  "toml",
-  "ini",
-  "env",
-  "conf",
-  "config",
-  "properties",
-  "sql",
-  "csv",
-  "tsv",
-  "js",
-  "jsx",
-  "mjs",
-  "cjs",
-  "ts",
-  "tsx",
-  "mts",
-  "cts",
-  "vue",
-  "html",
-  "htm",
-  "css",
-  "scss",
-  "sass",
-  "less",
-  "py",
-  "java",
-  "kt",
-  "kts",
-  "c",
-  "h",
-  "cc",
-  "cpp",
-  "cxx",
-  "hpp",
-  "cs",
-  "go",
-  "rs",
-  "php",
-  "rb",
-  "swift",
-  "dart",
-  "lua",
-  "sh",
-  "bash",
-  "zsh",
-  "fish",
-  "ps1",
-  "bat",
-  "cmd",
-  "graphql",
-  "gql",
-  "proto",
-  "dockerfile",
-  "gitignore",
-  "gitattributes",
-  "editorconfig",
-] as const;
-
 export const languageByExtension: Record<string, string> = {
   json: "json",
   yaml: "yaml",
@@ -125,7 +63,9 @@ const languageByFileName: Record<string, string> = {
 };
 
 export function resolveLanguage(file: { extension: string; name: string }) {
+  const fileName = file.name.toLowerCase();
+  if (fileName === ".env" || fileName.startsWith(".env.")) return "ini";
   return languageByExtension[file.extension.toLowerCase()]
-    ?? languageByFileName[file.name.toLowerCase()]
+    ?? languageByFileName[fileName]
     ?? "plaintext";
 }

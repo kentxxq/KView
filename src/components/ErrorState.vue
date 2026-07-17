@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { DocumentError } from "../types/document";
 
-defineProps<{ error: DocumentError }>();
-defineEmits<{ dismiss: [] }>();
+defineProps<{ error: DocumentError; canOpenHex?: boolean }>();
+defineEmits<{ dismiss: []; openHex: [] }>();
 </script>
 
 <template>
@@ -18,15 +18,22 @@ defineEmits<{ dismiss: [] }>();
       </h1>
       <p class="mt-3 text-sm leading-6 text-muted">{{ error.message }}</p>
       <p class="mt-2 font-mono text-xs text-dimmed">错误代码：{{ error.code }}</p>
-      <UButton
-        v-if="error.recoverable"
-        class="mt-7"
-        color="neutral"
-        variant="outline"
-        icon="i-lucide-arrow-left"
-        label="返回"
-        @click="$emit('dismiss')"
-      />
+      <div class="mt-7 flex justify-center gap-2">
+        <UButton
+          v-if="error.recoverable"
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-arrow-left"
+          label="返回"
+          @click="$emit('dismiss')"
+        />
+        <UButton
+          v-if="canOpenHex"
+          icon="i-lucide-binary"
+          label="以 Hex 打开"
+          @click="$emit('openHex')"
+        />
+      </div>
     </div>
   </section>
 </template>

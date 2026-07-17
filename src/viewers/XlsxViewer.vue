@@ -57,7 +57,6 @@ onMounted(() => {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-default">
-    <UAlert class="m-3 mb-0 shrink-0" color="warning" variant="subtle" icon="i-lucide-info" title="只读兼容预览" description="不执行宏、不重算公式，也不承诺图表与复杂样式保真。大表格仅渲染当前可见行。" />
     <div v-if="error" class="grid flex-1 place-items-center p-8 text-center text-sm text-error">{{ error }}</div>
     <template v-else>
       <div class="flex shrink-0 items-center gap-2 border-b border-muted px-3 py-2">
@@ -86,4 +85,3 @@ onMounted(() => {
     </template>
   </div>
 </template>
-

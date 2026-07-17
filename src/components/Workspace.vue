@@ -27,7 +27,7 @@ import type {
   ImageDocument,
   OpenedFile,
   SaveResult,
-  TextDocument,
+  TextReadResult,
 } from "../types/document";
 import { initializeDesktopLifecycle } from "../services/desktop-lifecycle";
 import { recordDiagnostic } from "../services/diagnostics";
@@ -53,8 +53,16 @@ let resolveGuard: ((result: boolean) => void) | undefined;
 const activeTab = computed(() => tabs.find((tab) => tab.id === activeTabId.value) ?? null);
 const dirtyTabs = computed(() => tabs.filter((tab) => tab.state.dirty));
 const hasViewer = computed(() => !!documentState.file && !!resolveViewer(documentState.file));
-const canSave = computed(() => !!documentState.file && !documentState.readOnly && documentState.status === "ready");
 const currentFavorite = computed(() => !!documentState.file && isFavorite(documentState.file.path));
+const compatibilityPreview = computed(() => {
+  if (documentState.viewerKind === "docx") {
+    return "复杂分页、浮动对象、宏和 Office 专有排版可能与原文档不同；KView 不会执行文档链接或脚本。";
+  }
+  if (documentState.viewerKind === "xlsx") {
+    return "公式不会重新计算，宏、图表、复杂样式和 Office 专有排版可能与原工作簿不同；KView 不会执行文档链接、宏或脚本。";
+  }
+  return "";
+});
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -102,7 +110,18 @@ async function loadFileState(state: DocumentState, path: string) {
     state.buffer = binary.base64;
     state.readOnly = true;
   } else {
-    const text = await invoke<TextDocument>("read_text", { path: file.path });
+    const result = await invoke<TextReadResult>("read_text", { path: file.path });
+    if (result.status !== "success") {
+      state.status = "error";
+      state.error = {
+        code: result.status,
+        title: result.status === "binary-content" ? "这是一个二进制文件" : "暂不支持此文本编码",
+        message: result.message,
+        recoverable: true,
+      };
+      return;
+    }
+    const text = result.document;
     state.buffer = text.content;
     state.encoding = text.encoding;
     state.lineEnding = text.lineEnding;
@@ -115,6 +134,20 @@ async function loadFileState(state: DocumentState, path: string) {
   }
   state.status = "ready";
   addRecent(file.path, file.name);
+}
+
+function openCurrentAsHex() {
+  if (!documentState.file || !["binary-content", "unsupported-encoding"].includes(documentState.error?.code ?? "")) return;
+  documentState.file.kind = "hex";
+  documentState.viewerKind = "hex";
+  documentState.buffer = null;
+  documentState.readOnly = true;
+  documentState.dirty = false;
+  documentState.truncated = false;
+  documentState.error = null;
+  documentState.status = "ready";
+  addRecent(documentState.file.path, documentState.file.name);
+  syncActiveTab();
 }
 
 async function openPathAsTab(path: string) {
@@ -274,6 +307,7 @@ function clearWorkspace() {
   tabs.splice(0);
   activeTabId.value = "";
   resetDocument();
+  persistTabs();
 }
 
 defineShortcuts({
@@ -314,24 +348,31 @@ onBeforeUnmount(() => disposeLifecycle?.());
 
 <template>
   <AppShell :immersive="tabs.length > 0">
+    <template #left-actions>
+      <UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" title="打开文件" @click="selectFile" />
+    </template>
+
     <template #actions>
-      <div class="flex items-center gap-1">
-        <template v-if="canSave">
-          <UBadge v-if="documentState.dirty" color="warning" variant="subtle">未保存</UBadge>
-          <UButton color="neutral" variant="ghost" icon="i-lucide-save" label="保存" :disabled="!documentState.dirty" @click="saveDocument(false)" />
-        </template>
-        <UButton v-if="documentState.file" color="neutral" variant="ghost" :icon="currentFavorite ? 'i-lucide-star-off' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" />
-        <UButton color="neutral" variant="ghost" icon="i-lucide-library" label="文件库" @click="libraryOpen = true" />
-        <UButton color="neutral" variant="ghost" icon="i-lucide-folder-open" label="打开" @click="selectFile" />
-        <UButton color="neutral" variant="ghost" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" />
-      </div>
+      <UButton v-if="documentState.file" class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" :title="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" />
+      <UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" title="文件库" @click="libraryOpen = true" />
+      <UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" title="设置" @click="settingsOpen = true" />
     </template>
 
     <template #status>
-      <span v-if="documentState.file" class="max-w-96 truncate">{{ documentState.file.path }}</span>
-      <span v-else>准备就绪</span>
-      <span v-if="tabs.length">{{ tabs.length }} 个标签页 · 文件仅在本机处理</span>
-      <span v-else>文件仅在本机处理</span>
+      <div class="flex min-w-0 items-center gap-2">
+        <span v-if="documentState.file" class="max-w-96 truncate">{{ documentState.file.path }}</span>
+        <span v-else>准备就绪</span>
+        <span v-if="compatibilityPreview" class="flex shrink-0 items-center gap-1 text-amber-500">
+          <span>只读兼容预览</span>
+          <UPopover mode="hover" :open-delay="150" :close-delay="100" :content="{ side: 'top', align: 'center', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }" arrow>
+            <UIcon name="i-lucide-info" class="size-3.5" />
+            <template #content>
+              <p class="max-w-sm text-xs leading-5 text-default">{{ compatibilityPreview }}</p>
+            </template>
+          </UPopover>
+        </span>
+      </div>
+      <span v-if="tabs.length">{{ tabs.length }} 个标签页</span>
     </template>
 
     <div v-if="tabs.length" class="flex size-full min-h-0 flex-col">
@@ -345,7 +386,13 @@ onBeforeUnmount(() => disposeLifecycle?.());
         </div>
       </div>
 
-      <ErrorState v-if="documentState.error" :error="documentState.error" @dismiss="closeTab()" />
+      <ErrorState
+        v-if="documentState.error"
+        :error="documentState.error"
+        :can-open-hex="['binary-content', 'unsupported-encoding'].includes(documentState.error.code)"
+        @dismiss="closeTab()"
+        @open-hex="openCurrentAsHex"
+      />
       <div v-else-if="documentState.file && documentState.status === 'ready' && hasViewer" class="flex min-h-0 flex-1 flex-col">
         <UAlert v-if="documentState.truncated" class="m-3 shrink-0" color="warning" variant="subtle" icon="i-lucide-file-warning" title="大文件只读预览" description="文件超过 20 MiB，仅加载前 2 MiB 内容以保持界面流畅。" />
         <KeepAlive :max="12">

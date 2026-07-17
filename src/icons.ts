@@ -20,6 +20,7 @@ import listTree from "@iconify-icons/lucide/list-tree";
 import library from "@iconify-icons/lucide/library";
 import loaderCircle from "@iconify-icons/lucide/loader-2";
 import maximize from "@iconify-icons/lucide/maximize";
+import minus from "@iconify-icons/lucide/minus";
 import rotateCw from "@iconify-icons/lucide/rotate-cw";
 import save from "@iconify-icons/lucide/save";
 import scanEye from "@iconify-icons/lucide/scan-eye";
@@ -27,6 +28,7 @@ import search from "@iconify-icons/lucide/search";
 import settings from "@iconify-icons/lucide/settings";
 import star from "@iconify-icons/lucide/star";
 import starOff from "@iconify-icons/lucide/star-off";
+import square from "@iconify-icons/lucide/square";
 import shieldCheck from "@iconify-icons/lucide/shield-check";
 import triangleAlert from "@iconify-icons/lucide/alert-triangle";
 import x from "@iconify-icons/lucide/x";
@@ -55,6 +57,7 @@ const icons = {
   library,
   "loader-circle": loaderCircle,
   maximize,
+  minus,
   "rotate-cw": rotateCw,
   save,
   "scan-eye": scanEye,
@@ -62,6 +65,7 @@ const icons = {
   settings,
   star,
   "star-off": starOff,
+  square,
   "shield-check": shieldCheck,
   "triangle-alert": triangleAlert,
   x,
@@ -69,6 +73,14 @@ const icons = {
   "zoom-out": zoomOut,
 } as const;
 
+// Material Design Icons 的官方实心星标，用于区分已收藏状态。
+const filledStar = {
+  width: 24,
+  height: 24,
+  body: '<path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2L9.19 8.62L2 9.24l5.45 4.73L5.82 21L12 17.27Z"/>',
+};
+
 export function installIcons() {
   for (const [name, icon] of Object.entries(icons)) addIcon(`lucide:${name}`, icon);
+  addIcon("mdi:star", filledStar);
 }

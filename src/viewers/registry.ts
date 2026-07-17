@@ -1,11 +1,12 @@
 import type { OpenedFile, ViewerDefinition } from "../types/document";
-import { textExtensions } from "./languages";
 
 const definitions = new Map<string, ViewerDefinition>();
 const definitionsByFileName = new Map<string, ViewerDefinition>();
+const definitionsByKind = new Map<OpenedFile["kind"], ViewerDefinition>();
 let initialized = false;
 
 export function registerViewer(definition: ViewerDefinition) {
+  definitionsByKind.set(definition.kind, definition);
   for (const extension of definition.extensions) {
     definitions.set(extension.toLowerCase(), definition);
   }
@@ -76,18 +77,26 @@ export function initializeViewerRegistry() {
   });
   registerViewer({
     kind: "text",
-    extensions: textExtensions,
+    extensions: [],
     fileNames: ["Dockerfile", "Makefile", "CMakeLists.txt"],
     readOnly: false,
     maxEditableBytes: 20 * 1024 * 1024,
     load: () => import("./TextViewer.vue"),
   });
+  registerViewer({
+    kind: "hex",
+    extensions: [],
+    readOnly: true,
+    maxEditableBytes: null,
+    load: () => import("./HexViewer.vue"),
+  });
 }
 
-export function resolveViewer(file: Pick<OpenedFile, "extension">) {
+export function resolveViewer(file: Pick<OpenedFile, "extension" | "kind">) {
   initializeViewerRegistry();
-  const openedFile = file as Pick<OpenedFile, "extension"> & Partial<Pick<OpenedFile, "name">>;
-  return definitions.get(file.extension.toLowerCase())
+  const openedFile = file as Pick<OpenedFile, "extension" | "kind"> & Partial<Pick<OpenedFile, "name">>;
+  return definitionsByKind.get(file.kind)
+    ?? definitions.get(file.extension.toLowerCase())
     ?? definitionsByFileName.get(openedFile.name?.toLowerCase() ?? "")
     ?? null;
 }
@@ -95,5 +104,6 @@ export function resolveViewer(file: Pick<OpenedFile, "extension">) {
 export function clearViewerRegistry() {
   definitions.clear();
   definitionsByFileName.clear();
+  definitionsByKind.clear();
   initialized = false;
 }

@@ -38,14 +38,6 @@ onMounted(async () => {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-muted/30">
-    <UAlert
-      class="m-3 mb-0 shrink-0"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-info"
-      title="只读兼容预览"
-      description="复杂分页、浮动对象、宏和 Office 专有排版可能与原文档不同；KView 不会执行文档链接或脚本。"
-    />
     <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">正在解析 DOCX…</div>
     <div v-else-if="error" class="grid flex-1 place-items-center p-8 text-center text-sm text-error">{{ error }}</div>
     <div v-else class="min-h-0 flex-1 overflow-auto p-4 sm:p-8">
@@ -54,4 +46,3 @@ onMounted(async () => {
     </div>
   </div>
 </template>
-

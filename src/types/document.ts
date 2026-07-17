@@ -14,6 +14,7 @@ export type ViewerKind =
   | "docx"
   | "xlsx"
   | "video"
+  | "hex"
   | "unsupported";
 
 export interface OpenedFile {
@@ -68,6 +69,11 @@ export interface TextDocument {
   truncated: boolean;
 }
 
+export type TextReadResult =
+  | { status: "success"; document: TextDocument }
+  | { status: "binary-content"; message: string }
+  | { status: "unsupported-encoding"; message: string };
+
 export interface ImageDocument {
   dataUrl: string;
   mimeType: string;
@@ -75,6 +81,12 @@ export interface ImageDocument {
 
 export interface BinaryDocument {
   base64: string;
+}
+
+export interface BinaryChunk {
+  offset: number;
+  base64: string;
+  bytesRead: number;
 }
 
 export interface SaveResult {

@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -12,7 +12,7 @@ use std::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, Submenu},
+    menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
@@ -75,6 +75,14 @@ struct TextDocument {
 }
 
 #[derive(Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+enum TextReadResult {
+    Success { document: TextDocument },
+    BinaryContent { message: &'static str },
+    UnsupportedEncoding { message: &'static str },
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ImageDocument {
     data_url: String,
@@ -85,6 +93,14 @@ struct ImageDocument {
 #[serde(rename_all = "camelCase")]
 struct BinaryDocument {
     base64: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinaryChunk {
+    offset: u64,
+    base64: String,
+    bytes_read: usize,
 }
 
 #[derive(Serialize)]
@@ -233,26 +249,17 @@ fn record_diagnostic(app: AppHandle, category: String, code: String, duration_ms
     append_diagnostic(&app, &category, &code, duration_ms);
 }
 
-fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
+fn viewer_kind(extension: &str, _file_name: &str) -> &'static str {
     match extension {
         "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" => "image",
         "md" | "markdown" => "markdown",
         "json" => "json",
         "yaml" | "yml" => "yaml",
-        "txt" | "log" | "xml" | "toml" | "ini" | "env" | "conf" | "config"
-        | "properties" | "sql" | "csv" | "tsv" | "js" | "jsx" | "mjs" | "cjs"
-        | "ts" | "tsx" | "mts" | "cts" | "vue" | "html" | "htm" | "css" | "scss"
-        | "sass" | "less" | "py" | "java" | "kt" | "kts" | "c" | "h" | "cc"
-        | "cpp" | "cxx" | "hpp" | "cs" | "go" | "rs" | "php" | "rb" | "swift"
-        | "dart" | "lua" | "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd"
-        | "graphql" | "gql" | "proto" | "dockerfile" | "gitignore" | "gitattributes"
-        | "editorconfig" => "text",
         "pdf" => "pdf",
         "docx" => "docx",
         "xlsx" => "xlsx",
         "mp4" | "webm" | "mov" => "video",
-        _ if matches!(file_name.to_ascii_lowercase().as_str(), "dockerfile" | "makefile" | "cmakelists.txt") => "text",
-        _ => "unsupported",
+        _ => "text",
     }
 }
 
@@ -289,12 +296,17 @@ fn detect_line_ending(content: &str) -> &'static str {
     }
 }
 
-fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, bool), String> {
+enum DecodeTextError {
+    BinaryContent,
+    UnsupportedEncoding,
+}
+
+fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, bool), DecodeTextError> {
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
         let content = if truncated {
             String::from_utf8_lossy(&bytes[3..]).into_owned()
         } else {
-            String::from_utf8(bytes[3..].to_vec()).map_err(|_| "UTF-8 BOM 文件包含无效文本")?
+            String::from_utf8(bytes[3..].to_vec()).map_err(|_| DecodeTextError::UnsupportedEncoding)?
         };
         return Ok((content, "utf-8-bom", true));
     }
@@ -315,7 +327,7 @@ fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, b
                 }
             })
             .collect();
-        let content = String::from_utf16(&units).map_err(|_| "UTF-16 文件包含无效文本")?;
+        let content = String::from_utf16(&units).map_err(|_| DecodeTextError::UnsupportedEncoding)?;
         return Ok((
             content,
             if little_endian { "utf-16-le" } else { "utf-16-be" },
@@ -324,19 +336,19 @@ fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, b
     }
 
     if bytes.iter().take(8192).any(|byte| *byte == 0) {
-        return Err("文件包含二进制内容，不能作为文本打开".into());
+        return Err(DecodeTextError::BinaryContent);
     }
 
     let content = if truncated {
         String::from_utf8_lossy(bytes).into_owned()
     } else {
-        String::from_utf8(bytes.to_vec()).map_err(|_| "文件不是有效的 UTF-8 文本")?
+        String::from_utf8(bytes.to_vec()).map_err(|_| DecodeTextError::UnsupportedEncoding)?
     };
     Ok((content, "utf-8", false))
 }
 
 #[tauri::command]
-fn read_text(path: String) -> Result<TextDocument, String> {
+fn read_text(path: String) -> Result<TextReadResult, String> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -359,16 +371,30 @@ fn read_text(path: String) -> Result<TextDocument, String> {
         .take(read_limit)
         .read_to_end(&mut bytes)
         .map_err(|error| format!("无法读取文件：{error}"))?;
-    let (content, encoding, bom) = decode_text(&bytes, truncated)?;
+    let (content, encoding, bom) = match decode_text(&bytes, truncated) {
+        Ok(result) => result,
+        Err(DecodeTextError::BinaryContent) => {
+            return Ok(TextReadResult::BinaryContent {
+                message: "文件包含二进制内容，不能作为文本打开。",
+            });
+        }
+        Err(DecodeTextError::UnsupportedEncoding) => {
+            return Ok(TextReadResult::UnsupportedEncoding {
+                message: "文件可能是文本，但其编码暂不受支持。",
+            });
+        }
+    };
     let line_ending = detect_line_ending(&content);
 
-    Ok(TextDocument {
-        content,
-        encoding,
-        line_ending,
-        bom,
-        read_only: truncated,
-        truncated,
+    Ok(TextReadResult::Success {
+        document: TextDocument {
+            content,
+            encoding,
+            line_ending,
+            bom,
+            read_only: truncated,
+            truncated,
+        },
     })
 }
 
@@ -422,6 +448,52 @@ fn read_binary(path: String) -> Result<BinaryDocument, String> {
     }
     let bytes = std::fs::read(&canonical).map_err(|error| format!("无法读取文档：{error}"))?;
     Ok(BinaryDocument { base64: BASE64.encode(bytes) })
+}
+
+#[tauri::command]
+fn read_binary_chunk(
+    path: String,
+    offset: u64,
+    length: u64,
+    expected_modified_at: u64,
+) -> Result<BinaryChunk, String> {
+    const MAX_CHUNK_BYTES: u64 = 64 * 1024;
+    if length == 0 || length > MAX_CHUNK_BYTES {
+        return Err("二进制分块长度必须在 1 到 64 KiB 之间".into());
+    }
+    if offset % MAX_CHUNK_BYTES != 0 {
+        return Err("二进制分块偏移必须按 64 KiB 对齐".into());
+    }
+
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    if modified_millis(&metadata) != expected_modified_at {
+        return Err("文件已被外部修改，请重新打开后继续查看".into());
+    }
+
+    let available = metadata.len().saturating_sub(offset);
+    let read_length = length.min(available) as usize;
+    let mut bytes = vec![0; read_length];
+    if read_length > 0 {
+        let mut file = File::open(&canonical).map_err(|error| format!("无法打开文件：{error}"))?;
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|error| format!("无法定位文件内容：{error}"))?;
+        file.read_exact(&mut bytes)
+            .map_err(|error| format!("无法读取文件：{error}"))?;
+    }
+
+    Ok(BinaryChunk {
+        offset,
+        bytes_read: bytes.len(),
+        base64: BASE64.encode(bytes),
+    })
 }
 
 #[tauri::command]
@@ -622,6 +694,7 @@ fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Result<WebviewW
 
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("KView")
+        .decorations(false)
         .inner_size(960.0, 680.0)
         .min_inner_size(640.0, 480.0)
         .center()
@@ -711,17 +784,6 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn create_app_menu(app: &tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "file-open", "打开…", true, Some("CmdOrCtrl+O"))?;
-    let close = MenuItem::with_id(app, "tab-close", "关闭标签页", true, Some("CmdOrCtrl+W"))?;
-    let next = MenuItem::with_id(app, "tab-next", "下一个标签页", true, Some("Ctrl+Tab"))?;
-    let previous = MenuItem::with_id(app, "tab-previous", "上一个标签页", true, Some("Ctrl+Shift+Tab"))?;
-    let file = Submenu::with_items(app, "文件", true, &[&open, &close])?;
-    let navigate = Submenu::with_items(app, "导航", true, &[&next, &previous])?;
-    app.set_menu(Menu::with_items(app, &[&file, &navigate])?)?;
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -734,24 +796,13 @@ pub fn run() {
             Some(vec!["--background"]),
         ))
         .plugin(tauri_plugin_dialog::init())
-        .on_menu_event(|app, event| {
-            let event_name = match event.id.as_ref() {
-                "file-open" => Some("menu-open-file"),
-                "tab-close" => Some("menu-close-tab"),
-                "tab-next" => Some("menu-next-tab"),
-                "tab-previous" => Some("menu-previous-tab"),
-                _ => None,
-            };
-            if let Some(event_name) = event_name {
-                let _ = app.emit(event_name, ());
-            }
-        })
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
             read_text,
             read_image,
             read_binary,
+            read_binary_chunk,
             existing_paths,
             save_text,
             get_settings,
@@ -780,7 +831,6 @@ pub fn run() {
             }
 
             create_tray(app)?;
-            create_app_menu(app)?;
             append_diagnostic(app.handle(), "lifecycle", "started", None);
 
             let args: Vec<String> = std::env::args().collect();
