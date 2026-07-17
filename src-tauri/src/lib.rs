@@ -672,6 +672,40 @@ fn open_file_with(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_file_association_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::{
+            Shell::ShellExecuteW,
+            WindowsAndMessaging::SW_SHOWNORMAL,
+        };
+
+        let operation = "open\0".encode_utf16().collect::<Vec<_>>();
+        let uri = "ms-settings:defaultapps?registeredAppUser=KView\0"
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                uri.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if result as isize <= 32 {
+            return Err(format!("无法打开 Windows 默认应用设置，ShellExecuteW 返回：{}", result as isize));
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("文件关联设置入口当前仅支持 Windows".into())
+    }
+}
+
+#[tauri::command]
 fn read_binary_chunk(
     path: String,
     offset: u64,
@@ -913,10 +947,26 @@ fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Result<WebviewW
         return Ok(window);
     }
 
+    let (default_width, default_height) = app
+        .primary_monitor()?
+        .map(|monitor| {
+            let screen = monitor
+                .size()
+                .to_logical::<f64>(monitor.scale_factor());
+            let width = (screen.width * 0.82)
+                .max(960.0)
+                .min((screen.width * 0.9).min(1440.0));
+            let height = (screen.height * 0.82)
+                .max(640.0)
+                .min((screen.height * 0.9).min(900.0));
+            (width, height)
+        })
+        .unwrap_or((1200.0, 760.0));
+
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("KView")
         .decorations(false)
-        .inner_size(960.0, 680.0)
+        .inner_size(default_width, default_height)
         .min_inner_size(640.0, 480.0)
         .center()
         .visible(activate)
@@ -1029,6 +1079,7 @@ pub fn run() {
             read_binary_chunk,
             reveal_file,
             open_file_with,
+            open_file_association_settings,
             existing_paths,
             save_text,
             get_settings,

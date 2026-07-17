@@ -32,11 +32,11 @@
 
 ### 计划范围
 
-- [ ] 在设置页增加“文件关联”区域和“前往设置”按钮。
-- [ ] Windows 11 优先通过 `ms-settings:defaultapps?registeredAppUser=KView` 打开 KView 的默认应用页面。
-- [ ] 核对安装程序写入 `HKCU\Software\RegisteredApplications` 的实际注册名称，并与跳转参数保持一致。
-- [ ] 系统不支持应用级跳转时，回退到 `ms-settings:defaultapps` 默认应用首页。
-- [ ] 提示用户可逐个选择 `.pdf`、`.md`、`.json` 等格式，最终关联操作由 Windows 和用户完成。
+- [x] 在设置页增加“文件关联”区域和“前往设置”按钮。
+- [x] Windows 11 优先通过 `ms-settings:defaultapps?registeredAppUser=KView` 打开 KView 的默认应用页面。
+- [x] 核对安装程序写入 `HKCU\Software\RegisteredApplications` 的实际注册名称，并与跳转参数保持一致。
+- [x] 系统不支持应用级跳转时，回退到 `ms-settings:defaultapps` 默认应用首页。
+- [x] 提示用户可逐个选择 `.pdf`、`.md`、`.json` 等格式，最终关联操作由 Windows 和用户完成。
 
 ### 验收条件
 

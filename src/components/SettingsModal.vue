@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
 import { useToast } from "@nuxt/ui/composables";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { appSettings, saveSettings, type AppSettings } from "../state/settings";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const toast = useToast();
 const saving = ref(false);
+const openingFileAssociations = ref(false);
 const form = reactive<AppSettings>({ ...appSettings });
 
 const themeOptions = [
@@ -26,6 +28,21 @@ const residencyOptions = [
     value: "low-memory",
     description: "关闭窗口后释放 WebView，再次打开时重新创建。",
   },
+];
+
+const associationGroups = [
+  { label: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "svg"] },
+  {
+    label: "文本与数据",
+    extensions: ["txt", "log", "json", "yaml", "yml", "xml", "toml", "ini", "env", "conf", "config", "properties", "sql", "csv", "tsv", "md", "markdown"],
+  },
+  {
+    label: "代码",
+    extensions: ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "html", "htm", "css", "scss", "sass", "less", "py", "java", "kt", "kts", "c", "h", "cc", "cpp", "cxx", "hpp", "cs", "go", "rs", "php", "rb", "swift", "dart", "lua", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "graphql", "gql", "proto", "gitignore", "gitattributes", "editorconfig"],
+  },
+  { label: "文档", extensions: ["pdf", "doc", "docx", "xls", "xlsx"] },
+  { label: "压缩包", extensions: ["zip", "tar", "tgz", "gz"] },
+  { label: "视频", extensions: ["mp4", "webm"] },
 ];
 
 watch(
@@ -51,6 +68,25 @@ async function submit() {
     saving.value = false;
   }
 }
+
+async function openFileAssociationSettings() {
+  if (!isTauri()) {
+    toast.add({ title: "文件关联设置仅在 Windows 桌面版中可用", color: "warning" });
+    return;
+  }
+  openingFileAssociations.value = true;
+  try {
+    await invoke("open_file_association_settings");
+  } catch (error) {
+    toast.add({
+      title: "无法打开文件关联设置",
+      description: error instanceof Error ? error.message : String(error),
+      color: "error",
+    });
+  } finally {
+    openingFileAssociations.value = false;
+  }
+}
 </script>
 
 <template>
@@ -73,6 +109,33 @@ async function submit() {
               <USwitch v-model="form.autostart" />
             </div>
           </UFormField>
+        </div>
+
+        <div class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-highlighted">文件关联</p>
+            <p class="mt-1 text-xs leading-5 text-muted">
+              前往 Windows 默认应用设置，按需选择由 KView 打开的文件格式。
+            </p>
+            <details class="mt-2 text-xs text-muted">
+              <summary class="cursor-pointer select-none text-primary">查看已注册格式</summary>
+              <div class="mt-2 space-y-1.5 leading-5">
+                <p v-for="group in associationGroups" :key="group.label">
+                  <span class="font-medium text-default">{{ group.label }}：</span>
+                  {{ group.extensions.map((extension) => `.${extension}`).join("、") }}
+                </p>
+              </div>
+            </details>
+          </div>
+          <UButton
+            class="shrink-0"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-external-link"
+            label="前往设置"
+            :loading="openingFileAssociations"
+            @click="openFileAssociationSettings"
+          />
         </div>
 
         <UAlert

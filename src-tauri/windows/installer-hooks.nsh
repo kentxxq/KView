@@ -23,6 +23,10 @@
   DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_marker"
 !macroend
 
+!macro KVIEW_REGISTER_CAPABILITY EXT
+  WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities\FileAssociations" ".${EXT}" "KView 支持的文件"
+!macroend
+
 !macro KVIEW_FOR_EACH_ASSOCIATION ACTION
   !insertmacro ${ACTION} "jpg"
   !insertmacro ${ACTION} "jpeg"
@@ -94,8 +98,14 @@
   !insertmacro ${ACTION} "gitattributes"
   !insertmacro ${ACTION} "editorconfig"
   !insertmacro ${ACTION} "pdf"
+  !insertmacro ${ACTION} "doc"
   !insertmacro ${ACTION} "docx"
+  !insertmacro ${ACTION} "xls"
   !insertmacro ${ACTION} "xlsx"
+  !insertmacro ${ACTION} "zip"
+  !insertmacro ${ACTION} "tar"
+  !insertmacro ${ACTION} "tgz"
+  !insertmacro ${ACTION} "gz"
   !insertmacro ${ACTION} "mp4"
   !insertmacro ${ACTION} "webm"
 !macroend
@@ -106,9 +116,15 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_RESTORE_ASSOCIATION_BACKUP
+  WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities" "ApplicationName" "KView"
+  WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities" "ApplicationDescription" "使用 KView 快速查看文件"
+  !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_REGISTER_CAPABILITY
+  WriteRegStr SHELL_CONTEXT "Software\RegisteredApplications" "KView" "Software\KView\Capabilities"
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
   !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_CLEAN_ASSOCIATION_BACKUP
+  DeleteRegValue SHELL_CONTEXT "Software\RegisteredApplications" "KView"
+  DeleteRegKey SHELL_CONTEXT "Software\KView"
   DeleteRegValue SHELL_CONTEXT "Software\Microsoft\Windows\CurrentVersion\Run" "KView"
 !macroend
