@@ -26,6 +26,27 @@ export function initializeViewerRegistry() {
     load: () => import("./ImageViewer.vue"),
   });
   registerViewer({
+    kind: "pdf",
+    extensions: ["pdf"],
+    readOnly: true,
+    maxEditableBytes: null,
+    load: () => import("./PdfViewer.vue"),
+  });
+  registerViewer({
+    kind: "docx",
+    extensions: ["docx"],
+    readOnly: true,
+    maxEditableBytes: null,
+    load: () => import("./DocxViewer.vue"),
+  });
+  registerViewer({
+    kind: "xlsx",
+    extensions: ["xlsx"],
+    readOnly: true,
+    maxEditableBytes: null,
+    load: () => import("./XlsxViewer.vue"),
+  });
+  registerViewer({
     kind: "markdown",
     extensions: ["md", "markdown"],
     readOnly: false,

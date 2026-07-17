@@ -83,6 +83,12 @@ struct ImageDocument {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct BinaryDocument {
+    base64: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SaveResult {
     path: String,
     name: String,
@@ -399,6 +405,25 @@ fn read_image(path: String) -> Result<ImageDocument, String> {
     })
 }
 
+#[tauri::command]
+fn read_binary(path: String) -> Result<BinaryDocument, String> {
+    const MAX_DOCUMENT_BYTES: u64 = 200 * 1024 * 1024;
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    if metadata.len() > MAX_DOCUMENT_BYTES {
+        return Err("文档超过 200 MiB 安全限制".into());
+    }
+    let bytes = std::fs::read(&canonical).map_err(|error| format!("无法读取文档：{error}"))?;
+    Ok(BinaryDocument { base64: BASE64.encode(bytes) })
+}
+
 fn encode_text(content: &str, encoding: &str, bom: bool) -> Result<Vec<u8>, String> {
     match encoding {
         "utf-8" | "utf-8-bom" => {
@@ -698,6 +723,7 @@ pub fn run() {
             inspect_file,
             read_text,
             read_image,
+            read_binary,
             save_text,
             get_settings,
             update_settings,

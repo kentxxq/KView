@@ -73,6 +73,10 @@ export interface ImageDocument {
   mimeType: string;
 }
 
+export interface BinaryDocument {
+  base64: string;
+}
+
 export interface SaveResult {
   path: string;
   name: string;

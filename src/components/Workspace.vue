@@ -12,6 +12,7 @@ import ViewerHost from "../viewers/ViewerHost.vue";
 import { resolveViewer } from "../viewers/registry";
 import { documentState, resetDocument } from "../state/document";
 import type {
+  BinaryDocument,
   ImageDocument,
   OpenedFile,
   SaveResult,
@@ -83,6 +84,10 @@ async function loadFile(path: string) {
   if (file.kind === "image") {
     const image = await invoke<ImageDocument>("read_image", { path: file.path });
     documentState.buffer = image.dataUrl;
+    documentState.readOnly = true;
+  } else if (["pdf", "docx", "xlsx", "video"].includes(file.kind)) {
+    const binary = await invoke<BinaryDocument>("read_binary", { path: file.path });
+    documentState.buffer = binary.base64;
     documentState.readOnly = true;
   } else {
     const text = await invoke<TextDocument>("read_text", { path: file.path });

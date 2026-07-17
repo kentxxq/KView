@@ -18,10 +18,13 @@
     "@tauri-apps/plugin-autostart": "~2.5.1",
     "@tauri-apps/plugin-dialog": "~2.7.1",
     "dompurify": "^3.4.12",
+    "mammoth": "^1.12.0",
     "markdown-it": "^14.3.0",
     "monaco-editor": "^0.55.1",
+    "pdfjs-dist": "^6.1.200",
     "tailwindcss": "^4.3.2",
     "vue": "^3.5.13",
+    "xlsx": "^0.18.5",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

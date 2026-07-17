@@ -3,6 +3,7 @@ import alignLeft from "@iconify-icons/lucide/align-left";
 import arrowLeft from "@iconify-icons/lucide/arrow-left";
 import check from "@iconify-icons/lucide/check";
 import chevronDown from "@iconify-icons/lucide/chevron-down";
+import chevronLeft from "@iconify-icons/lucide/chevron-left";
 import chevronRight from "@iconify-icons/lucide/chevron-right";
 import codeXml from "@iconify-icons/lucide/code-2";
 import copy from "@iconify-icons/lucide/copy";
@@ -32,6 +33,7 @@ const icons = {
   "arrow-left": arrowLeft,
   check,
   "chevron-down": chevronDown,
+  "chevron-left": chevronLeft,
   "chevron-right": chevronRight,
   "code-xml": codeXml,
   copy,
