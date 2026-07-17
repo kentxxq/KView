@@ -6,6 +6,7 @@ import AppShell from "./AppShell.vue";
 import EmptyState from "./EmptyState.vue";
 import ErrorState from "./ErrorState.vue";
 import FileReadyState from "./FileReadyState.vue";
+import SettingsModal from "./SettingsModal.vue";
 import ViewerHost from "../viewers/ViewerHost.vue";
 import { resolveViewer } from "../viewers/registry";
 import { documentState, resetDocument } from "../state/document";
@@ -16,10 +17,13 @@ import type {
   TextDocument,
 } from "../types/document";
 import { initializeDesktopLifecycle } from "../services/desktop-lifecycle";
+import { recordDiagnostic } from "../services/diagnostics";
+import { loadSettings } from "../state/settings";
 
 const toast = useToast();
 const dragActive = ref(false);
 const guardOpen = ref(false);
+const settingsOpen = ref(false);
 let disposeLifecycle: (() => void) | undefined;
 let resolveGuard: ((result: boolean) => void) | undefined;
 
@@ -111,10 +115,17 @@ async function openPaths(paths: string[]) {
 
   resetDocument();
   documentState.status = "loading";
+  const startedAt = performance.now();
 
   try {
     await loadFile(availablePaths[0]);
+    recordDiagnostic(
+      "performance",
+      `open-${documentState.viewerKind}`,
+      performance.now() - startedAt,
+    );
   } catch (error) {
+    recordDiagnostic("viewer", "open-failed", performance.now() - startedAt);
     documentState.status = "error";
     documentState.error = {
       code: "open-failed",
@@ -183,6 +194,7 @@ async function saveDocument(saveAs: boolean) {
     });
     return true;
   } catch (error) {
+    recordDiagnostic("storage", "save-failed");
     toast.add({
       title: "保存失败",
       description: errorMessage(error).replace(/^external-modified:\s*/, ""),
@@ -201,6 +213,11 @@ defineShortcuts({
 
 onMounted(async () => {
   if (!isTauri()) return;
+  try {
+    await loadSettings();
+  } catch {
+    recordDiagnostic("settings", "load-failed");
+  }
   disposeLifecycle = await initializeDesktopLifecycle({
     onPaths: openPaths,
     onRequestClose: requestDirtyDecision,
@@ -238,6 +255,13 @@ onBeforeUnmount(() => disposeLifecycle?.());
           @click="selectFile"
         />
         <UBadge v-else color="neutral" variant="subtle" size="sm">本地模式</UBadge>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-settings"
+          aria-label="设置"
+          @click="settingsOpen = true"
+        />
       </div>
     </template>
 
@@ -306,5 +330,6 @@ onBeforeUnmount(() => disposeLifecycle?.());
         </div>
       </template>
     </UModal>
+    <SettingsModal v-model:open="settingsOpen" />
   </AppShell>
 </template>

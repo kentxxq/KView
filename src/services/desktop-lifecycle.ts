@@ -33,7 +33,7 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
   unlisteners.push(
     await getCurrentWindow().onCloseRequested(async (event) => {
       event.preventDefault();
-      if (await handlers.onRequestClose()) await invoke("destroy_main_window");
+      if (await handlers.onRequestClose()) await invoke("close_main_window");
     }),
   );
 

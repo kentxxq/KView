@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import DOMPurify from "dompurify";
 import type { OpenedFile } from "../types/document";
+import { recordDiagnostic } from "../services/diagnostics";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 
@@ -10,6 +11,7 @@ const zoom = ref(1);
 const rotation = ref(0);
 const width = ref(0);
 const height = ref(0);
+const failed = ref(false);
 const safeSource = ref(props.content);
 let objectUrl: string | undefined;
 
@@ -31,9 +33,15 @@ async function toggleFullscreen() {
 }
 
 function onImageLoad(event: Event) {
+  failed.value = false;
   const image = event.currentTarget as HTMLImageElement;
   width.value = image.naturalWidth;
   height.value = image.naturalHeight;
+}
+
+function onImageError() {
+  failed.value = true;
+  recordDiagnostic("viewer", "image-decode-failed");
 }
 
 onMounted(() => {
@@ -72,13 +80,24 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="grid min-h-0 flex-1 place-items-center overflow-auto p-8">
+      <UAlert
+        v-if="failed"
+        class="max-w-md"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-image-off"
+        title="图片无法显示"
+        description="文件可能已损坏，或使用了当前系统 WebView 不支持的编码。"
+      />
       <img
+        v-else
         :src="safeSource"
         :alt="file.name"
         class="max-h-full max-w-full select-none object-contain shadow-lg transition-transform"
         :style="{ transform }"
         draggable="false"
         @load="onImageLoad"
+        @error="onImageError"
       />
     </div>
   </div>

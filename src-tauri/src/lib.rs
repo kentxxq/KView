@@ -1,16 +1,16 @@
 use std::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
     },
-    time::UNIX_EPOCH,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::Serialize;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -20,10 +20,29 @@ use tauri::{
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppSettings {
+    theme: String,
+    keep_running: bool,
+    autostart: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            theme: "system".into(),
+            keep_running: true,
+            autostart: true,
+        }
+    }
+}
+
 #[derive(Default)]
 struct DesktopState {
     pending_paths: Mutex<Vec<String>>,
     exiting: AtomicBool,
+    settings: Mutex<AppSettings>,
 }
 
 #[derive(Serialize)]
@@ -68,6 +87,129 @@ struct SaveResult {
     path: String,
     name: String,
     modified_at: u64,
+}
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|path| path.join("settings.json"))
+        .map_err(|error| format!("无法定位设置目录：{error}"))
+}
+
+fn read_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    let path = settings_path(app)?;
+    if !path.exists() {
+        return Ok(AppSettings::default());
+    }
+    let content = std::fs::read_to_string(path).map_err(|error| format!("无法读取设置：{error}"))?;
+    let settings: AppSettings =
+        serde_json::from_str(&content).map_err(|error| format!("设置文件已损坏：{error}"))?;
+    validate_settings(&settings)?;
+    Ok(settings)
+}
+
+fn validate_settings(settings: &AppSettings) -> Result<(), String> {
+    if !matches!(settings.theme.as_str(), "system" | "light" | "dark") {
+        return Err("主题设置无效".into());
+    }
+    Ok(())
+}
+
+fn write_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    validate_settings(settings)?;
+    let path = settings_path(app)?;
+    let parent = path.parent().ok_or_else(|| "设置路径无效".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|error| format!("无法创建设置目录：{error}"))?;
+    let bytes = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("无法创建设置临时文件：{error}"))?;
+    temporary
+        .write_all(&bytes)
+        .and_then(|_| temporary.as_file().sync_all())
+        .map_err(|error| format!("无法写入设置：{error}"))?;
+    temporary
+        .persist(path)
+        .map_err(|error| format!("无法保存设置：{}", error.error))?;
+    Ok(())
+}
+
+fn diagnostic_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_log_dir()
+        .map(|path| path.join("diagnostics.jsonl"))
+        .map_err(|error| format!("无法定位日志目录：{error}"))
+}
+
+fn append_diagnostic(app: &AppHandle, category: &str, code: &str, duration_ms: Option<f64>) {
+    let valid = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 64
+            && value.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            })
+    };
+    if !valid(category) || !valid(code) {
+        return;
+    }
+    let Ok(path) = diagnostic_path(app) else { return };
+    let Some(parent) = path.parent() else { return };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    if path.metadata().map(|value| value.len() > 256 * 1024).unwrap_or(false) {
+        let previous = path.with_extension("jsonl.1");
+        let _ = std::fs::remove_file(&previous);
+        let _ = std::fs::rename(&path, previous);
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or_default();
+    let entry = serde_json::json!({
+        "timestamp": timestamp,
+        "category": category,
+        "code": code,
+        "durationMs": duration_ms.map(|value| (value * 10.0).round() / 10.0),
+    });
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{entry}");
+    }
+}
+
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, DesktopState>) -> AppSettings {
+    state.settings.lock().map(|value| value.clone()).unwrap_or_default()
+}
+
+#[tauri::command]
+fn update_settings(
+    app: AppHandle,
+    state: tauri::State<'_, DesktopState>,
+    settings: AppSettings,
+) -> Result<AppSettings, String> {
+    validate_settings(&settings)?;
+    #[cfg(desktop)]
+    {
+        let manager = app.autolaunch();
+        let enabled = manager.is_enabled().map_err(|error| error.to_string())?;
+        if settings.autostart != enabled {
+            if settings.autostart {
+                manager.enable()
+            } else {
+                manager.disable()
+            }
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    write_settings(&app, &settings)?;
+    *state.settings.lock().map_err(|_| "设置状态不可用")? = settings.clone();
+    append_diagnostic(&app, "settings", "updated", None);
+    Ok(settings)
+}
+
+#[tauri::command]
+fn record_diagnostic(app: AppHandle, category: String, code: String, duration_ms: Option<f64>) {
+    append_diagnostic(&app, &category, &code, duration_ms);
 }
 
 fn viewer_kind(extension: &str) -> &'static str {
@@ -367,7 +509,17 @@ fn take_pending_paths(state: tauri::State<'_, DesktopState>) -> Vec<String> {
 }
 
 #[tauri::command]
-fn destroy_main_window(app: AppHandle) -> Result<(), String> {
+fn close_main_window(app: AppHandle, state: tauri::State<'_, DesktopState>) -> Result<(), String> {
+    let keep_running = state
+        .settings
+        .lock()
+        .map(|settings| settings.keep_running)
+        .unwrap_or(true);
+    if !keep_running {
+        state.exiting.store(true, Ordering::SeqCst);
+        app.exit(0);
+        return Ok(());
+    }
     if let Some(window) = app.get_webview_window("main") {
         window.destroy().map_err(|error| error.to_string())?;
     }
@@ -466,6 +618,11 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
                     };
                     if result.is_ok() {
                         let _ = autostart_for_menu.set_checked(!enabled);
+                        let state = app.state::<DesktopState>();
+                        if let Ok(mut settings) = state.settings.lock() {
+                            settings.autostart = !enabled;
+                            let _ = write_settings(app, &settings);
+                        };
                     }
                 }
             }
@@ -514,16 +671,33 @@ pub fn run() {
             read_text,
             read_image,
             save_text,
+            get_settings,
+            update_settings,
+            record_diagnostic,
             take_pending_paths,
-            destroy_main_window
+            close_main_window
         ])
         .setup(|app| {
-            #[cfg(desktop)]
-            if !app.autolaunch().is_enabled().unwrap_or(false) {
-                let _ = app.autolaunch().enable();
+            let settings_file_exists = settings_path(app.handle())
+                .map(|path| path.exists())
+                .unwrap_or(false);
+            let settings = read_settings(app.handle()).unwrap_or_else(|_| AppSettings::default());
+            #[cfg(desktop)] {
+                let manager = app.autolaunch();
+                let enabled = manager.is_enabled().unwrap_or(false);
+                if settings.autostart != enabled || !settings_file_exists {
+                    let _ = if settings.autostart { manager.enable() } else { manager.disable() };
+                }
+            }
+            if let Ok(mut current) = app.state::<DesktopState>().settings.lock() {
+                *current = settings.clone();
+            }
+            if !settings_file_exists {
+                let _ = write_settings(app.handle(), &settings);
             }
 
             create_tray(app)?;
+            append_diagnostic(app.handle(), "lifecycle", "started", None);
 
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir()

@@ -19,3 +19,8 @@ vpr build
 ```
 
 包管理器统一使用 pnpm。
+
+## 发布与验收资料
+
+- [平台差异与已知限制](docs/platform-notes.md)
+- [性能基线](docs/performance-baseline.md)

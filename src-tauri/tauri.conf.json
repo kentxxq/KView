@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "kview",
+  "productName": "KView",
   "version": "0.1.0",
   "identifier": "com.kentx.kview",
   "build": {
@@ -32,6 +32,14 @@
         "description": "使用 KView 快速查看文件",
         "role": "Viewer"
       }
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
   }
 }
