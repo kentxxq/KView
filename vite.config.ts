@@ -8,6 +8,9 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [vue(), ui({
+    icon: {
+      mode: "svg",
+    },
     ui: {
       colors: {
         primary: "sky",

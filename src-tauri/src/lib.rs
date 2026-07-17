@@ -21,7 +21,7 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 struct AppSettings {
     theme: String,
     residency_mode: String,
@@ -711,8 +711,9 @@ pub fn run() {
             if let Ok(mut current) = app.state::<DesktopState>().settings.lock() {
                 *current = settings.clone();
             }
-            // 始终重写为当前结构，以便自动迁移旧版 keepRunning 设置。
-            let _ = write_settings(app.handle(), &settings);
+            if !settings_file_exists {
+                let _ = write_settings(app.handle(), &settings);
+            }
 
             create_tray(app)?;
             append_diagnostic(app.handle(), "lifecycle", "started", None);

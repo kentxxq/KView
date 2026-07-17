@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
+import { useToast } from "@nuxt/ui/composables";
 import { appSettings, saveSettings, type AppSettings } from "../state/settings";
 
 const props = defineProps<{ open: boolean }>();

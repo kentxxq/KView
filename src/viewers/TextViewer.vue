@@ -30,10 +30,10 @@ const languageByExtension: Record<string, string> = {
 
 onMounted(async () => {
   self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
-  const monaco = await import("monaco-editor/esm/vs/editor/editor.api");
+  const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
   if (!editorElement.value) return;
 
-  editor = monaco.editor.create(editorElement.value, {
+  const instance = monaco.editor.create(editorElement.value, {
     value: props.content,
     language: languageByExtension[props.file.extension] ?? "plaintext",
     theme: "vs-dark",
@@ -49,8 +49,9 @@ onMounted(async () => {
     smoothScrolling: true,
     wordWrap: props.file.extension === "log" ? "off" : "on",
   });
-  editor.onDidChangeModelContent(() => {
-    if (!applyingExternalValue) emit("update:content", editor?.getValue() ?? "");
+  editor = instance;
+  instance.onDidChangeModelContent(() => {
+    if (!applyingExternalValue) emit("update:content", instance.getValue());
   });
   resizeObserver = new ResizeObserver(() => editor?.layout());
   resizeObserver.observe(editorElement.value);

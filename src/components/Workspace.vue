@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { defineShortcuts, useToast } from "@nuxt/ui/composables";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import AppShell from "./AppShell.vue";
@@ -221,6 +222,7 @@ onMounted(async () => {
   disposeLifecycle = await initializeDesktopLifecycle({
     onPaths: openPaths,
     onRequestClose: requestDirtyDecision,
+    onBeforeClose: resetDocument,
     onDragStateChange: (active) => {
       dragActive.value = active;
     },

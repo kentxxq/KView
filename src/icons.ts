@@ -1,0 +1,62 @@
+import { addIcon } from "@iconify/vue";
+import alignLeft from "@iconify-icons/lucide/align-left";
+import arrowLeft from "@iconify-icons/lucide/arrow-left";
+import check from "@iconify-icons/lucide/check";
+import chevronDown from "@iconify-icons/lucide/chevron-down";
+import chevronRight from "@iconify-icons/lucide/chevron-right";
+import codeXml from "@iconify-icons/lucide/code-2";
+import copy from "@iconify-icons/lucide/copy";
+import eye from "@iconify-icons/lucide/eye";
+import fileCheck from "@iconify-icons/lucide/file-check";
+import fileSearch from "@iconify-icons/lucide/file-search";
+import fileWarning from "@iconify-icons/lucide/file-warning";
+import folderOpen from "@iconify-icons/lucide/folder-open";
+import imageOff from "@iconify-icons/lucide/image-off";
+import info from "@iconify-icons/lucide/info";
+import listTree from "@iconify-icons/lucide/list-tree";
+import loaderCircle from "@iconify-icons/lucide/loader-2";
+import maximize from "@iconify-icons/lucide/maximize";
+import rotateCw from "@iconify-icons/lucide/rotate-cw";
+import save from "@iconify-icons/lucide/save";
+import scanEye from "@iconify-icons/lucide/scan-eye";
+import search from "@iconify-icons/lucide/search";
+import settings from "@iconify-icons/lucide/settings";
+import shieldCheck from "@iconify-icons/lucide/shield-check";
+import triangleAlert from "@iconify-icons/lucide/alert-triangle";
+import x from "@iconify-icons/lucide/x";
+import zoomIn from "@iconify-icons/lucide/zoom-in";
+import zoomOut from "@iconify-icons/lucide/zoom-out";
+
+const icons = {
+  "align-left": alignLeft,
+  "arrow-left": arrowLeft,
+  check,
+  "chevron-down": chevronDown,
+  "chevron-right": chevronRight,
+  "code-xml": codeXml,
+  copy,
+  eye,
+  "file-check": fileCheck,
+  "file-search": fileSearch,
+  "file-warning": fileWarning,
+  "folder-open": folderOpen,
+  "image-off": imageOff,
+  info,
+  "list-tree": listTree,
+  "loader-circle": loaderCircle,
+  maximize,
+  "rotate-cw": rotateCw,
+  save,
+  "scan-eye": scanEye,
+  search,
+  settings,
+  "shield-check": shieldCheck,
+  "triangle-alert": triangleAlert,
+  x,
+  "zoom-in": zoomIn,
+  "zoom-out": zoomOut,
+} as const;
+
+export function installIcons() {
+  for (const [name, icon] of Object.entries(icons)) addIcon(`lucide:${name}`, icon);
+}

@@ -10,8 +10,10 @@
 
 - Windows 文件打开由单实例参数转发处理；macOS 额外处理系统 `Opened` 文件事件。
 - 托盘菜单在 Windows 与 macOS 的排列和系统图标风格可能不同，功能口径一致。
-- 当前环境仅完成 Windows 人工验收；macOS 安装、升级、卸载和文件关联需要在 macOS 设备上做发布前复验。
+- 当前 M3 按 Windows 范围完成人工验收；macOS 安装、升级、卸载和文件关联留待需要发布 macOS 版本时复验。
 - Windows 已分别验证极速和低内存模式的 `--background` 静默启动，均不会误弹主窗口，并能通过后续文件打开恢复或重建唯一窗口。
+- Windows release 安装版中，极速模式保留 1 个隐藏 WebView 窗口；该 WebView2 进程组由 1 个浏览器进程、1 个 renderer 及 GPU/utility/crashpad 等系统子进程组成。低内存模式关闭窗口后不存在 KView 所属的 WebView2 子进程。
+- Windows 默认交付 NSIS 当前用户安装包；覆盖安装会保留首次安装前的文件关联备份，卸载后清理 KView 文件类、备份值和开机启动项。
 
 ## MVP 限制
 
