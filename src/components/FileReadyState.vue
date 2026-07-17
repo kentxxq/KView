@@ -14,6 +14,7 @@ const kindLabels: Record<string, string> = {
   pdf: "PDF",
   docx: "DOCX",
   xlsx: "XLSX",
+  archive: "压缩包",
   video: "视频",
   unsupported: "未知格式",
 };
@@ -38,9 +39,9 @@ const sizeLabel = computed(() => {
       <h1 id="ready-title" class="mt-4 truncate text-xl font-semibold text-highlighted">
         {{ file.name }}
       </h1>
-      <p class="mx-auto mt-2 max-w-md truncate font-mono text-xs text-dimmed" :title="file.path">
-        {{ file.path }}
-      </p>
+      <UTooltip :text="file.path" :delay-duration="500" :content="{ side: 'bottom', sideOffset: 6 }" :ui="{ content: 'max-w-md break-all font-mono' }">
+        <p class="mx-auto mt-2 max-w-md truncate font-mono text-xs text-dimmed">{{ file.path }}</p>
+      </UTooltip>
 
       <dl class="mx-auto mt-7 grid max-w-md grid-cols-3 gap-3 text-left">
         <div class="rounded-xl bg-muted px-4 py-3">

@@ -4,6 +4,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { OpenedFile } from "../types/document";
 import TextViewer from "./TextViewer.vue";
 import TreeNode from "./TreeNode.vue";
+import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const emit = defineEmits<{ "update:content": [value: string] }>();
@@ -39,39 +40,13 @@ async function copySelectedPath() {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-default">
-    <div class="flex h-12 shrink-0 items-center justify-between border-b border-muted px-4">
-      <div class="flex items-center gap-1">
-        <UButton
-          color="neutral"
-          :variant="mode === 'source' ? 'soft' : 'ghost'"
-          icon="i-lucide-code-xml"
-          label="源码"
-          @click="mode = 'source'"
-        />
-        <UButton
-          color="neutral"
-          :variant="mode === 'tree' ? 'soft' : 'ghost'"
-          icon="i-lucide-list-tree"
-          label="树形"
-          @click="mode = 'tree'"
-        />
-      </div>
-      <UButton
-        :disabled="readOnly || !!parsed.error"
-        color="neutral"
-        variant="ghost"
-        icon="i-lucide-align-left"
-        label="格式化"
-        @click="formatSource"
-      />
-    </div>
-
     <TextViewer
       v-if="mode === 'source'"
       class="min-h-0 flex-1"
       :file="file"
       :content="content"
       :read-only="readOnly"
+      embedded
       @update:content="emit('update:content', $event)"
     />
 
@@ -85,11 +60,6 @@ async function copySelectedPath() {
         :description="parsed.error"
       />
       <template v-else>
-        <div class="flex items-center gap-2 border-b border-muted p-3">
-          <UInput v-model="search" class="flex-1" icon="i-lucide-search" placeholder="搜索节点或路径" />
-          <code class="max-w-64 truncate rounded bg-muted px-2 py-1 text-xs text-toned">{{ selectedPath }}</code>
-          <UButton color="neutral" variant="ghost" icon="i-lucide-copy" @click="copySelectedPath" />
-        </div>
         <div class="min-h-0 flex-1 overflow-auto p-4">
           <TreeNode
             :value="parsed.value"
@@ -101,5 +71,32 @@ async function copySelectedPath() {
         </div>
       </template>
     </div>
+
+    <ViewerFooter>
+      <template #status>
+        {{ file.extension.toUpperCase() }}
+        <template v-if="file.encoding"> · {{ file.encoding.toUpperCase() }}</template>
+        <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
+      </template>
+      <template #actions>
+        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-code-xml" label="源码" :variant="mode === 'source' ? 'soft' : 'ghost'" @click="mode = 'source'" />
+        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-list-tree" label="树形" :variant="mode === 'tree' ? 'soft' : 'ghost'" @click="mode = 'tree'" />
+        <UButton class="viewer-footer-button" color="neutral" size="xs" variant="ghost" icon="i-lucide-align-left" label="格式化" :disabled="readOnly || !!parsed.error" @click="formatSource" />
+      </template>
+      <template v-if="mode === 'tree'" #more>
+        <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">
+          <UButton class="viewer-footer-button" color="neutral" size="xs" variant="ghost" icon="i-lucide-search" label="查找" />
+          <template #content>
+            <div class="w-80 space-y-2">
+              <UInput v-model="search" icon="i-lucide-search" placeholder="搜索节点或路径" autofocus />
+              <div class="flex items-center gap-2">
+                <code class="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs text-toned">{{ selectedPath }}</code>
+                <UTooltip text="复制路径" :delay-duration="500"><UButton color="neutral" variant="ghost" size="xs" icon="i-lucide-copy" aria-label="复制路径" @click="copySelectedPath" /></UTooltip>
+              </div>
+            </div>
+          </template>
+        </UPopover>
+      </template>
+    </ViewerFooter>
   </div>
 </template>

@@ -10,6 +10,7 @@ import chevronRight from "@iconify-icons/lucide/chevron-right";
 import codeXml from "@iconify-icons/lucide/code-2";
 import copy from "@iconify-icons/lucide/copy";
 import eye from "@iconify-icons/lucide/eye";
+import externalLink from "@iconify-icons/lucide/external-link";
 import fileCheck from "@iconify-icons/lucide/file-check";
 import fileSearch from "@iconify-icons/lucide/file-search";
 import fileWarning from "@iconify-icons/lucide/file-warning";
@@ -47,6 +48,7 @@ const icons = {
   "code-xml": codeXml,
   copy,
   eye,
+  "external-link": externalLink,
   "file-check": fileCheck,
   "file-search": fileSearch,
   "file-warning": fileWarning,

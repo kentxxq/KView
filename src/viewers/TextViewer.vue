@@ -4,6 +4,7 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import "monaco-editor/min/vs/editor/editor.main.css";
 import type { OpenedFile } from "../types/document";
+import ViewerFooter from "../components/ViewerFooter.vue";
 import { resolveLanguage } from "./languages";
 
 import "monaco-editor/esm/vs/language/json/monaco.contribution.js";
@@ -37,7 +38,9 @@ import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.
 import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = withDefaults(defineProps<{ file: OpenedFile; content: string; readOnly: boolean; embedded?: boolean }>(), {
+  embedded: false,
+});
 const emit = defineEmits<{ "update:content": [value: string] }>();
 
 const editorElement = ref<HTMLElement>();
@@ -98,5 +101,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="editorElement" class="size-full min-h-0 bg-inverted" />
+  <div v-if="embedded" ref="editorElement" class="size-full min-h-0 bg-inverted" />
+  <div v-else class="flex size-full min-h-0 flex-col bg-inverted">
+    <div ref="editorElement" class="min-h-0 flex-1 bg-inverted" />
+    <ViewerFooter>
+      <template #status>
+        {{ (file.extension || "TEXT").toUpperCase() }}
+        <template v-if="file.encoding"> · {{ file.encoding.toUpperCase() }}</template>
+        <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
+        · {{ readOnly ? "只读" : "可编辑" }}
+      </template>
+    </ViewerFooter>
+  </div>
 </template>

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type { OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
+import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const video = ref<HTMLVideoElement>();
@@ -39,22 +40,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-black text-white">
-    <div class="flex h-11 shrink-0 items-center gap-3 border-b border-white/10 px-4 text-xs text-white/70">
-      <span>{{ file.extension.toUpperCase() }}</span>
-      <span v-if="dimensions">{{ dimensions }}</span>
-      <span v-if="duration">{{ formatDuration(duration) }}</span>
-      <span class="ml-auto">由系统 WebView 解码 · 只读</span>
-    </div>
     <div v-if="error" class="grid flex-1 place-items-center p-8 text-center">
       <div>
         <UIcon name="i-lucide-circle-slash-2" class="mx-auto mb-3 size-9 text-red-400" />
         <p class="text-sm text-red-300">{{ error }}</p>
       </div>
     </div>
-    <div v-else class="grid min-h-0 flex-1 place-items-center p-4">
+    <div v-else class="grid min-h-0 flex-1 place-items-center overflow-hidden bg-black p-4">
       <video
         ref="video"
-        class="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
+        class="block max-h-full max-w-full object-contain bg-black"
         :src="url"
         controls
         playsinline
@@ -62,6 +57,13 @@ onBeforeUnmount(() => {
         @error="error = '视频无法播放：编码可能不受当前系统 WebView 支持，或文件已经损坏。'"
       />
     </div>
+    <ViewerFooter>
+      <template #status>
+        {{ file.extension.toUpperCase() }}
+        <template v-if="dimensions"> · {{ dimensions }}</template>
+        <template v-if="duration"> · {{ formatDuration(duration) }}</template>
+        · {{ error ? "播放失败" : "只读" }}
+      </template>
+    </ViewerFooter>
   </div>
 </template>
-

@@ -4,6 +4,7 @@ import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
+import ViewerFooter from "../components/ViewerFooter.vue";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
 
@@ -89,32 +90,47 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex size-full min-h-0 bg-muted/20">
-    <aside class="hidden w-56 shrink-0 overflow-auto border-r border-muted bg-default p-3 lg:block">
-      <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">文档目录</p>
-      <button v-for="entry in outline" :key="entry.title" class="mb-1 block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-elevated" @click="goToOutline(entry.destination)">{{ entry.title }}</button>
-      <p v-if="!outline.length" class="text-xs leading-5 text-muted">此 PDF 未提供目录。</p>
-    </aside>
-    <section class="flex min-w-0 flex-1 flex-col">
-      <div class="flex flex-wrap items-center gap-2 border-b border-muted bg-default px-3 py-2">
-        <UButton icon="i-lucide-chevron-left" color="neutral" variant="ghost" aria-label="上一页" :disabled="pageNumber <= 1" @click="pageNumber--" />
-        <span class="text-sm">{{ pageNumber }} / {{ pageCount || "-" }}</span>
-        <UButton icon="i-lucide-chevron-right" color="neutral" variant="ghost" aria-label="下一页" :disabled="pageNumber >= pageCount" @click="pageNumber++" />
-        <UButton icon="i-lucide-zoom-out" color="neutral" variant="ghost" aria-label="缩小" :disabled="scale <= 0.6" @click="scale = Math.max(0.5, scale - 0.2)" />
-        <span class="w-12 text-center text-xs text-muted">{{ Math.round(scale * 100) }}%</span>
-        <UButton icon="i-lucide-zoom-in" color="neutral" variant="ghost" aria-label="放大" :disabled="scale >= 3" @click="scale = Math.min(3, scale + 0.2)" />
-        <div class="ml-auto flex items-center gap-2">
-          <UInput v-model="query" icon="i-lucide-search" size="sm" placeholder="搜索 PDF" @keyup.enter="search" />
-          <UButton color="neutral" variant="soft" size="sm" label="搜索" @click="search" />
-          <UBadge v-if="query" color="neutral" variant="subtle">{{ matches.length }} 页</UBadge>
-          <UButton icon="i-lucide-copy" color="neutral" variant="ghost" size="sm" label="复制本页文本" :disabled="!pageText" @click="copyPageText" />
+  <div class="flex size-full min-h-0 flex-col bg-muted/20">
+    <div class="flex min-h-0 flex-1">
+      <aside class="hidden w-56 shrink-0 overflow-auto border-r border-muted bg-default p-3 lg:block">
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">文档目录</p>
+        <button v-for="entry in outline" :key="entry.title" class="mb-1 block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-elevated" @click="goToOutline(entry.destination)">{{ entry.title }}</button>
+        <p v-if="!outline.length" class="text-xs leading-5 text-muted">此 PDF 未提供目录。</p>
+      </aside>
+      <section class="flex min-w-0 flex-1 flex-col">
+        <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">正在加载 PDF…</div>
+        <div v-else-if="error" class="grid flex-1 place-items-center p-8 text-center text-sm text-error">{{ error }}</div>
+        <div v-else class="min-h-0 flex-1 overflow-auto p-5 text-center">
+          <canvas ref="canvas" class="mx-auto bg-white shadow-lg" />
         </div>
-      </div>
-      <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">正在加载 PDF…</div>
-      <div v-else-if="error" class="grid flex-1 place-items-center p-8 text-center text-sm text-error">{{ error }}</div>
-      <div v-else class="min-h-0 flex-1 overflow-auto p-5 text-center">
-        <canvas ref="canvas" class="mx-auto bg-white shadow-lg" />
-      </div>
-    </section>
+      </section>
+    </div>
+    <ViewerFooter>
+      <template #status>PDF · {{ pageNumber }}/{{ pageCount || "-" }} · 只读</template>
+      <template #actions>
+        <UTooltip text="上一页" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-chevron-left" color="neutral" variant="ghost" size="xs" aria-label="上一页" :disabled="pageNumber <= 1" @click="pageNumber--" /></UTooltip>
+        <UTooltip text="下一页" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-chevron-right" color="neutral" variant="ghost" size="xs" aria-label="下一页" :disabled="pageNumber >= pageCount" @click="pageNumber++" /></UTooltip>
+        <UTooltip text="缩小" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-zoom-out" color="neutral" variant="ghost" size="xs" aria-label="缩小" :disabled="scale <= 0.6" @click="scale = Math.max(0.5, scale - 0.2)" /></UTooltip>
+        <span class="w-12 text-center text-xs text-muted">{{ Math.round(scale * 100) }}%</span>
+        <UTooltip text="放大" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-zoom-in" color="neutral" variant="ghost" size="xs" aria-label="放大" :disabled="scale >= 3" @click="scale = Math.min(3, scale + 0.2)" /></UTooltip>
+      </template>
+      <template #more>
+        <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">
+          <div><UTooltip text="更多 PDF 操作" :delay-duration="500"><UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-chevron-down" aria-label="更多 PDF 操作" /></UTooltip></div>
+          <template #content>
+            <div class="w-80 space-y-2">
+              <div class="flex items-center gap-2">
+                <UInput v-model="query" class="min-w-0 flex-1" icon="i-lucide-search" size="sm" placeholder="搜索 PDF" @keyup.enter="search" />
+                <UButton color="neutral" variant="soft" size="sm" label="搜索" @click="search" />
+              </div>
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-xs text-muted">{{ query ? `找到 ${matches.length} 页` : "输入关键词搜索全文" }}</span>
+                <UButton icon="i-lucide-copy" color="neutral" variant="ghost" size="sm" label="复制本页文本" :disabled="!pageText" @click="copyPageText" />
+              </div>
+            </div>
+          </template>
+        </UPopover>
+      </template>
+    </ViewerFooter>
   </div>
 </template>

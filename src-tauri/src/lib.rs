@@ -97,6 +97,29 @@ struct BinaryDocument {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct HtmlDocument {
+    html: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchiveEntry {
+    path: String,
+    size: u64,
+    compressed_size: Option<u64>,
+    is_directory: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchiveDocument {
+    format: String,
+    entries: Vec<ArchiveEntry>,
+    truncated: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct BinaryChunk {
     offset: u64,
     base64: String,
@@ -249,15 +272,17 @@ fn record_diagnostic(app: AppHandle, category: String, code: String, duration_ms
     append_diagnostic(&app, &category, &code, duration_ms);
 }
 
-fn viewer_kind(extension: &str, _file_name: &str) -> &'static str {
+fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
     match extension {
         "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" => "image",
         "md" | "markdown" => "markdown",
         "json" => "json",
         "yaml" | "yml" => "yaml",
         "pdf" => "pdf",
-        "docx" => "docx",
-        "xlsx" => "xlsx",
+        "doc" | "docx" => "docx",
+        "xls" | "xlsx" => "xlsx",
+        "zip" | "tar" | "tgz" => "archive",
+        "gz" if file_name.to_ascii_lowercase().ends_with(".tar.gz") => "archive",
         "mp4" | "webm" | "mov" => "video",
         _ => "text",
     }
@@ -448,6 +473,199 @@ fn read_binary(path: String) -> Result<BinaryDocument, String> {
     }
     let bytes = std::fs::read(&canonical).map_err(|error| format!("无法读取文档：{error}"))?;
     Ok(BinaryDocument { base64: BASE64.encode(bytes) })
+}
+
+#[tauri::command]
+fn read_legacy_doc(path: String) -> Result<HtmlDocument, String> {
+    const MAX_DOCUMENT_BYTES: u64 = 200 * 1024 * 1024;
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    if metadata.len() > MAX_DOCUMENT_BYTES {
+        return Err("文档超过 200 MiB 安全限制".into());
+    }
+    if canonical
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| !value.eq_ignore_ascii_case("doc"))
+        .unwrap_or(true)
+    {
+        return Err("旧版 Word 解析器仅支持 .doc 文件".into());
+    }
+
+    let html = office_oxide::to_html(&canonical)
+        .map_err(|error| format!("无法解析旧版 Word 文档：{error}"))?;
+    Ok(HtmlDocument { html })
+}
+
+fn archive_path(path: &str) -> Result<PathBuf, String> {
+    const MAX_ARCHIVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+    let canonical = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问压缩包：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取压缩包信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    if metadata.len() > MAX_ARCHIVE_BYTES {
+        return Err("压缩包超过 2 GiB 安全限制".into());
+    }
+    Ok(canonical)
+}
+
+fn read_tar_entries<R: Read>(reader: R) -> Result<(Vec<ArchiveEntry>, bool), String> {
+    const MAX_ARCHIVE_ENTRIES: usize = 5_000;
+    let mut archive = tar::Archive::new(reader);
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    let archive_entries = archive
+        .entries()
+        .map_err(|error| format!("无法读取 TAR 目录：{error}"))?;
+
+    for entry_result in archive_entries {
+        if entries.len() >= MAX_ARCHIVE_ENTRIES {
+            truncated = true;
+            break;
+        }
+        let entry = entry_result.map_err(|error| format!("无法读取 TAR 条目：{error}"))?;
+        let path = entry
+            .path()
+            .map_err(|error| format!("无法读取 TAR 条目路径：{error}"))?
+            .to_string_lossy()
+            .into_owned();
+        entries.push(ArchiveEntry {
+            path,
+            size: entry.size(),
+            compressed_size: None,
+            is_directory: entry.header().entry_type().is_dir(),
+        });
+    }
+    Ok((entries, truncated))
+}
+
+#[tauri::command]
+fn read_archive(path: String) -> Result<ArchiveDocument, String> {
+    const MAX_ARCHIVE_ENTRIES: usize = 5_000;
+    let canonical = archive_path(&path)?;
+    let name = canonical
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if name.ends_with(".zip") {
+        let file = File::open(&canonical).map_err(|error| format!("无法打开 ZIP：{error}"))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|error| format!("无法读取 ZIP 目录：{error}"))?;
+        let mut entries = Vec::new();
+        let truncated = archive.len() > MAX_ARCHIVE_ENTRIES;
+        for index in 0..archive.len().min(MAX_ARCHIVE_ENTRIES) {
+            let entry = archive
+                .by_index(index)
+                .map_err(|error| format!("无法读取 ZIP 条目：{error}"))?;
+            entries.push(ArchiveEntry {
+                path: entry.name().to_string(),
+                size: entry.size(),
+                compressed_size: Some(entry.compressed_size()),
+                is_directory: entry.is_dir(),
+            });
+        }
+        return Ok(ArchiveDocument {
+            format: "ZIP".into(),
+            entries,
+            truncated,
+        });
+    }
+
+    let file = File::open(&canonical).map_err(|error| format!("无法打开 TAR：{error}"))?;
+    let (format, entries, truncated) = if name.ends_with(".tar") {
+        let (entries, truncated) = read_tar_entries(file)?;
+        ("TAR", entries, truncated)
+    } else if name.ends_with(".tgz") || name.ends_with(".tar.gz") {
+        let decoder = flate2::read::GzDecoder::new(file);
+        let (entries, truncated) = read_tar_entries(decoder)?;
+        ("TAR.GZ", entries, truncated)
+    } else {
+        return Err("暂不支持此压缩包格式".into());
+    };
+
+    Ok(ArchiveDocument {
+        format: format.into(),
+        entries,
+        truncated,
+    })
+}
+
+#[tauri::command]
+fn reveal_file(path: String) -> Result<(), String> {
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg("/select,").arg(display_path(&canonical));
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg("-R").arg(&canonical);
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(canonical.parent().unwrap_or(&canonical));
+        command
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开文件位置：{error}"))
+}
+
+#[tauri::command]
+fn open_file_with(path: String) -> Result<(), String> {
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::Shell::{
+            SHOpenWithDialog, OPENASINFO, OAIF_ALLOW_REGISTRATION, OAIF_EXEC,
+        };
+
+        let windows_path = format!("{}\0", display_path(&canonical))
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let open_as = OPENASINFO {
+            pcszFile: windows_path.as_ptr(),
+            pcszClass: std::ptr::null(),
+            oaifInFlags: OAIF_ALLOW_REGISTRATION | OAIF_EXEC,
+        };
+        let result = unsafe { SHOpenWithDialog(std::ptr::null_mut(), &open_as) };
+        if result < 0 {
+            return Err(format!("系统打开方式选择器启动失败，HRESULT：0x{:08X}", result as u32));
+        }
+        return Ok(());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = canonical;
+        Err("当前平台暂不支持系统打开方式选择器".into())
+    }
 }
 
 #[tauri::command]
@@ -802,7 +1020,11 @@ pub fn run() {
             read_text,
             read_image,
             read_binary,
+            read_legacy_doc,
+            read_archive,
             read_binary_chunk,
+            reveal_file,
+            open_file_with,
             existing_paths,
             save_text,
             get_settings,

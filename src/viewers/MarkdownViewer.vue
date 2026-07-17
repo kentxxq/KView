@@ -4,6 +4,7 @@ import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import type { OpenedFile } from "../types/document";
 import TextViewer from "./TextViewer.vue";
+import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const emit = defineEmits<{ "update:content": [value: string] }>();
@@ -19,29 +20,13 @@ function preventEmbeddedNavigation(event: MouseEvent) {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-default">
-    <div class="flex h-12 shrink-0 items-center gap-1 border-b border-muted px-4">
-      <UButton
-        color="neutral"
-        :variant="mode === 'source' ? 'soft' : 'ghost'"
-        icon="i-lucide-code-xml"
-        label="源码"
-        @click="mode = 'source'"
-      />
-      <UButton
-        color="neutral"
-        :variant="mode === 'preview' ? 'soft' : 'ghost'"
-        icon="i-lucide-eye"
-        label="预览"
-        @click="mode = 'preview'"
-      />
-    </div>
-
     <TextViewer
       v-if="mode === 'source'"
       class="min-h-0 flex-1"
       :file="file"
       :content="content"
       :read-only="readOnly"
+      embedded
       @update:content="emit('update:content', $event)"
     />
     <article
@@ -50,5 +35,16 @@ function preventEmbeddedNavigation(event: MouseEvent) {
       v-html="rendered"
       @click="preventEmbeddedNavigation"
     />
+    <ViewerFooter>
+      <template #status>
+        MARKDOWN
+        <template v-if="file.encoding"> · {{ file.encoding.toUpperCase() }}</template>
+        <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
+      </template>
+      <template #actions>
+        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-code-xml" label="源码" :variant="mode === 'source' ? 'soft' : 'ghost'" @click="mode = 'source'" />
+        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-eye" label="预览" :variant="mode === 'preview' ? 'soft' : 'ghost'" @click="mode = 'preview'" />
+      </template>
+    </ViewerFooter>
   </div>
 </template>

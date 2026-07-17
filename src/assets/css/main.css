@@ -84,6 +84,60 @@ button,
   isolation: isolate;
 }
 
+.viewer-footer {
+  position: relative;
+  z-index: 20;
+  isolation: isolate;
+}
+
+.viewer-footer-button {
+  min-height: 1.75rem;
+}
+
+.workspace-tab-close {
+  color: var(--ui-text-dimmed);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.workspace-tab-close:hover,
+.workspace-tab-close:focus-visible {
+  background: color-mix(in srgb, var(--ui-error) 12%, transparent);
+  color: var(--ui-error);
+}
+
+.workspace-tab-strip {
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+}
+
+.workspace-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-tab-strip [data-tab-id] {
+  scroll-margin-inline: 2.25rem;
+}
+
+.workspace-tab-scroll-button {
+  position: absolute;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  width: 2rem;
+  height: 100%;
+  place-items: center;
+  border-inline: 1px solid var(--ui-border-muted);
+  background: var(--ui-bg-elevated);
+  color: var(--ui-text-muted);
+  box-shadow: 0 0 12px rgb(0 0 0 / 10%);
+}
+
+.workspace-tab-scroll-button:hover,
+.workspace-tab-scroll-button:focus-visible {
+  background: var(--ui-bg-accented);
+  color: var(--ui-text-highlighted);
+}
+
 .markdown-preview h1,
 .markdown-preview h2,
 .markdown-preview h3 {

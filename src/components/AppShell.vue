@@ -43,15 +43,21 @@ function closeWindow() {
           <slot name="actions" />
         </div>
         <div class="flex items-stretch border-l border-muted/60">
-          <button class="titlebar-button" type="button" aria-label="最小化" title="最小化" @click="minimizeWindow">
-            <UIcon name="i-lucide-minus" class="size-3.5" />
-          </button>
-          <button class="titlebar-button" type="button" aria-label="最大化或还原" title="最大化或还原" @click="toggleMaximizeWindow">
-            <UIcon name="i-lucide-square" class="size-3" />
-          </button>
-          <button class="titlebar-button titlebar-close" type="button" aria-label="关闭" title="关闭" @click="closeWindow">
-            <UIcon name="i-lucide-x" class="size-3.5" />
-          </button>
+          <UTooltip text="最小化" :delay-duration="500">
+            <button class="titlebar-button" type="button" aria-label="最小化" @click="minimizeWindow">
+              <UIcon name="i-lucide-minus" class="size-3.5" />
+            </button>
+          </UTooltip>
+          <UTooltip text="最大化或还原" :delay-duration="500">
+            <button class="titlebar-button" type="button" aria-label="最大化或还原" @click="toggleMaximizeWindow">
+              <UIcon name="i-lucide-square" class="size-3" />
+            </button>
+          </UTooltip>
+          <UTooltip text="关闭" :delay-duration="500">
+            <button class="titlebar-button titlebar-close" type="button" aria-label="关闭" @click="closeWindow">
+              <UIcon name="i-lucide-x" class="size-3.5" />
+            </button>
+          </UTooltip>
         </div>
       </div>
     </header>
@@ -63,12 +69,5 @@ function closeWindow() {
       <slot />
     </main>
 
-    <footer
-      class="flex h-9 shrink-0 items-center justify-between border-t border-muted px-5 text-xs text-muted"
-    >
-      <slot name="status">
-        <span>准备就绪</span>
-      </slot>
-    </footer>
   </div>
 </template>

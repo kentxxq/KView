@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { BinaryChunk, OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
+import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile }>();
 
@@ -144,10 +145,6 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 
 <template>
   <section class="flex size-full min-h-0 flex-col bg-inverted text-white">
-    <div class="flex h-10 shrink-0 items-center justify-between border-b border-white/10 px-4 font-mono text-xs text-white/70">
-      <span>只读 Hex Viewer</span>
-      <span>{{ file.size.toLocaleString() }} bytes · 每行 16 bytes</span>
-    </div>
     <UAlert
       v-if="error"
       class="m-3 shrink-0"
@@ -185,5 +182,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
         </div>
       </div>
     </div>
+    <ViewerFooter>
+      <template #status>HEX · {{ file.size.toLocaleString() }} bytes · 每行 16 bytes · 只读</template>
+    </ViewerFooter>
   </section>
 </template>

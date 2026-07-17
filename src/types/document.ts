@@ -13,6 +13,7 @@ export type ViewerKind =
   | "pdf"
   | "docx"
   | "xlsx"
+  | "archive"
   | "video"
   | "hex"
   | "unsupported";
@@ -81,6 +82,23 @@ export interface ImageDocument {
 
 export interface BinaryDocument {
   base64: string;
+}
+
+export interface HtmlDocument {
+  html: string;
+}
+
+export interface ArchiveEntry {
+  path: string;
+  size: number;
+  compressedSize: number | null;
+  isDirectory: boolean;
+}
+
+export interface ArchiveDocument {
+  format: string;
+  entries: ArchiveEntry[];
+  truncated: boolean;
 }
 
 export interface BinaryChunk {

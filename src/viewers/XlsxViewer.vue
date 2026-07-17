@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import * as XLSX from "xlsx";
 import type { OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
+import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const workbook = ref<XLSX.WorkBook>();
@@ -44,13 +45,17 @@ function onScroll(event: Event) {
   viewportHeight.value = target.clientHeight;
 }
 
+function handleSheetChange(value: unknown) {
+  if (typeof value === "string") selectSheet(value);
+}
+
 onMounted(() => {
   try {
     workbook.value = XLSX.read(decodeBase64(props.content), { type: "array", cellFormula: true });
     if (!workbook.value.SheetNames.length) throw new Error("工作簿中没有工作表");
     selectSheet(workbook.value.SheetNames[0]);
   } catch (cause) {
-    error.value = `无法解析 XLSX。文件可能已损坏、加密或并非有效工作簿。${cause instanceof Error ? ` ${cause.message}` : ""}`;
+    error.value = `无法解析 ${props.file.extension.toUpperCase()}。文件可能已损坏、加密或并非有效工作簿。${cause instanceof Error ? ` ${cause.message}` : ""}`;
   }
 });
 </script>
@@ -59,13 +64,6 @@ onMounted(() => {
   <div class="flex size-full min-h-0 flex-col bg-default">
     <div v-if="error" class="grid flex-1 place-items-center p-8 text-center text-sm text-error">{{ error }}</div>
     <template v-else>
-      <div class="flex shrink-0 items-center gap-2 border-b border-muted px-3 py-2">
-        <div class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-          <UButton v-for="name in workbook?.SheetNames" :key="name" size="sm" :color="name === sheetName ? 'primary' : 'neutral'" :variant="name === sheetName ? 'soft' : 'ghost'" :label="name" @click="selectSheet(name)" />
-        </div>
-        <UInput v-model="query" class="w-56" size="sm" icon="i-lucide-search" placeholder="搜索当前 Sheet" />
-        <UBadge color="neutral" variant="subtle">{{ filteredRows.length }} 行</UBadge>
-      </div>
       <div class="grid shrink-0 border-b border-muted bg-muted/70 text-xs font-semibold text-muted" :style="{ gridTemplateColumns: `48px repeat(${columnCount}, minmax(140px, 1fr))`, minWidth: `${48 + columnCount * 140}px` }">
         <div class="sticky left-0 z-20 border-r border-muted bg-muted px-2 py-2">#</div>
         <div v-for="column in columnCount" :key="column" class="border-r border-muted px-2 py-2">{{ columnLabel(column - 1) }}</div>
@@ -83,5 +81,30 @@ onMounted(() => {
         <span v-else>选择单元格以查看地址和值</span>
       </div>
     </template>
+    <ViewerFooter>
+      <template #status>
+        <span class="inline-flex items-center gap-1">
+          <span>{{ file.extension.toUpperCase() }}<template v-if="sheetName"> · {{ sheetName }} · {{ filteredRows.length }} 行</template> · 只读</span>
+          <UTooltip :delay-duration="500" :content="{ side: 'top', align: 'start', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }" arrow>
+            <UIcon name="i-lucide-info" class="size-3.5 text-amber-500" />
+            <template #content>
+              <p class="max-w-sm text-xs leading-5 text-default">公式不会重新计算，宏、图表、复杂样式和 Office 专有排版可能与原工作簿不同；KView 不会执行文档链接、宏或脚本。</p>
+            </template>
+          </UTooltip>
+        </span>
+      </template>
+      <template v-if="!error" #actions>
+        <USelect :model-value="sheetName" class="w-36" size="xs" :items="workbook?.SheetNames ?? []" aria-label="切换工作表" @update:model-value="handleSheetChange" />
+        <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">
+          <UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-search" label="搜索" />
+          <template #content>
+            <div class="w-72 space-y-2">
+              <UInput v-model="query" icon="i-lucide-search" size="sm" placeholder="搜索当前 Sheet" autofocus />
+              <p class="text-xs text-muted">当前显示 {{ filteredRows.length }} 行</p>
+            </div>
+          </template>
+        </UPopover>
+      </template>
+    </ViewerFooter>
   </div>
 </template>

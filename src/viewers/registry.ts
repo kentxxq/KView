@@ -35,17 +35,24 @@ export function initializeViewerRegistry() {
   });
   registerViewer({
     kind: "docx",
-    extensions: ["docx"],
+    extensions: ["doc", "docx"],
     readOnly: true,
     maxEditableBytes: null,
     load: () => import("./DocxViewer.vue"),
   });
   registerViewer({
     kind: "xlsx",
-    extensions: ["xlsx"],
+    extensions: ["xls", "xlsx"],
     readOnly: true,
     maxEditableBytes: null,
     load: () => import("./XlsxViewer.vue"),
+  });
+  registerViewer({
+    kind: "archive",
+    extensions: ["zip", "tar", "tgz", "gz"],
+    readOnly: true,
+    maxEditableBytes: null,
+    load: () => import("./ArchiveViewer.vue"),
   });
   registerViewer({
     kind: "video",
