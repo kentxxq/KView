@@ -1,7 +1,7 @@
 import { reactive } from "vue";
 import type { DocumentState } from "../types/document";
 
-const initialState = (): DocumentState => ({
+export const createDocumentState = (): DocumentState => ({
   file: null,
   status: "empty",
   viewerKind: "empty",
@@ -16,8 +16,8 @@ const initialState = (): DocumentState => ({
   error: null,
 });
 
-export const documentState = reactive<DocumentState>(initialState());
+export const documentState = reactive<DocumentState>(createDocumentState());
 
 export function resetDocument() {
-  Object.assign(documentState, initialState());
+  Object.assign(documentState, createDocumentState());
 }

@@ -47,6 +47,13 @@ export function initializeViewerRegistry() {
     load: () => import("./XlsxViewer.vue"),
   });
   registerViewer({
+    kind: "video",
+    extensions: ["mp4", "webm", "mov"],
+    readOnly: true,
+    maxEditableBytes: null,
+    load: () => import("./VideoViewer.vue"),
+  });
+  registerViewer({
     kind: "markdown",
     extensions: ["md", "markdown"],
     readOnly: false,

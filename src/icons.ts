@@ -2,6 +2,8 @@ import { addIcon } from "@iconify/vue";
 import alignLeft from "@iconify-icons/lucide/align-left";
 import arrowLeft from "@iconify-icons/lucide/arrow-left";
 import check from "@iconify-icons/lucide/check";
+import circleSlash from "@iconify-icons/lucide/circle-slash-2";
+import clock from "@iconify-icons/lucide/clock-3";
 import chevronDown from "@iconify-icons/lucide/chevron-down";
 import chevronLeft from "@iconify-icons/lucide/chevron-left";
 import chevronRight from "@iconify-icons/lucide/chevron-right";
@@ -15,6 +17,7 @@ import folderOpen from "@iconify-icons/lucide/folder-open";
 import imageOff from "@iconify-icons/lucide/image-off";
 import info from "@iconify-icons/lucide/info";
 import listTree from "@iconify-icons/lucide/list-tree";
+import library from "@iconify-icons/lucide/library";
 import loaderCircle from "@iconify-icons/lucide/loader-2";
 import maximize from "@iconify-icons/lucide/maximize";
 import rotateCw from "@iconify-icons/lucide/rotate-cw";
@@ -22,6 +25,8 @@ import save from "@iconify-icons/lucide/save";
 import scanEye from "@iconify-icons/lucide/scan-eye";
 import search from "@iconify-icons/lucide/search";
 import settings from "@iconify-icons/lucide/settings";
+import star from "@iconify-icons/lucide/star";
+import starOff from "@iconify-icons/lucide/star-off";
 import shieldCheck from "@iconify-icons/lucide/shield-check";
 import triangleAlert from "@iconify-icons/lucide/alert-triangle";
 import x from "@iconify-icons/lucide/x";
@@ -32,6 +37,8 @@ const icons = {
   "align-left": alignLeft,
   "arrow-left": arrowLeft,
   check,
+  "circle-slash-2": circleSlash,
+  "clock-3": clock,
   "chevron-down": chevronDown,
   "chevron-left": chevronLeft,
   "chevron-right": chevronRight,
@@ -45,6 +52,7 @@ const icons = {
   "image-off": imageOff,
   info,
   "list-tree": listTree,
+  library,
   "loader-circle": loaderCircle,
   maximize,
   "rotate-cw": rotateCw,
@@ -52,6 +60,8 @@ const icons = {
   "scan-eye": scanEye,
   search,
   settings,
+  star,
+  "star-off": starOff,
   "shield-check": shieldCheck,
   "triangle-alert": triangleAlert,
   x,

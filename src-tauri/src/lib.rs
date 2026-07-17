@@ -12,7 +12,7 @@ use std::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
@@ -424,6 +424,11 @@ fn read_binary(path: String) -> Result<BinaryDocument, String> {
     Ok(BinaryDocument { base64: BASE64.encode(bytes) })
 }
 
+#[tauri::command]
+fn existing_paths(paths: Vec<String>) -> Vec<String> {
+    paths.into_iter().filter(|path| Path::new(path).is_file()).collect()
+}
+
 fn encode_text(content: &str, encoding: &str, bom: bool) -> Result<Vec<u8>, String> {
     match encoding {
         "utf-8" | "utf-8-bom" => {
@@ -706,6 +711,17 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+fn create_app_menu(app: &tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "file-open", "打开…", true, Some("CmdOrCtrl+O"))?;
+    let close = MenuItem::with_id(app, "tab-close", "关闭标签页", true, Some("CmdOrCtrl+W"))?;
+    let next = MenuItem::with_id(app, "tab-next", "下一个标签页", true, Some("Ctrl+Tab"))?;
+    let previous = MenuItem::with_id(app, "tab-previous", "上一个标签页", true, Some("Ctrl+Shift+Tab"))?;
+    let file = Submenu::with_items(app, "文件", true, &[&open, &close])?;
+    let navigate = Submenu::with_items(app, "导航", true, &[&next, &previous])?;
+    app.set_menu(Menu::with_items(app, &[&file, &navigate])?)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -718,12 +734,25 @@ pub fn run() {
             Some(vec!["--background"]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            let event_name = match event.id.as_ref() {
+                "file-open" => Some("menu-open-file"),
+                "tab-close" => Some("menu-close-tab"),
+                "tab-next" => Some("menu-next-tab"),
+                "tab-previous" => Some("menu-previous-tab"),
+                _ => None,
+            };
+            if let Some(event_name) = event_name {
+                let _ = app.emit(event_name, ());
+            }
+        })
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
             read_text,
             read_image,
             read_binary,
+            existing_paths,
             save_text,
             get_settings,
             update_settings,
@@ -751,6 +780,7 @@ pub fn run() {
             }
 
             create_tray(app)?;
+            create_app_menu(app)?;
             append_diagnostic(app.handle(), "lifecycle", "started", None);
 
             let args: Vec<String> = std::env::args().collect();

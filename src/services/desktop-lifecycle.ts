@@ -8,6 +8,10 @@ interface DesktopLifecycleHandlers {
   onRequestClose: () => boolean | Promise<boolean>;
   onBeforeClose: () => void | Promise<void>;
   onDragStateChange: (active: boolean) => void;
+  onOpenFile?: () => void | Promise<void>;
+  onCloseTab?: () => void | Promise<void>;
+  onNextTab?: () => void;
+  onPreviousTab?: () => void;
 }
 
 export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandlers) {
@@ -19,6 +23,10 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
   };
 
   unlisteners.push(await listen("open-requested", consumePendingPaths));
+  if (handlers.onOpenFile) unlisteners.push(await listen("menu-open-file", handlers.onOpenFile));
+  if (handlers.onCloseTab) unlisteners.push(await listen("menu-close-tab", handlers.onCloseTab));
+  if (handlers.onNextTab) unlisteners.push(await listen("menu-next-tab", handlers.onNextTab));
+  if (handlers.onPreviousTab) unlisteners.push(await listen("menu-previous-tab", handlers.onPreviousTab));
   unlisteners.push(
     await getCurrentWebview().onDragDropEvent(async (event) => {
       if (event.payload.type === "over") {
