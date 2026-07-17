@@ -30,7 +30,7 @@ function closeWindow() {
         >
           <UIcon name="i-lucide-scan-eye" class="size-3.5" />
         </div>
-        <span class="text-xs font-semibold text-highlighted">KView</span>
+        <span class="select-none text-xs font-semibold text-highlighted">KView</span>
       </div>
 
       <div class="min-w-0 flex-1" data-tauri-drag-region>

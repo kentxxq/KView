@@ -1,3 +1,5 @@
+mod installer;
+
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
@@ -284,6 +286,7 @@ fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
         "zip" | "tar" | "tgz" => "archive",
         "gz" if file_name.to_ascii_lowercase().ends_with(".tar.gz") => "archive",
         "mp4" | "webm" | "mov" => "video",
+        "exe" | "msi" | "msixbundle" => "installer",
         _ => "text",
     }
 }
@@ -1017,6 +1020,7 @@ pub fn run() {
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
+            installer::read_installer,
             read_text,
             read_image,
             read_binary,

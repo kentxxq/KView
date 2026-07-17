@@ -15,6 +15,7 @@ export type ViewerKind =
   | "xlsx"
   | "archive"
   | "video"
+  | "installer"
   | "hex"
   | "unsupported";
 
@@ -99,6 +100,16 @@ export interface ArchiveDocument {
   format: string;
   entries: ArchiveEntry[];
   truncated: boolean;
+}
+
+export interface InstallerDocument {
+  format: string;
+  name: string | null;
+  description: string | null;
+  publisher: string | null;
+  version: string | null;
+  architecture: string | null;
+  logoDataUrl: string | null;
 }
 
 export interface BinaryChunk {

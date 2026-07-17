@@ -62,6 +62,13 @@ export function initializeViewerRegistry() {
     load: () => import("./VideoViewer.vue"),
   });
   registerViewer({
+    kind: "installer",
+    extensions: ["exe", "msi", "msixbundle"],
+    readOnly: true,
+    maxEditableBytes: null,
+    load: () => import("./InstallerViewer.vue"),
+  });
+  registerViewer({
     kind: "markdown",
     extensions: ["md", "markdown"],
     readOnly: false,

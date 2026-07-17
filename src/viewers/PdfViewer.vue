@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import * as pdfjs from "pdfjs-dist";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import type { OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
@@ -21,6 +21,7 @@ const query = ref("");
 const matches = ref<number[]>([]);
 const pageText = ref("");
 let renderTask: { cancel: () => void; promise: Promise<unknown> } | undefined;
+let loadingTask: PDFDocumentLoadingTask | undefined;
 
 async function renderPage() {
   if (!document.value || !canvas.value) return;
@@ -67,8 +68,8 @@ async function copyPageText() {
 
 onMounted(async () => {
   try {
-    const task = pdfjs.getDocument({ data: decodeBase64(props.content) });
-    document.value = await task.promise;
+    loadingTask = pdfjs.getDocument({ data: decodeBase64(props.content) });
+    document.value = await loadingTask.promise;
     pageCount.value = document.value.numPages;
     const entries = await document.value.getOutline();
     outline.value = (entries ?? []).map((entry) => ({ title: entry.title, destination: entry.dest }));
@@ -85,7 +86,7 @@ onMounted(async () => {
 watch([pageNumber, scale], () => void nextTick(renderPage));
 onBeforeUnmount(() => {
   renderTask?.cancel();
-  void document.value?.destroy();
+  void loadingTask?.destroy();
 });
 </script>
 

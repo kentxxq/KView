@@ -16,6 +16,7 @@ const kindLabels: Record<string, string> = {
   xlsx: "XLSX",
   archive: "压缩包",
   video: "视频",
+  installer: "安装包",
   unsupported: "未知格式",
 };
 

@@ -28,6 +28,7 @@ import type {
   DocumentState,
   HtmlDocument,
   ImageDocument,
+  InstallerDocument,
   OpenedFile,
   SaveResult,
   TextReadResult,
@@ -179,6 +180,10 @@ async function loadFileState(state: DocumentState, path: string) {
   if (file.kind === "image") {
     const image = await invoke<ImageDocument>("read_image", { path: file.path });
     state.buffer = image.dataUrl;
+    state.readOnly = true;
+  } else if (file.kind === "installer") {
+    const installer = await invoke<InstallerDocument>("read_installer", { path: file.path });
+    state.buffer = JSON.stringify(installer);
     state.readOnly = true;
   } else if (file.kind === "docx" && file.extension === "doc") {
     const document = await invoke<HtmlDocument>("read_legacy_doc", { path: file.path });
