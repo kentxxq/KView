@@ -2,16 +2,17 @@ import { reactive } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export type ThemePreference = "system" | "light" | "dark";
+export type ResidencyMode = "fast" | "low-memory";
 
 export interface AppSettings {
   theme: ThemePreference;
-  keepRunning: boolean;
+  residencyMode: ResidencyMode;
   autostart: boolean;
 }
 
 export const appSettings = reactive<AppSettings>({
   theme: "system",
-  keepRunning: true,
+  residencyMode: "fast",
   autostart: true,
 });
 

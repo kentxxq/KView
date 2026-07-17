@@ -21,10 +21,10 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 struct AppSettings {
     theme: String,
-    keep_running: bool,
+    residency_mode: String,
     autostart: bool,
 }
 
@@ -32,7 +32,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: "system".into(),
-            keep_running: true,
+            residency_mode: "fast".into(),
             autostart: true,
         }
     }
@@ -112,6 +112,9 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if !matches!(settings.theme.as_str(), "system" | "light" | "dark") {
         return Err("主题设置无效".into());
     }
+    if !matches!(settings.residency_mode.as_str(), "fast" | "low-memory") {
+        return Err("驻留模式设置无效".into());
+    }
     Ok(())
 }
 
@@ -188,6 +191,12 @@ fn update_settings(
     settings: AppSettings,
 ) -> Result<AppSettings, String> {
     validate_settings(&settings)?;
+    let previous_mode = state
+        .settings
+        .lock()
+        .map_err(|_| "设置状态不可用")?
+        .residency_mode
+        .clone();
     #[cfg(desktop)]
     {
         let manager = app.autolaunch();
@@ -204,6 +213,12 @@ fn update_settings(
     write_settings(&app, &settings)?;
     *state.settings.lock().map_err(|_| "设置状态不可用")? = settings.clone();
     append_diagnostic(&app, "settings", "updated", None);
+    if previous_mode != settings.residency_mode && settings.residency_mode == "fast" {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let _ = ensure_main_window(&handle, false);
+        });
+    }
     Ok(settings)
 }
 
@@ -510,18 +525,19 @@ fn take_pending_paths(state: tauri::State<'_, DesktopState>) -> Vec<String> {
 
 #[tauri::command]
 fn close_main_window(app: AppHandle, state: tauri::State<'_, DesktopState>) -> Result<(), String> {
-    let keep_running = state
+    let residency_mode = state
         .settings
         .lock()
-        .map(|settings| settings.keep_running)
-        .unwrap_or(true);
-    if !keep_running {
-        state.exiting.store(true, Ordering::SeqCst);
-        app.exit(0);
-        return Ok(());
-    }
+        .map(|settings| settings.residency_mode.clone())
+        .unwrap_or_else(|_| "fast".into());
     if let Some(window) = app.get_webview_window("main") {
-        window.destroy().map_err(|error| error.to_string())?;
+        if residency_mode == "low-memory" {
+            window.destroy().map_err(|error| error.to_string())?;
+            append_diagnostic(&app, "residency", "window-destroyed", None);
+        } else {
+            window.hide().map_err(|error| error.to_string())?;
+            append_diagnostic(&app, "residency", "window-hidden", None);
+        }
     }
     Ok(())
 }
@@ -555,11 +571,13 @@ fn queue_paths(app: &AppHandle, paths: Vec<String>) {
         .extend(paths);
 }
 
-fn ensure_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Result<WebviewWindow> {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+        if activate {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
         return Ok(window);
     }
 
@@ -568,13 +586,14 @@ fn ensure_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .inner_size(960.0, 680.0)
         .min_inner_size(640.0, 480.0)
         .center()
+        .visible(activate)
         .build()
 }
 
 fn schedule_main_window(app: &AppHandle) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
-        if ensure_main_window(&handle).is_ok() {
+        if ensure_main_window(&handle, true).is_ok() {
             let _ = handle.emit("open-requested", ());
         }
     });
@@ -692,9 +711,8 @@ pub fn run() {
             if let Ok(mut current) = app.state::<DesktopState>().settings.lock() {
                 *current = settings.clone();
             }
-            if !settings_file_exists {
-                let _ = write_settings(app.handle(), &settings);
-            }
+            // 始终重写为当前结构，以便自动迁移旧版 keepRunning 设置。
+            let _ = write_settings(app.handle(), &settings);
 
             create_tray(app)?;
             append_diagnostic(app.handle(), "lifecycle", "started", None);
@@ -709,7 +727,9 @@ pub fn run() {
             queue_paths(app.handle(), paths.clone());
 
             if !background || !paths.is_empty() {
-                ensure_main_window(app.handle())?;
+                ensure_main_window(app.handle(), true)?;
+            } else if settings.residency_mode == "fast" {
+                ensure_main_window(app.handle(), false)?;
             }
 
             Ok(())

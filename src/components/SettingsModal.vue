@@ -14,6 +14,19 @@ const themeOptions = [
   { label: "深色", value: "dark" },
 ];
 
+const residencyOptions = [
+  {
+    label: "极速模式",
+    value: "fast",
+    description: "关闭窗口后保留 WebView，再次打开响应更快。",
+  },
+  {
+    label: "低内存模式",
+    value: "low-memory",
+    description: "关闭窗口后释放 WebView，再次打开时重新创建。",
+  },
+];
+
 watch(
   () => props.open,
   (open) => {
@@ -43,26 +56,22 @@ async function submit() {
   <UModal :open="open" title="设置" @update:open="emit('update:open', $event)">
     <template #body>
       <div class="space-y-6">
-        <div>
-          <label class="mb-2 block text-sm font-medium text-highlighted">外观主题</label>
+        <UFormField name="theme" label="外观主题">
           <USelect v-model="form.theme" class="w-full" :items="themeOptions" value-key="value" />
-        </div>
+        </UFormField>
 
         <div class="space-y-4 rounded-xl border border-muted p-4">
-          <div class="flex items-start justify-between gap-6">
-            <div>
-              <p class="text-sm font-medium text-highlighted">关闭窗口后在后台运行</p>
-              <p class="mt-1 text-xs leading-5 text-muted">关闭窗口后保留托盘；关闭此项时，关闭窗口会退出 KView。</p>
+          <UFormField name="residencyMode" label="驻留模式">
+            <URadioGroup v-model="form.residencyMode" :items="residencyOptions" />
+          </UFormField>
+          <UFormField name="autostart" label="开机启动">
+            <div class="flex items-start justify-between gap-6">
+              <div>
+                <p class="mt-1 text-xs leading-5 text-muted">登录系统后静默启动到托盘，不主动显示窗口。</p>
+              </div>
+              <USwitch v-model="form.autostart" />
             </div>
-            <USwitch v-model="form.keepRunning" />
-          </div>
-          <div class="flex items-start justify-between gap-6">
-            <div>
-              <p class="text-sm font-medium text-highlighted">开机启动</p>
-              <p class="mt-1 text-xs leading-5 text-muted">登录系统后静默启动到托盘，不主动显示窗口。</p>
-            </div>
-            <USwitch v-model="form.autostart" />
-          </div>
+          </UFormField>
         </div>
 
         <UAlert
