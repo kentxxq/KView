@@ -15,8 +15,10 @@ import fileCheck from "@iconify-icons/lucide/file-check";
 import fileSearch from "@iconify-icons/lucide/file-search";
 import fileWarning from "@iconify-icons/lucide/file-warning";
 import folderOpen from "@iconify-icons/lucide/folder-open";
+import house from "@iconify-icons/lucide/home";
 import imageOff from "@iconify-icons/lucide/image-off";
 import info from "@iconify-icons/lucide/info";
+import link from "@iconify-icons/lucide/link";
 import listTree from "@iconify-icons/lucide/list-tree";
 import library from "@iconify-icons/lucide/library";
 import loaderCircle from "@iconify-icons/lucide/loader-2";
@@ -53,8 +55,10 @@ const icons = {
   "file-search": fileSearch,
   "file-warning": fileWarning,
   "folder-open": folderOpen,
+  house,
   "image-off": imageOff,
   info,
+  link,
   "list-tree": listTree,
   library,
   "loader-circle": loaderCircle,

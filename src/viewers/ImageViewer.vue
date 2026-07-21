@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import type { CSSProperties } from "vue";
 import DOMPurify from "dompurify";
 import type { OpenedFile } from "../types/document";
 import { recordDiagnostic } from "../services/diagnostics";
@@ -8,17 +9,48 @@ import ViewerFooter from "../components/ViewerFooter.vue";
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 
 const viewport = ref<HTMLElement>();
+const imageViewport = ref<HTMLElement>();
 const zoom = ref(1);
 const rotation = ref(0);
 const width = ref(0);
 const height = ref(0);
+const availableWidth = ref(1);
+const availableHeight = ref(1);
 const failed = ref(false);
 const safeSource = ref(props.content);
 let objectUrl: string | undefined;
+let resizeObserver: ResizeObserver | undefined;
 
-const transform = computed(
-  () => `scale(${zoom.value}) rotate(${rotation.value}deg)`,
-);
+const rotated = computed(() => rotation.value % 180 !== 0);
+const fitScale = computed(() => {
+  if (!width.value || !height.value) return 1;
+  const naturalWidth = rotated.value ? height.value : width.value;
+  const naturalHeight = rotated.value ? width.value : height.value;
+  return Math.min(
+    1,
+    availableWidth.value / naturalWidth,
+    availableHeight.value / naturalHeight,
+  );
+});
+const displayedWidth = computed(() => width.value * fitScale.value * zoom.value);
+const displayedHeight = computed(() => height.value * fitScale.value * zoom.value);
+const frameWidth = computed(() => rotated.value ? displayedHeight.value : displayedWidth.value);
+const frameHeight = computed(() => rotated.value ? displayedWidth.value : displayedHeight.value);
+const contentStyle = computed(() => ({
+  width: `${Math.max(availableWidth.value, frameWidth.value)}px`,
+  height: `${Math.max(availableHeight.value, frameHeight.value)}px`,
+}));
+const frameStyle = computed(() => ({
+  width: `${frameWidth.value}px`,
+  height: `${frameHeight.value}px`,
+  transform: "translate(-50%, -50%)",
+}));
+const imageStyle = computed<CSSProperties>(() => ({
+  width: `${displayedWidth.value}px`,
+  height: `${displayedHeight.value}px`,
+  transform: `translate(-50%, -50%) rotate(${rotation.value}deg)`,
+  visibility: width.value && height.value ? "visible" : "hidden",
+}));
 
 function clampZoom(value: number) {
   zoom.value = Math.min(8, Math.max(0.1, value));
@@ -49,47 +81,66 @@ function onImageError() {
   recordDiagnostic("viewer", "image-decode-failed");
 }
 
+function updateAvailableSize() {
+  const element = imageViewport.value;
+  if (!element) return;
+  const styles = window.getComputedStyle(element);
+  const horizontalPadding = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
+  const verticalPadding = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
+  availableWidth.value = Math.max(1, element.clientWidth - horizontalPadding);
+  availableHeight.value = Math.max(1, element.clientHeight - verticalPadding);
+}
+
 onMounted(() => {
-  if (props.file.extension !== "svg") return;
-  const encoded = props.content.split(",", 2)[1] ?? "";
-  const source = new TextDecoder().decode(
-    Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0)),
-  );
-  const sanitized = DOMPurify.sanitize(source, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    FORBID_TAGS: ["script", "foreignObject"],
-  });
-  objectUrl = URL.createObjectURL(new Blob([sanitized], { type: "image/svg+xml" }));
-  safeSource.value = objectUrl;
+  if (props.file.extension === "svg") {
+    const encoded = props.content.split(",", 2)[1] ?? "";
+    const source = new TextDecoder().decode(
+      Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0)),
+    );
+    const sanitized = DOMPurify.sanitize(source, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+      FORBID_TAGS: ["script", "foreignObject"],
+    });
+    objectUrl = URL.createObjectURL(new Blob([sanitized], { type: "image/svg+xml" }));
+    safeSource.value = objectUrl;
+  }
+  resizeObserver = new ResizeObserver(updateAvailableSize);
+  if (imageViewport.value) resizeObserver.observe(imageViewport.value);
+  updateAvailableSize();
 });
 
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
 });
 </script>
 
 <template>
   <div ref="viewport" class="relative flex size-full min-h-0 flex-col bg-muted">
-    <div class="grid min-h-0 flex-1 place-items-center overflow-auto p-8" @wheel.prevent="handleWheel">
-      <UAlert
-        v-if="failed"
-        class="max-w-md"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-image-off"
-        title="图片无法显示"
-        description="文件可能已损坏，或使用了当前系统 WebView 不支持的编码。"
-      />
-      <img
-        v-else
-        :src="safeSource"
-        :alt="file.name"
-        class="max-h-full max-w-full select-none object-contain shadow-lg transition-transform"
-        :style="{ transform }"
-        draggable="false"
-        @load="onImageLoad"
-        @error="onImageError"
-      />
+    <div ref="imageViewport" class="min-h-0 flex-1 overflow-auto p-8" @wheel.prevent="handleWheel">
+      <div v-if="failed" class="grid size-full place-items-center">
+        <UAlert
+          class="max-w-md"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-image-off"
+          title="图片无法显示"
+          description="文件可能已损坏，或使用了当前系统 WebView 不支持的编码。"
+        />
+      </div>
+      <div v-else class="relative" :style="contentStyle">
+        <div class="absolute left-1/2 top-1/2" :style="frameStyle">
+          <img
+            :src="safeSource"
+            :alt="file.name"
+            class="absolute left-1/2 top-1/2 max-w-none select-none object-contain shadow-lg transition-[width,height,transform]"
+            :style="imageStyle"
+            draggable="false"
+            @load="onImageLoad"
+            @error="onImageError"
+          />
+        </div>
+      </div>
     </div>
     <ViewerFooter>
       <template #status>
