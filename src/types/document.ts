@@ -20,6 +20,7 @@ export type ViewerKind =
   | "unsupported";
 
 export interface OpenedFile {
+  source: "local" | "remote" | "clipboard";
   path: string;
   name: string;
   extension: string;
@@ -29,6 +30,11 @@ export interface OpenedFile {
   encoding: TextEncoding | null;
   lineEnding: LineEnding | null;
   readOnly: boolean;
+}
+
+export interface RemoteDocument {
+  file: OpenedFile;
+  content: string;
 }
 
 export interface ViewerDefinition {

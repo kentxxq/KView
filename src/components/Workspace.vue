@@ -8,6 +8,7 @@ import EmptyState from "./EmptyState.vue";
 import ErrorState from "./ErrorState.vue";
 import FileLibraryModal from "./FileLibraryModal.vue";
 import FileReadyState from "./FileReadyState.vue";
+import OpenUrlModal from "./OpenUrlModal.vue";
 import SettingsModal from "./SettingsModal.vue";
 import ViewerFooter from "./ViewerFooter.vue";
 import ViewerHost from "../viewers/ViewerHost.vue";
@@ -30,6 +31,7 @@ import type {
   ImageDocument,
   InstallerDocument,
   OpenedFile,
+  RemoteDocument,
   SaveResult,
   TextReadResult,
 } from "../types/document";
@@ -39,6 +41,7 @@ import { loadSettings } from "../state/settings";
 
 interface WorkspaceTab {
   id: string;
+  sourceKey: string;
   state: DocumentState;
   fallbackName: string;
 }
@@ -50,6 +53,7 @@ const dragActive = ref(false);
 const guardOpen = ref(false);
 const settingsOpen = ref(false);
 const libraryOpen = ref(false);
+const openUrlModalOpen = ref(false);
 const tabStrip = ref<HTMLElement>();
 const canScrollTabsLeft = ref(false);
 const canScrollTabsRight = ref(false);
@@ -61,7 +65,10 @@ let tabResizeObserver: ResizeObserver | undefined;
 const activeTab = computed(() => tabs.find((tab) => tab.id === activeTabId.value) ?? null);
 const dirtyTabs = computed(() => tabs.filter((tab) => tab.state.dirty));
 const hasViewer = computed(() => !!documentState.file && !!resolveViewer(documentState.file));
-const currentFavorite = computed(() => !!documentState.file && isFavorite(documentState.file.path));
+const currentFavorite = computed(() => {
+  const file = documentState.file;
+  return file?.source === "local" && isFavorite(file.path);
+});
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -73,9 +80,14 @@ function syncActiveTab() {
 }
 
 function persistTabs() {
+  const activeFile = documentState.file;
+  const activeLocalPath = activeFile?.source === "local" ? activeFile.path : null;
   saveSession(
-    tabs.flatMap((tab) => tab.state.file?.path ? [tab.state.file.path] : []),
-    documentState.file?.path ?? null,
+    tabs.flatMap((tab) => {
+      const file = tab.state.file;
+      return file?.source === "local" ? [file.path] : [];
+    }),
+    activeLocalPath,
   );
 }
 
@@ -117,7 +129,9 @@ function handleTabWheel(event: WheelEvent) {
 }
 
 function tabContextItems(tab: WorkspaceTab) {
-  const path = tab.state.file?.path;
+  const file = tab.state.file;
+  const path = file?.source === "local" ? file.path : null;
+  if (!path) return [];
   return [
     {
       label: "打开文件位置",
@@ -239,7 +253,8 @@ function openCurrentAsHex() {
 }
 
 async function openPathAsTab(path: string) {
-  const existing = tabs.find((tab) => tab.state.file?.path === path);
+  const sourceKey = `local:${path}`;
+  const existing = tabs.find((tab) => tab.sourceKey === sourceKey);
   if (existing) {
     activateTab(existing.id);
     if (existing.state.file) addRecent(existing.state.file.path, existing.state.file.name);
@@ -250,6 +265,7 @@ async function openPathAsTab(path: string) {
   state.status = "loading";
   const tab: WorkspaceTab = {
     id: `tab-${Date.now()}-${tabSequence++}`,
+    sourceKey,
     state,
     fallbackName: path.split(/[\\/]/).pop() || "新标签页",
   };
@@ -275,6 +291,123 @@ async function openPathAsTab(path: string) {
 
 async function openPaths(paths: string[]) {
   for (const path of [...new Set(paths.filter(Boolean))]) await openPathAsTab(path);
+}
+
+async function openRemoteAsTab(url: string) {
+  const sourceKey = `remote:${url}`;
+  const existing = tabs.find((tab) => tab.sourceKey === sourceKey);
+  if (existing) {
+    activateTab(existing.id);
+    return;
+  }
+
+  const state = createDocumentState();
+  state.status = "loading";
+  const parsed = new URL(url);
+  const tab: WorkspaceTab = {
+    id: `tab-${Date.now()}-${tabSequence++}`,
+    sourceKey,
+    state,
+    fallbackName: parsed.pathname.split("/").filter(Boolean).pop() || parsed.hostname,
+  };
+  tabs.push(tab);
+  activateTab(tab.id);
+  const startedAt = performance.now();
+  try {
+    const remote = await invoke<RemoteDocument>("fetch_remote_document", { url });
+    if (!resolveViewer(remote.file)) throw new Error("远程内容没有可用的查看器");
+    state.file = remote.file;
+    state.viewerKind = remote.file.kind;
+    state.sourceModifiedAt = null;
+    state.buffer = remote.content;
+    state.readOnly = true;
+    state.dirty = false;
+    state.truncated = false;
+    state.status = "ready";
+    recordDiagnostic("performance", `open-remote-${state.viewerKind}`, performance.now() - startedAt);
+  } catch (error) {
+    recordDiagnostic("viewer", "open-remote-failed", performance.now() - startedAt);
+    state.status = "error";
+    state.error = {
+      code: "open-remote-failed",
+      title: "无法打开 URL",
+      message: errorMessage(error),
+      recoverable: true,
+    };
+  }
+  if (activeTabId.value === tab.id) Object.assign(documentState, state);
+  persistTabs();
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string"
+      ? resolve(reader.result)
+      : reject(new Error("无法读取剪贴板图片"));
+    reader.onerror = () => reject(reader.error ?? new Error("无法读取剪贴板图片"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function openClipboardImage(file: File) {
+  const extension = ({
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+  } as Record<string, string>)[file.type.toLowerCase()];
+  if (!extension) {
+    toast.add({ title: "不支持此剪贴板图片格式", description: file.type || "未知格式", color: "error", icon: "i-lucide-image-off" });
+    return;
+  }
+  if (file.size > 100 * 1024 * 1024) {
+    toast.add({ title: "剪贴板图片过大", description: "图片超过 100 MiB 安全限制。", color: "error", icon: "i-lucide-image-off" });
+    return;
+  }
+
+  const sequence = tabSequence++;
+  const id = `tab-${Date.now()}-${sequence}`;
+  const state = createDocumentState();
+  state.status = "loading";
+  const tab: WorkspaceTab = {
+    id,
+    sourceKey: `clipboard:${id}`,
+    state,
+    fallbackName: `粘贴的图片.${extension}`,
+  };
+  tabs.push(tab);
+  activateTab(tab.id);
+  try {
+    state.file = {
+      source: "clipboard",
+      path: `clipboard://image/${id}`,
+      name: file.name || `粘贴的图片.${extension}`,
+      extension,
+      size: file.size,
+      modifiedAt: Date.now(),
+      kind: "image",
+      encoding: null,
+      lineEnding: null,
+      readOnly: true,
+    };
+    state.viewerKind = "image";
+    state.buffer = await readFileAsDataUrl(file);
+    state.readOnly = true;
+    state.status = "ready";
+    recordDiagnostic("viewer", "open-clipboard-image");
+  } catch (error) {
+    state.status = "error";
+    state.error = {
+      code: "open-clipboard-image-failed",
+      title: "无法打开剪贴板图片",
+      message: errorMessage(error),
+      recoverable: true,
+    };
+  }
+  if (activeTabId.value === tab.id) Object.assign(documentState, state);
+  persistTabs();
 }
 
 async function selectFile() {
@@ -387,7 +520,7 @@ function cycleTab(direction: number) {
 }
 
 function toggleCurrentFavorite() {
-  if (!documentState.file) return;
+  if (!documentState.file || documentState.file.source !== "local") return;
   toggleFavorite(documentState.file.path, documentState.file.name);
 }
 
@@ -396,6 +529,12 @@ function clearWorkspace() {
   activeTabId.value = "";
   resetDocument();
   persistTabs();
+}
+
+async function returnHome() {
+  if (!tabs.length) return;
+  if (!(await requestDirtyDecision())) return;
+  clearWorkspace();
 }
 
 defineShortcuts({
@@ -494,8 +633,10 @@ onBeforeUnmount(() => {
     </template>
 
     <template #actions>
+      <UTooltip text="回到首页" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-house" aria-label="回到首页" :disabled="!tabs.length" @click="returnHome" /></UTooltip>
       <UTooltip text="打开文件" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" @click="selectFile" /></UTooltip>
-      <UTooltip v-if="documentState.file" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
+      <UTooltip text="打开 URL" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-link" aria-label="打开 URL" @click="openUrlModalOpen = true" /></UTooltip>
+      <UTooltip v-if="documentState.file?.source === 'local'" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
       <UTooltip text="文件库" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" @click="libraryOpen = true" /></UTooltip>
       <UTooltip text="设置" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" /></UTooltip>
     </template>
@@ -529,7 +670,14 @@ onBeforeUnmount(() => {
         <ViewerFooter><template #status>正在加载</template></ViewerFooter>
       </div>
     </div>
-    <EmptyState v-else :drag-active="dragActive" @select="selectFile" />
+    <EmptyState
+      v-else
+      :drag-active="dragActive"
+      @select="selectFile"
+      @open-url="openUrlModalOpen = true"
+      @paste-url="openRemoteAsTab"
+      @paste-image="openClipboardImage"
+    />
 
     <UModal :open="guardOpen" :dismissible="false" title="保存所有修改？" @update:open="handleGuardOpenChange">
       <template #body><p class="text-sm leading-6 text-muted">共有 {{ dirtyTabs.length }} 个标签页包含未保存修改。保存全部后继续，或放弃与本次关闭操作相关的修改。</p></template>
@@ -542,6 +690,7 @@ onBeforeUnmount(() => {
       </template>
     </UModal>
     <FileLibraryModal v-model:open="libraryOpen" @open="openPathAsTab" @favorite="toggleFavorite" @remove-recent="removeRecent" />
+    <OpenUrlModal v-model:open="openUrlModalOpen" @open-url="openRemoteAsTab" />
     <SettingsModal v-model:open="settingsOpen" />
   </AppShell>
 </template>

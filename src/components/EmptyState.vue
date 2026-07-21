@@ -1,6 +1,49 @@
 <script setup lang="ts">
-const emit = defineEmits<{ select: [] }>();
+import { onBeforeUnmount, onMounted } from "vue";
+import { normalizePublicUrl } from "../utils/url";
+
+const emit = defineEmits<{
+  select: [];
+  openUrl: [];
+  pasteUrl: [url: string];
+  pasteImage: [file: File];
+}>();
 defineProps<{ dragActive?: boolean }>();
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || !!target.closest("input, textarea, [contenteditable='true']");
+}
+
+function handlePaste(event: ClipboardEvent) {
+  if (isEditableTarget(event.target)) return;
+  const clipboard = event.clipboardData;
+  if (!clipboard) return;
+
+  const imageItem = Array.from(clipboard.items).find(
+    (item) => item.kind === "file" && item.type.startsWith("image/"),
+  );
+  const image = imageItem?.getAsFile()
+    ?? Array.from(clipboard.files).find((file) => file.type.startsWith("image/"));
+  if (image) {
+    event.preventDefault();
+    emit("pasteImage", image);
+    return;
+  }
+
+  const text = clipboard.getData("text/plain").trim();
+  if (!text) return;
+  try {
+    const url = normalizePublicUrl(text);
+    event.preventDefault();
+    emit("pasteUrl", url);
+  } catch {
+    // 普通文本不属于首页可打开内容，保留系统默认行为。
+  }
+}
+
+onMounted(() => window.addEventListener("paste", handlePaste));
+onBeforeUnmount(() => window.removeEventListener("paste", handlePaste));
 </script>
 
 <template>
@@ -28,16 +71,26 @@ defineProps<{ dragActive?: boolean }>();
       </template>
       <template #description>
         <p class="mt-3 max-w-md text-sm leading-6 text-muted">
-          将文件拖到这里，或从电脑中选择一个文件
+          将文件拖到这里、从电脑中选择，或直接粘贴 URL 和剪贴板图片
         </p>
       </template>
       <template #actions>
-        <UButton
-          icon="i-lucide-folder-open"
-          label="选择文件"
-          size="lg"
-          @click="emit('select')"
-        />
+        <div class="flex flex-wrap justify-center gap-3">
+          <UButton
+            icon="i-lucide-folder-open"
+            label="选择文件"
+            size="lg"
+            @click="emit('select')"
+          />
+          <UButton
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-link"
+            label="打开 URL"
+            size="lg"
+            @click="emit('openUrl')"
+          />
+        </div>
       </template>
     </UFileUpload>
   </section>

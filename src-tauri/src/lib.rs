@@ -8,10 +8,11 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Mutex,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
@@ -50,6 +51,7 @@ struct DesktopState {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenedFile {
+    source: &'static str,
     path: String,
     name: String,
     extension: String,
@@ -61,9 +63,17 @@ struct OpenedFile {
     read_only: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteDocument {
+    file: OpenedFile,
+    content: String,
+}
+
 const MAX_EDITABLE_TEXT_BYTES: u64 = 20 * 1024 * 1024;
 const LARGE_TEXT_PREVIEW_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_REMOTE_BYTES: u64 = 200 * 1024 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,6 +299,213 @@ fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
         "exe" | "msi" | "msixbundle" => "installer",
         _ => "text",
     }
+}
+
+#[derive(Clone, Copy)]
+struct RemoteFormat {
+    extension: &'static str,
+    mime_type: &'static str,
+    kind: &'static str,
+}
+
+fn remote_format_hint(extension: &str, mime_type: &str) -> Option<RemoteFormat> {
+    let format = match mime_type {
+        "image/jpeg" => RemoteFormat { extension: "jpg", mime_type: "image/jpeg", kind: "image" },
+        "image/png" => RemoteFormat { extension: "png", mime_type: "image/png", kind: "image" },
+        "image/webp" => RemoteFormat { extension: "webp", mime_type: "image/webp", kind: "image" },
+        "image/gif" => RemoteFormat { extension: "gif", mime_type: "image/gif", kind: "image" },
+        "image/svg+xml" => RemoteFormat { extension: "svg", mime_type: "image/svg+xml", kind: "image" },
+        "application/pdf" => RemoteFormat { extension: "pdf", mime_type: "application/pdf", kind: "pdf" },
+        "video/mp4" => RemoteFormat { extension: "mp4", mime_type: "video/mp4", kind: "video" },
+        "video/webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
+        "video/quicktime" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
+        _ => match extension {
+            "jpg" | "jpeg" => RemoteFormat { extension: "jpg", mime_type: "image/jpeg", kind: "image" },
+            "png" => RemoteFormat { extension: "png", mime_type: "image/png", kind: "image" },
+            "webp" => RemoteFormat { extension: "webp", mime_type: "image/webp", kind: "image" },
+            "gif" => RemoteFormat { extension: "gif", mime_type: "image/gif", kind: "image" },
+            "svg" => RemoteFormat { extension: "svg", mime_type: "image/svg+xml", kind: "image" },
+            "pdf" => RemoteFormat { extension: "pdf", mime_type: "application/pdf", kind: "pdf" },
+            "mp4" => RemoteFormat { extension: "mp4", mime_type: "video/mp4", kind: "video" },
+            "webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
+            "mov" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
+            _ => return None,
+        },
+    };
+    Some(format)
+}
+
+fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> Option<RemoteFormat> {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return remote_format_hint("jpg", "image/jpeg");
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return remote_format_hint("png", "image/png");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return remote_format_hint("gif", "image/gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return remote_format_hint("webp", "image/webp");
+    }
+    if bytes.starts_with(b"%PDF-") {
+        return remote_format_hint("pdf", "application/pdf");
+    }
+    if bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        return remote_format_hint("webm", "video/webm");
+    }
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        let quicktime = &bytes[8..12] == b"qt  " || extension == "mov" || mime_type == "video/quicktime";
+        return if quicktime {
+            remote_format_hint("mov", "video/quicktime")
+        } else {
+            remote_format_hint("mp4", "video/mp4")
+        };
+    }
+
+    let hinted = remote_format_hint(extension, mime_type)?;
+    if hinted.extension == "svg" {
+        let prefix = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_ascii_lowercase();
+        if prefix.contains("<svg") {
+            return Some(hinted);
+        }
+    }
+    None
+}
+
+fn content_disposition_file_name(content_disposition: Option<&str>) -> Option<String> {
+    content_disposition.and_then(|header| {
+        header.split(';').find_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            if !key.eq_ignore_ascii_case("filename") {
+                return None;
+            }
+            let value = value.trim().trim_matches(&['"', '\''][..]);
+            value.rsplit(['/', '\\']).next().filter(|value| !value.is_empty()).map(str::to_string)
+        })
+    })
+}
+
+fn remote_file_name(header_name: Option<String>, final_url: &reqwest::Url, extension: &str) -> String {
+    let url_name = final_url
+        .path_segments()
+        .and_then(|segments| segments.filter(|segment| !segment.is_empty()).last())
+        .map(str::to_string);
+    header_name.or(url_name).unwrap_or_else(|| {
+        format!("{}.{}", final_url.host_str().unwrap_or("remote"), extension)
+    })
+}
+
+#[tauri::command]
+async fn fetch_remote_document(url: String) -> Result<RemoteDocument, String> {
+    let mut source_url = reqwest::Url::parse(url.trim()).map_err(|_| "URL 格式无效".to_string())?;
+    if !matches!(source_url.scheme(), "http" | "https") {
+        return Err("仅支持 HTTP 或 HTTPS URL".into());
+    }
+    if source_url.host_str().is_none() {
+        return Err("URL 缺少有效的主机名".into());
+    }
+    if !source_url.username().is_empty() || source_url.password().is_some() {
+        return Err("URL 不能包含账号或密码".into());
+    }
+    source_url.set_fragment(None);
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .user_agent("KView/0.1")
+        .build()
+        .map_err(|error| format!("无法初始化网络请求：{error}"))?;
+    let mut response = client
+        .get(source_url.clone())
+        .send()
+        .await
+        .map_err(|error| format!("网络请求失败：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("服务器返回 HTTP {}", response.status().as_u16()));
+    }
+    if !matches!(response.url().scheme(), "http" | "https") {
+        return Err("重定向后的 URL 协议不受支持".into());
+    }
+
+    let final_url = response.url().clone();
+    let mime_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let content_disposition = response
+        .headers()
+        .get(CONTENT_DISPOSITION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let header_name = content_disposition_file_name(content_disposition.as_deref());
+    let url_extension = final_url
+        .path_segments()
+        .and_then(|segments| segments.filter(|segment| !segment.is_empty()).last())
+        .and_then(|name| name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()))
+        .unwrap_or_default();
+    let path_extension = header_name
+        .as_deref()
+        .and_then(|name| name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()))
+        .unwrap_or(url_extension);
+    let hinted = remote_format_hint(&path_extension, &mime_type);
+    let declared_limit = if hinted.is_some_and(|format| format.kind == "image") {
+        MAX_IMAGE_BYTES
+    } else {
+        MAX_REMOTE_BYTES
+    };
+    if response.content_length().is_some_and(|length| length > declared_limit) {
+        return Err(format!("远程内容超过 {} MiB 安全限制", declared_limit / 1024 / 1024));
+    }
+
+    let mut bytes = Vec::with_capacity(
+        response.content_length().unwrap_or_default().min(declared_limit) as usize,
+    );
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("读取远程内容失败：{error}"))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > MAX_REMOTE_BYTES as usize {
+            return Err("远程内容超过 200 MiB 安全限制".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+
+    let format = detect_remote_format(&bytes, &path_extension, &mime_type)
+        .ok_or_else(|| "远程内容不是受支持的图片、PDF 或视频".to_string())?;
+    if format.kind == "image" && bytes.len() > MAX_IMAGE_BYTES as usize {
+        return Err("远程图片超过 100 MiB 安全限制".into());
+    }
+    let name = remote_file_name(header_name, &final_url, format.extension);
+    let content = if format.kind == "image" {
+        format!("data:{};base64,{}", format.mime_type, BASE64.encode(&bytes))
+    } else {
+        BASE64.encode(&bytes)
+    };
+
+    Ok(RemoteDocument {
+        file: OpenedFile {
+            source: "remote",
+            path: source_url.to_string(),
+            name,
+            extension: format.extension.into(),
+            size: bytes.len() as u64,
+            modified_at: 0,
+            kind: format.kind,
+            encoding: None,
+            line_ending: None,
+            read_only: true,
+        },
+        content,
+    })
 }
 
 fn display_path(path: &Path) -> String {
@@ -872,6 +1089,7 @@ fn inspect_file(path: String) -> Result<OpenedFile, String> {
     let kind = viewer_kind(&extension, &name);
 
     Ok(OpenedFile {
+        source: "local",
         path: display_path(&canonical),
         name,
         kind,
@@ -1070,6 +1288,7 @@ pub fn run() {
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
+            fetch_remote_document,
             installer::read_installer,
             read_text,
             read_image,
