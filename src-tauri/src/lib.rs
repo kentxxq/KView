@@ -1,4 +1,6 @@
 mod installer;
+#[cfg(target_os = "windows")]
+mod windows_space_open;
 
 use std::{
     fs::{File, OpenOptions},
@@ -44,8 +46,15 @@ impl Default for AppSettings {
 #[derive(Default)]
 struct DesktopState {
     pending_paths: Mutex<Vec<String>>,
+    pending_space_open: Mutex<Option<SpaceOpenRequest>>,
     exiting: AtomicBool,
     settings: Mutex<AppSettings>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpaceOpenRequest {
+    path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -282,6 +291,39 @@ fn update_settings(
 #[tauri::command]
 fn record_diagnostic(app: AppHandle, category: String, code: String, duration_ms: Option<f64>) {
     append_diagnostic(&app, &category, &code, duration_ms);
+}
+
+#[tauri::command]
+fn open_log_directory(app: AppHandle) -> Result<(), String> {
+    let log_file = diagnostic_path(&app)?;
+    let directory = log_file
+        .parent()
+        .ok_or_else(|| "日志目录无效".to_string())?;
+    std::fs::create_dir_all(directory).map_err(|error| format!("无法创建日志目录：{error}"))?;
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg(directory);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg(directory);
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(directory);
+        command
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开日志目录：{error}"))
 }
 
 fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
@@ -1108,6 +1150,17 @@ fn take_pending_paths(state: tauri::State<'_, DesktopState>) -> Vec<String> {
 }
 
 #[tauri::command]
+fn take_pending_space_open(state: tauri::State<'_, DesktopState>) -> Option<SpaceOpenRequest> {
+    state.pending_space_open.lock().ok()?.take()
+}
+
+#[tauri::command]
+fn close_space_open(app: AppHandle) {
+    #[cfg(target_os = "windows")]
+    windows_space_open::close(&app);
+}
+
+#[tauri::command]
 fn close_main_window(app: AppHandle, state: tauri::State<'_, DesktopState>) -> Result<(), String> {
     let residency_mode = state
         .settings
@@ -1304,7 +1357,10 @@ pub fn run() {
             get_settings,
             update_settings,
             record_diagnostic,
+            open_log_directory,
             take_pending_paths,
+            take_pending_space_open,
+            close_space_open,
             close_main_window
         ])
         .setup(|app| {
@@ -1342,6 +1398,11 @@ pub fn run() {
                 ensure_main_window(app.handle(), true)?;
             } else if settings.residency_mode == "fast" {
                 ensure_main_window(app.handle(), false)?;
+            }
+
+            #[cfg(target_os = "windows")]
+            if windows_space_open::install(app.handle().clone()).is_err() {
+                append_diagnostic(app.handle(), "space-open", "hook-install-failed", None);
             }
 
             Ok(())

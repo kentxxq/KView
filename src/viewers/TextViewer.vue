@@ -45,6 +45,7 @@ const emit = defineEmits<{ "update:content": [value: string] }>();
 
 const editorElement = ref<HTMLElement>();
 let editor: import("monaco-editor").editor.IStandaloneCodeEditor | undefined;
+let monacoApi: typeof import("monaco-editor/esm/vs/editor/editor.api.js") | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let applyingExternalValue = false;
 
@@ -53,6 +54,7 @@ onMounted(async () => {
     getWorker: (_, label) => label === "json" ? new JsonWorker() : new EditorWorker(),
   };
   const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+  monacoApi = monaco;
   if (!editorElement.value) return;
 
   const instance = monaco.editor.create(editorElement.value, {
@@ -92,6 +94,15 @@ watch(
 watch(
   () => props.readOnly,
   (readOnly) => editor?.updateOptions({ readOnly }),
+);
+
+watch(
+  () => props.file,
+  (file) => {
+    const model = editor?.getModel();
+    if (model) monacoApi?.editor.setModelLanguage(model, resolveLanguage(file));
+    editor?.updateOptions({ wordWrap: file.extension === "log" ? "off" : "on" });
+  },
 );
 
 onBeforeUnmount(() => {

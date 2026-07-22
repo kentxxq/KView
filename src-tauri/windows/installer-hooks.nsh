@@ -25,6 +25,11 @@
 
 !macro KVIEW_REGISTER_CAPABILITY EXT
   WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities\FileAssociations" ".${EXT}" "KView 支持的文件"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "KView 支持的文件" ""
+!macroend
+
+!macro KVIEW_UNREGISTER_CAPABILITY EXT
+  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "KView 支持的文件"
 !macroend
 
 !macro KVIEW_FOR_EACH_ASSOCIATION ACTION
@@ -116,15 +121,21 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_RESTORE_ASSOCIATION_BACKUP
+  ; KView 只查看文件，不执行其内容；允许安全打开带有网络来源标记的文件。
+  WriteRegDWORD SHELL_CONTEXT "Software\Classes\KView 支持的文件" "EditFlags" 0x00010000
   WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities" "ApplicationName" "KView"
   WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities" "ApplicationDescription" "使用 KView 快速查看文件"
   !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_REGISTER_CAPABILITY
   WriteRegStr SHELL_CONTEXT "Software\RegisteredApplications" "KView" "Software\KView\Capabilities"
+  ; 确保资源管理器立即重新读取 ProgID、EditFlags 和打开方式列表。
+  !insertmacro UPDATEFILEASSOC
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_UNREGISTER_CAPABILITY
   !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_CLEAN_ASSOCIATION_BACKUP
   DeleteRegValue SHELL_CONTEXT "Software\RegisteredApplications" "KView"
   DeleteRegKey SHELL_CONTEXT "Software\KView"
   DeleteRegValue SHELL_CONTEXT "Software\Microsoft\Windows\CurrentVersion\Run" "KView"
+  !insertmacro UPDATEFILEASSOC
 !macroend

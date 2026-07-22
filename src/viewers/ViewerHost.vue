@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from "vue";
+import { computed, defineAsyncComponent, type Component } from "vue";
 import type { OpenedFile } from "../types/document";
-import { resolveViewer } from "./registry";
+import { resolveViewer, resolveViewerKey } from "./registry";
 
 const props = defineProps<{
   file: OpenedFile;
@@ -11,9 +11,17 @@ const props = defineProps<{
 
 defineEmits<{ "update:content": [value: string] }>();
 
+const viewerComponents = new Map<string, Component>();
+
 const viewer = computed(() => {
   const definition = resolveViewer(props.file);
-  return definition ? defineAsyncComponent(definition.load) : null;
+  const key = resolveViewerKey(props.file);
+  if (!definition || !key) return null;
+  const cached = viewerComponents.get(key);
+  if (cached) return cached;
+  const component = defineAsyncComponent(definition.load);
+  viewerComponents.set(key, component);
+  return component;
 });
 </script>
 

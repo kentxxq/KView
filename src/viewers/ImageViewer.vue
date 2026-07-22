@@ -133,7 +133,7 @@ onBeforeUnmount(() => {
           <img
             :src="safeSource"
             :alt="file.name"
-            class="absolute left-1/2 top-1/2 max-w-none select-none object-contain shadow-lg transition-[width,height,transform]"
+            class="absolute left-1/2 top-1/2 max-w-none select-none object-contain shadow-lg"
             :style="imageStyle"
             draggable="false"
             @load="onImageLoad"

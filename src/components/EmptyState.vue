@@ -7,6 +7,7 @@ const emit = defineEmits<{
   openUrl: [];
   pasteUrl: [url: string];
   pasteImage: [file: File];
+  pasteText: [text: string];
 }>();
 defineProps<{ dragActive?: boolean }>();
 
@@ -31,14 +32,15 @@ function handlePaste(event: ClipboardEvent) {
     return;
   }
 
-  const text = clipboard.getData("text/plain").trim();
-  if (!text) return;
+  const text = clipboard.getData("text/plain");
+  if (!text.trim()) return;
   try {
-    const url = normalizePublicUrl(text);
+    const url = normalizePublicUrl(text.trim());
     event.preventDefault();
     emit("pasteUrl", url);
   } catch {
-    // 普通文本不属于首页可打开内容，保留系统默认行为。
+    event.preventDefault();
+    emit("pasteText", text);
   }
 }
 
@@ -71,7 +73,7 @@ onBeforeUnmount(() => window.removeEventListener("paste", handlePaste));
       </template>
       <template #description>
         <p class="mt-3 max-w-md text-sm leading-6 text-muted">
-          将文件拖到这里、从电脑中选择，或直接粘贴 URL 和剪贴板图片
+          将文件拖到这里、从电脑中选择，或直接粘贴文本、URL 和剪贴板图片
         </p>
       </template>
       <template #actions>

@@ -39,6 +39,7 @@ export interface RemoteDocument {
 
 export interface ViewerDefinition {
   kind: ViewerKind;
+  componentKey?: string;
   extensions: readonly string[];
   fileNames?: readonly string[];
   readOnly: boolean;

@@ -12,7 +12,7 @@ import OpenUrlModal from "./OpenUrlModal.vue";
 import SettingsModal from "./SettingsModal.vue";
 import ViewerFooter from "./ViewerFooter.vue";
 import ViewerHost from "../viewers/ViewerHost.vue";
-import { resolveViewer } from "../viewers/registry";
+import { resolveViewer, resolveViewerKey } from "../viewers/registry";
 import { createDocumentState, documentState, resetDocument } from "../state/document";
 import {
   addRecent,
@@ -44,11 +44,13 @@ interface WorkspaceTab {
   sourceKey: string;
   state: DocumentState;
   fallbackName: string;
+  transient?: boolean;
 }
 
 const toast = useToast();
 const tabs = reactive<WorkspaceTab[]>([]);
 const activeTabId = ref("");
+const spaceOpenActive = ref(false);
 const dragActive = ref(false);
 const guardOpen = ref(false);
 const settingsOpen = ref(false);
@@ -58,12 +60,17 @@ const tabStrip = ref<HTMLElement>();
 const canScrollTabsLeft = ref(false);
 const canScrollTabsRight = ref(false);
 let tabSequence = 0;
+let spaceOpenSequence = 0;
+let spaceOpenPreviousActiveTabId = "";
 let disposeLifecycle: (() => void) | undefined;
 let resolveGuard: ((result: boolean) => void) | undefined;
 let tabResizeObserver: ResizeObserver | undefined;
 
 const activeTab = computed(() => tabs.find((tab) => tab.id === activeTabId.value) ?? null);
-const dirtyTabs = computed(() => tabs.filter((tab) => tab.state.dirty));
+const activeViewerKey = computed(() => documentState.file
+  ? resolveViewerKey(documentState.file) ?? documentState.viewerKind
+  : documentState.viewerKind);
+const dirtyTabs = computed(() => tabs.filter((tab) => !tab.transient && tab.state.dirty));
 const hasViewer = computed(() => !!documentState.file && !!resolveViewer(documentState.file));
 const currentFavorite = computed(() => {
   const file = documentState.file;
@@ -80,10 +87,14 @@ function syncActiveTab() {
 }
 
 function persistTabs() {
-  const activeFile = documentState.file;
+  const persistentTabs = tabs.filter((tab) => !tab.transient);
+  const persistentActiveTab = activeTab.value?.transient
+    ? persistentTabs.find((tab) => tab.id === spaceOpenPreviousActiveTabId)
+    : activeTab.value;
+  const activeFile = persistentActiveTab?.state.file;
   const activeLocalPath = activeFile?.source === "local" ? activeFile.path : null;
   saveSession(
-    tabs.flatMap((tab) => {
+    persistentTabs.flatMap((tab) => {
       const file = tab.state.file;
       return file?.source === "local" ? [file.path] : [];
     }),
@@ -96,6 +107,7 @@ function activateTab(id: string) {
   syncActiveTab();
   const target = tabs.find((tab) => tab.id === id);
   if (!target) return;
+  if (spaceOpenActive.value && !target.transient) spaceOpenPreviousActiveTabId = target.id;
   activeTabId.value = id;
   Object.assign(documentState, target.state);
   persistTabs();
@@ -180,8 +192,12 @@ async function openFileWith(path: string) {
   }
 }
 
-async function loadFileState(state: DocumentState, path: string) {
-  const file = await invoke<OpenedFile>("inspect_file", { path });
+async function loadFileState(
+  state: DocumentState,
+  path: string,
+  options: { inspectedFile?: OpenedFile } = {},
+) {
+  const file = options.inspectedFile ?? await invoke<OpenedFile>("inspect_file", { path });
   const definition = resolveViewer(file);
   if (!definition) throw new Error(`暂不支持 .${file.extension || "未知"} 文件`);
 
@@ -236,6 +252,94 @@ async function loadFileState(state: DocumentState, path: string) {
   }
   state.status = "ready";
   addRecent(file.path, file.name);
+}
+
+async function loadSpaceOpenPath(path: string | null) {
+  const sequence = ++spaceOpenSequence;
+  let tab = tabs.find((item) => item.transient);
+  if (!tab) {
+    syncActiveTab();
+    spaceOpenPreviousActiveTabId = activeTabId.value;
+    tab = reactive<WorkspaceTab>({
+      id: `space-open-${Date.now()}-${tabSequence++}`,
+      sourceKey: "space-open:",
+      state: createDocumentState(),
+      fallbackName: "空格打开",
+      transient: true,
+    });
+    tabs.push(tab);
+  }
+  spaceOpenActive.value = true;
+  tab.sourceKey = path ? `space-open:${path}` : "space-open:unavailable";
+  tab.fallbackName = path?.split(/[\\/]/).pop() || "空格打开";
+  activeTabId.value = tab.id;
+  void nextTick(scrollActiveTabIntoView);
+  if (!path) {
+    Object.assign(tab.state, createDocumentState(), { status: "error" });
+    tab.state.error = {
+      code: "space-open-unavailable",
+      title: "当前项目无法打开",
+      message: "请选择一个文件，然后继续使用方向键切换打开。",
+      recoverable: false,
+    };
+    Object.assign(documentState, tab.state);
+    return;
+  }
+  if (tab.state.status === "empty") {
+    tab.state.status = "loading";
+    Object.assign(documentState, tab.state);
+  }
+
+  const nextState = createDocumentState();
+  nextState.status = "loading";
+  try {
+    const file = await invoke<OpenedFile>("inspect_file", { path });
+    const nextViewer = resolveViewer(file);
+    if (!nextViewer) throw new Error(`暂不支持 .${file.extension || "未知"} 文件`);
+    if (sequence !== spaceOpenSequence || !spaceOpenActive.value) return;
+
+    const currentViewerKey = tab.state.file ? resolveViewerKey(tab.state.file) : null;
+    const nextViewerKey = nextViewer.componentKey ?? nextViewer.kind;
+    const canReuseViewer = tab.state.status === "ready" && currentViewerKey === nextViewerKey;
+    if (!canReuseViewer) {
+      Object.assign(tab.state, createDocumentState(), {
+        file,
+        status: "loading",
+        viewerKind: file.kind,
+      });
+      if (activeTabId.value === tab.id) Object.assign(documentState, tab.state);
+    }
+
+    await loadFileState(nextState, path, { inspectedFile: file });
+  } catch (error) {
+    nextState.status = "error";
+    nextState.error = {
+      code: "space-open-failed",
+      title: "无法打开文件",
+      message: errorMessage(error),
+      recoverable: true,
+    };
+  }
+  if (sequence === spaceOpenSequence && spaceOpenActive.value) {
+    Object.assign(tab.state, nextState);
+    tab.sourceKey = `space-open:${path}`;
+    tab.fallbackName = nextState.file?.name ?? tab.fallbackName;
+    if (activeTabId.value === tab.id) Object.assign(documentState, tab.state);
+  }
+}
+
+function closeSpaceOpenState() {
+  spaceOpenSequence++;
+  spaceOpenActive.value = false;
+  const index = tabs.findIndex((tab) => tab.transient);
+  if (index >= 0) tabs.splice(index, 1);
+  const restored = tabs.find((tab) => tab.id === spaceOpenPreviousActiveTabId)
+    ?? tabs[Math.min(Math.max(index, 0), tabs.length - 1)];
+  spaceOpenPreviousActiveTabId = "";
+  activeTabId.value = restored?.id ?? "";
+  if (restored) Object.assign(documentState, restored.state);
+  else resetDocument();
+  persistTabs();
 }
 
 function openCurrentAsHex() {
@@ -410,6 +514,43 @@ async function openClipboardImage(file: File) {
   persistTabs();
 }
 
+function openClipboardText(text: string) {
+  const sequence = tabSequence++;
+  const id = `tab-${Date.now()}-${sequence}`;
+  const name = "粘贴的文本.txt";
+  const state = createDocumentState();
+  state.file = {
+    source: "clipboard",
+    path: `clipboard://text/${id}`,
+    name,
+    extension: "txt",
+    size: new Blob([text]).size,
+    modifiedAt: Date.now(),
+    kind: "text",
+    encoding: "utf-8",
+    lineEnding: text.includes("\r\n") ? "crlf" : text.includes("\r") ? "cr" : "lf",
+    readOnly: false,
+  };
+  state.status = "ready";
+  state.viewerKind = "text";
+  state.buffer = text;
+  state.dirty = true;
+  state.encoding = "utf-8";
+  state.lineEnding = state.file.lineEnding;
+  state.readOnly = false;
+  const tab: WorkspaceTab = {
+    id,
+    sourceKey: `clipboard:${id}`,
+    state,
+    fallbackName: name,
+  };
+  tabs.push(tab);
+  activateTab(id);
+  Object.assign(documentState, state);
+  persistTabs();
+  recordDiagnostic("viewer", "open-clipboard-text");
+}
+
 async function selectFile() {
   if (!isTauri()) {
     documentState.error = {
@@ -433,10 +574,11 @@ function updateContent(value: string) {
 
 async function saveState(state: DocumentState, saveAs: boolean) {
   if (!state.file || state.readOnly || state.buffer === null || state.status !== "ready") return false;
+  const shouldSaveAs = saveAs || state.file.source === "clipboard";
   let targetPath = state.file.path;
-  if (saveAs) {
+  if (shouldSaveAs) {
     const selected = await save({
-      defaultPath: state.file.path,
+      defaultPath: state.file.source === "clipboard" ? state.file.name : state.file.path,
       filters: [{ name: "文本文件", extensions: [state.file.extension || "txt"] }],
     });
     if (!selected) return false;
@@ -450,7 +592,7 @@ async function saveState(state: DocumentState, saveAs: boolean) {
       encoding: state.encoding ?? "utf-8",
       lineEnding: state.lineEnding ?? "lf",
       bom: state.bom,
-      expectedModifiedAt: saveAs ? null : state.sourceModifiedAt,
+      expectedModifiedAt: shouldSaveAs ? null : state.sourceModifiedAt,
     });
     const refreshed = await invoke<OpenedFile>("inspect_file", { path: result.path });
     refreshed.encoding = state.encoding;
@@ -460,7 +602,7 @@ async function saveState(state: DocumentState, saveAs: boolean) {
     state.sourceModifiedAt = result.modifiedAt;
     state.dirty = false;
     addRecent(refreshed.path, refreshed.name);
-    toast.add({ title: saveAs ? "文件已另存" : "文件已保存", description: result.name, color: "success", icon: "i-lucide-check" });
+    toast.add({ title: shouldSaveAs ? "文件已另存" : "文件已保存", description: result.name, color: "success", icon: "i-lucide-check" });
     return true;
   } catch (error) {
     recordDiagnostic("storage", "save-failed");
@@ -504,6 +646,10 @@ async function saveAllFromGuard() {
 async function closeTab(id = activeTabId.value) {
   const index = tabs.findIndex((tab) => tab.id === id);
   if (index < 0) return;
+  if (tabs[index].transient) {
+    await invoke("close_space_open");
+    return;
+  }
   activateTab(id);
   if (!(await requestDirtyDecision())) return;
   tabs.splice(index, 1);
@@ -537,7 +683,19 @@ async function returnHome() {
   clearWorkspace();
 }
 
+async function closeWindow() {
+  if (!isTauri()) return;
+  if (spaceOpenActive.value) {
+    await invoke("close_space_open");
+    return;
+  }
+  if (!(await requestDirtyDecision())) return;
+  clearWorkspace();
+  await invoke("close_main_window");
+}
+
 defineShortcuts({
+  escape: { handler: closeWindow, usingInput: true },
   meta_o: selectFile,
   meta_s: () => saveDocument(false),
   meta_shift_s: () => saveDocument(true),
@@ -555,8 +713,16 @@ onMounted(async () => {
   } catch {
     recordDiagnostic("settings", "load-failed");
   }
+  if (!tabs.length && libraryState.sessionPaths.length) {
+    await openPaths(libraryState.sessionPaths);
+    const restored = tabs.find((tab) => tab.state.file?.path === libraryState.activePath);
+    if (restored) activateTab(restored.id);
+  }
   disposeLifecycle = await initializeDesktopLifecycle({
     onPaths: openPaths,
+    onSpaceOpenPath: loadSpaceOpenPath,
+    onSpaceOpenClosed: closeSpaceOpenState,
+    isSpaceOpenActive: () => spaceOpenActive.value,
     onRequestClose: requestDirtyDecision,
     onBeforeClose: clearWorkspace,
     onDragStateChange: (active) => { dragActive.value = active; },
@@ -565,11 +731,6 @@ onMounted(async () => {
     onNextTab: () => cycleTab(1),
     onPreviousTab: () => cycleTab(-1),
   });
-  if (!tabs.length && libraryState.sessionPaths.length) {
-    await openPaths(libraryState.sessionPaths);
-    const restored = tabs.find((tab) => tab.state.file?.path === libraryState.activePath);
-    if (restored) activateTab(restored.id);
-  }
 });
 
 watch(
@@ -619,6 +780,7 @@ onBeforeUnmount(() => {
                   :tabindex="tab.id === activeTabId ? 0 : -1"
                   @click="activateTab(tab.id)"
                 >
+                  <UIcon v-if="tab.transient" name="i-lucide-scan-eye" class="size-3.5 shrink-0" />
                   <span v-if="tab.state.dirty" class="size-1.5 shrink-0 rounded-full bg-amber-500" />
                   <span class="truncate">{{ tab.state.file?.name ?? tab.fallbackName }}</span>
                 </button>
@@ -633,12 +795,14 @@ onBeforeUnmount(() => {
     </template>
 
     <template #actions>
-      <UTooltip text="回到首页" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-house" aria-label="回到首页" :disabled="!tabs.length" @click="returnHome" /></UTooltip>
-      <UTooltip text="打开文件" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" @click="selectFile" /></UTooltip>
-      <UTooltip text="打开 URL" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-link" aria-label="打开 URL" @click="openUrlModalOpen = true" /></UTooltip>
-      <UTooltip v-if="documentState.file?.source === 'local'" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
-      <UTooltip text="文件库" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" @click="libraryOpen = true" /></UTooltip>
-      <UTooltip text="设置" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" /></UTooltip>
+      <template v-if="!spaceOpenActive">
+        <UTooltip text="回到首页" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-house" aria-label="回到首页" :disabled="!tabs.length" @click="returnHome" /></UTooltip>
+        <UTooltip text="打开文件" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" @click="selectFile" /></UTooltip>
+        <UTooltip text="打开 URL" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-link" aria-label="打开 URL" @click="openUrlModalOpen = true" /></UTooltip>
+        <UTooltip v-if="documentState.file?.source === 'local'" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
+        <UTooltip text="文件库" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" @click="libraryOpen = true" /></UTooltip>
+        <UTooltip text="设置" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" /></UTooltip>
+      </template>
     </template>
 
     <div v-if="tabs.length" class="flex size-full min-h-0 flex-col">
@@ -656,7 +820,7 @@ onBeforeUnmount(() => {
       <div v-else-if="documentState.file && documentState.status === 'ready' && hasViewer" class="flex min-h-0 flex-1 flex-col">
         <UAlert v-if="documentState.truncated" class="m-3 shrink-0" color="warning" variant="subtle" icon="i-lucide-file-warning" title="大文件只读预览" description="文件超过 20 MiB，仅加载前 2 MiB 内容以保持界面流畅。" />
         <KeepAlive :max="12">
-          <ViewerHost :key="activeTabId" class="min-h-0 flex-1" :file="documentState.file" :content="documentState.buffer ?? ''" :read-only="documentState.readOnly" @update:content="updateContent" />
+          <ViewerHost :key="activeTab?.transient ? `space-open:${activeViewerKey}` : activeTabId" class="min-h-0 flex-1" :file="documentState.file" :content="documentState.buffer ?? ''" :read-only="documentState.readOnly" @update:content="updateContent" />
         </KeepAlive>
       </div>
       <div v-else-if="documentState.file && documentState.status === 'ready'" class="flex min-h-0 flex-1 flex-col">
@@ -677,6 +841,7 @@ onBeforeUnmount(() => {
       @open-url="openUrlModalOpen = true"
       @paste-url="openRemoteAsTab"
       @paste-image="openClipboardImage"
+      @paste-text="openClipboardText"
     />
 
     <UModal :open="guardOpen" :dismissible="false" title="保存所有修改？" @update:open="handleGuardOpenChange">

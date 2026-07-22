@@ -77,6 +77,7 @@ export function initializeViewerRegistry() {
   });
   registerViewer({
     kind: "json",
+    componentKey: "structured",
     extensions: ["json"],
     readOnly: false,
     maxEditableBytes: 20 * 1024 * 1024,
@@ -84,6 +85,7 @@ export function initializeViewerRegistry() {
   });
   registerViewer({
     kind: "yaml",
+    componentKey: "structured",
     extensions: ["yaml", "yml"],
     readOnly: false,
     maxEditableBytes: 20 * 1024 * 1024,
@@ -113,6 +115,11 @@ export function resolveViewer(file: Pick<OpenedFile, "extension" | "kind">) {
     ?? definitions.get(file.extension.toLowerCase())
     ?? definitionsByFileName.get(openedFile.name?.toLowerCase() ?? "")
     ?? null;
+}
+
+export function resolveViewerKey(file: Pick<OpenedFile, "extension" | "kind">) {
+  const definition = resolveViewer(file);
+  return definition?.componentKey ?? definition?.kind ?? null;
 }
 
 export function clearViewerRegistry() {

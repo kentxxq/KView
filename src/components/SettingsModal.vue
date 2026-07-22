@@ -9,6 +9,7 @@ const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const toast = useToast();
 const saving = ref(false);
 const openingFileAssociations = ref(false);
+const openingLogDirectory = ref(false);
 const form = reactive<AppSettings>({ ...appSettings });
 
 const themeOptions = [
@@ -87,6 +88,25 @@ async function openFileAssociationSettings() {
     openingFileAssociations.value = false;
   }
 }
+
+async function openLogDirectory() {
+  if (!isTauri()) {
+    toast.add({ title: "日志目录仅在桌面版中可用", color: "warning" });
+    return;
+  }
+  openingLogDirectory.value = true;
+  try {
+    await invoke("open_log_directory");
+  } catch (error) {
+    toast.add({
+      title: "无法打开日志目录",
+      description: error instanceof Error ? error.message : String(error),
+      color: "error",
+    });
+  } finally {
+    openingLogDirectory.value = false;
+  }
+}
 </script>
 
 <template>
@@ -138,13 +158,21 @@ async function openFileAssociationSettings() {
           />
         </div>
 
-        <UAlert
-          color="neutral"
-          variant="subtle"
-          icon="i-lucide-shield-check"
-          title="本地诊断"
-          description="仅记录错误类别、错误代码和耗时，不记录文件路径或文件内容。日志保存在应用本地目录。"
-        />
+        <div class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-highlighted">本地诊断</p>
+            <p class="mt-1 text-xs leading-5 text-muted">仅记录错误类别、错误代码和耗时，不记录文件路径或文件内容。</p>
+          </div>
+          <UButton
+            class="shrink-0"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-folder-open"
+            label="打开日志目录"
+            :loading="openingLogDirectory"
+            @click="openLogDirectory"
+          />
+        </div>
       </div>
     </template>
     <template #footer>
