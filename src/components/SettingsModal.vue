@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useToast } from "@nuxt/ui/composables";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { appSettings, saveSettings, type AppSettings } from "../state/settings";
@@ -31,6 +31,20 @@ const residencyOptions = [
   },
 ];
 
+const closeBehaviorOptions = computed(() => [
+  {
+    label: "隐藏窗口并保留标签页",
+    value: "keep-tabs",
+    description: "关闭窗口时保留当前工作区，再次打开后继续使用。",
+    disabled: form.residencyMode !== "fast",
+  },
+  {
+    label: "关闭所有标签页",
+    value: "close-tabs",
+    description: "关闭窗口前处理未保存修改，并清空当前工作区。",
+  },
+]);
+
 const associationGroups = [
   { label: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "svg"] },
   {
@@ -50,6 +64,13 @@ watch(
   () => props.open,
   (open) => {
     if (open) Object.assign(form, appSettings);
+  },
+);
+
+watch(
+  () => form.residencyMode,
+  (mode) => {
+    if (mode === "low-memory") form.closeBehavior = "close-tabs";
   },
 );
 
@@ -120,6 +141,12 @@ async function openLogDirectory() {
         <div class="space-y-4 rounded-xl border border-muted p-4">
           <UFormField name="residencyMode" label="驻留模式">
             <URadioGroup v-model="form.residencyMode" :items="residencyOptions" />
+          </UFormField>
+          <UFormField name="closeBehavior" label="关闭窗口时">
+            <URadioGroup v-model="form.closeBehavior" :items="closeBehaviorOptions" />
+            <p v-if="form.residencyMode === 'low-memory'" class="mt-2 text-xs leading-5 text-muted">
+              低内存模式会销毁窗口，因此必须关闭所有标签页。
+            </p>
           </UFormField>
           <UFormField name="autostart" label="开机启动">
             <div class="flex items-start justify-between gap-6">

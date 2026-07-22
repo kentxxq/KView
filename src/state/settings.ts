@@ -3,16 +3,19 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResidencyMode = "fast" | "low-memory";
+export type CloseBehavior = "keep-tabs" | "close-tabs";
 
 export interface AppSettings {
   theme: ThemePreference;
   residencyMode: ResidencyMode;
+  closeBehavior: CloseBehavior;
   autostart: boolean;
 }
 
 export const appSettings = reactive<AppSettings>({
   theme: "system",
   residencyMode: "fast",
+  closeBehavior: "keep-tabs",
   autostart: true,
 });
 

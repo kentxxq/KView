@@ -3,6 +3,7 @@ mod installer;
 mod windows_space_open;
 
 use std::{
+    cmp::Ordering as CompareOrdering,
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -30,7 +31,13 @@ use tauri_plugin_autostart::ManagerExt;
 struct AppSettings {
     theme: String,
     residency_mode: String,
+    #[serde(default = "default_close_behavior")]
+    close_behavior: String,
     autostart: bool,
+}
+
+fn default_close_behavior() -> String {
+    "keep-tabs".into()
 }
 
 impl Default for AppSettings {
@@ -38,6 +45,7 @@ impl Default for AppSettings {
         Self {
             theme: "system".into(),
             residency_mode: "fast".into(),
+            close_behavior: default_close_behavior(),
             autostart: true,
         }
     }
@@ -55,6 +63,13 @@ struct DesktopState {
 #[serde(rename_all = "camelCase")]
 struct SpaceOpenRequest {
     path: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SiblingFileList {
+    paths: Vec<String>,
+    current_index: usize,
 }
 
 #[derive(Serialize)]
@@ -168,9 +183,19 @@ fn read_settings(app: &AppHandle) -> Result<AppSettings, String> {
         return Ok(AppSettings::default());
     }
     let content = std::fs::read_to_string(path).map_err(|error| format!("无法读取设置：{error}"))?;
-    let settings: AppSettings =
+    let value: serde_json::Value =
         serde_json::from_str(&content).map_err(|error| format!("设置文件已损坏：{error}"))?;
+    let mut needs_migration = value.get("closeBehavior").is_none();
+    let mut settings: AppSettings =
+        serde_json::from_value(value).map_err(|error| format!("设置文件已损坏：{error}"))?;
+    if settings.residency_mode == "low-memory" && settings.close_behavior == "keep-tabs" {
+        settings.close_behavior = "close-tabs".into();
+        needs_migration = true;
+    }
     validate_settings(&settings)?;
+    if needs_migration {
+        write_settings(app, &settings)?;
+    }
     Ok(settings)
 }
 
@@ -180,6 +205,12 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     }
     if !matches!(settings.residency_mode.as_str(), "fast" | "low-memory") {
         return Err("驻留模式设置无效".into());
+    }
+    if !matches!(settings.close_behavior.as_str(), "keep-tabs" | "close-tabs") {
+        return Err("窗口关闭行为设置无效".into());
+    }
+    if settings.residency_mode == "low-memory" && settings.close_behavior == "keep-tabs" {
+        return Err("低内存模式不能保留标签页".into());
     }
     Ok(())
 }
@@ -1144,6 +1175,100 @@ fn inspect_file(path: String) -> Result<OpenedFile, String> {
     })
 }
 
+fn natural_file_name_cmp(left: &str, right: &str) -> CompareOrdering {
+    let left_lower = left.to_lowercase();
+    let right_lower = right.to_lowercase();
+    let left_bytes = left_lower.as_bytes();
+    let right_bytes = right_lower.as_bytes();
+    let mut left_index = 0;
+    let mut right_index = 0;
+
+    while left_index < left_bytes.len() && right_index < right_bytes.len() {
+        if left_bytes[left_index].is_ascii_digit() && right_bytes[right_index].is_ascii_digit() {
+            let left_end = (left_index..left_bytes.len())
+                .find(|index| !left_bytes[*index].is_ascii_digit())
+                .unwrap_or(left_bytes.len());
+            let right_end = (right_index..right_bytes.len())
+                .find(|index| !right_bytes[*index].is_ascii_digit())
+                .unwrap_or(right_bytes.len());
+            let left_number = &left_lower[left_index..left_end];
+            let right_number = &right_lower[right_index..right_end];
+            let left_significant = left_number.trim_start_matches('0');
+            let right_significant = right_number.trim_start_matches('0');
+            let left_significant = if left_significant.is_empty() { "0" } else { left_significant };
+            let right_significant = if right_significant.is_empty() { "0" } else { right_significant };
+
+            let numeric_order = left_significant
+                .len()
+                .cmp(&right_significant.len())
+                .then_with(|| left_significant.cmp(right_significant));
+            if numeric_order != CompareOrdering::Equal {
+                return numeric_order;
+            }
+            left_index = left_end;
+            right_index = right_end;
+            continue;
+        }
+
+        let byte_order = left_bytes[left_index].cmp(&right_bytes[right_index]);
+        if byte_order != CompareOrdering::Equal {
+            return byte_order;
+        }
+        left_index += 1;
+        right_index += 1;
+    }
+
+    left_bytes
+        .len()
+        .cmp(&right_bytes.len())
+        .then_with(|| left.cmp(right))
+}
+
+fn collect_sibling_files(path: &str) -> Result<SiblingFileList, String> {
+    let current = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    if !current.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    let parent = current
+        .parent()
+        .ok_or_else(|| "无法定位文件所在文件夹".to_string())?;
+    let entries = std::fs::read_dir(parent)
+        .map_err(|error| format!("无法读取文件所在文件夹：{error}"))?;
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|entry_path| entry_path.metadata().is_ok_and(|metadata| metadata.is_file()))
+        .filter(|entry_path| entry_path.file_name().and_then(|name| name.to_str()).is_some())
+        .collect();
+
+    if !files.iter().any(|entry_path| entry_path == &current) {
+        files.push(current.clone());
+    }
+    files.sort_by(|left, right| {
+        let left_name = left.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        let right_name = right.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        natural_file_name_cmp(left_name, right_name)
+    });
+
+    let current_index = files
+        .iter()
+        .position(|entry_path| entry_path == &current)
+        .unwrap_or_default();
+    Ok(SiblingFileList {
+        paths: files.iter().map(|entry_path| display_path(entry_path)).collect(),
+        current_index,
+    })
+}
+
+#[tauri::command]
+async fn list_sibling_files(path: String) -> Result<SiblingFileList, String> {
+    tauri::async_runtime::spawn_blocking(move || collect_sibling_files(&path))
+        .await
+        .map_err(|error| format!("无法读取文件所在文件夹：{error}"))?
+}
+
 #[tauri::command]
 fn take_pending_paths(state: tauri::State<'_, DesktopState>) -> Vec<String> {
     std::mem::take(&mut *state.pending_paths.lock().unwrap())
@@ -1155,9 +1280,9 @@ fn take_pending_space_open(state: tauri::State<'_, DesktopState>) -> Option<Spac
 }
 
 #[tauri::command]
-fn close_space_open(app: AppHandle) {
+fn cancel_space_open(app: AppHandle) {
     #[cfg(target_os = "windows")]
-    windows_space_open::close(&app);
+    windows_space_open::cancel(&app);
 }
 
 #[tauri::command]
@@ -1341,6 +1466,7 @@ pub fn run() {
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
+            list_sibling_files,
             fetch_remote_document,
             installer::read_installer,
             read_text,
@@ -1360,7 +1486,7 @@ pub fn run() {
             open_log_directory,
             take_pending_paths,
             take_pending_space_open,
-            close_space_open,
+            cancel_space_open,
             close_main_window
         ])
         .setup(|app| {
