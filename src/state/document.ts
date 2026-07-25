@@ -12,7 +12,7 @@ export const createDocumentState = (): DocumentState => ({
   lineEnding: null,
   bom: false,
   readOnly: true,
-  truncated: false,
+  largeTextSession: null,
   error: null,
 });
 

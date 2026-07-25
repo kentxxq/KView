@@ -11,6 +11,13 @@ const saving = ref(false);
 const openingFileAssociations = ref(false);
 const openingLogDirectory = ref(false);
 const form = reactive<AppSettings>({ ...appSettings });
+const largeFileThresholdError = computed(() => (
+  Number.isInteger(form.largeFileThresholdMb)
+  && form.largeFileThresholdMb >= 1
+  && form.largeFileThresholdMb <= 1024
+    ? undefined
+    : "请输入 1–1024 之间的整数。"
+));
 
 const themeOptions = [
   { label: "跟随系统", value: "system" },
@@ -75,6 +82,7 @@ watch(
 );
 
 async function submit() {
+  if (largeFileThresholdError.value) return;
   saving.value = true;
   try {
     await saveSettings({ ...form });
@@ -137,6 +145,26 @@ async function openLogDirectory() {
         <UFormField name="theme" label="外观主题">
           <USelect v-model="form.theme" class="w-full" :items="themeOptions" value-key="value" />
         </UFormField>
+
+        <div class="space-y-4 rounded-xl border border-muted p-4">
+          <p class="text-sm font-medium text-highlighted">文本查看</p>
+          <UFormField
+            name="largeFileThresholdMb"
+            label="大文件阈值（MiB）"
+            :error="largeFileThresholdError"
+          >
+            <UInputNumber
+              v-model="form.largeFileThresholdMb"
+              class="w-full"
+              :min="1"
+              :max="1024"
+              :step="1"
+            />
+            <p class="mt-2 text-xs leading-5 text-muted">
+              阈值以内的本地文本会完整载入内存并使用 Monaco 编辑器；设置过高可能显著增加内存占用。
+            </p>
+          </UFormField>
+        </div>
 
         <div class="space-y-4 rounded-xl border border-muted p-4">
           <UFormField name="residencyMode" label="驻留模式">
@@ -205,7 +233,7 @@ async function openLogDirectory() {
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="ghost" label="取消" @click="emit('update:open', false)" />
-        <UButton label="保存设置" :loading="saving" @click="submit" />
+        <UButton label="保存设置" :loading="saving" :disabled="!!largeFileThresholdError" @click="submit" />
       </div>
     </template>
   </UModal>

@@ -57,7 +57,7 @@ onBeforeUnmount(() => {
         @error="error = '视频无法播放：编码可能不受当前系统 WebView 支持，或文件已经损坏。'"
       />
     </div>
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size">
       <template #status>
         {{ file.extension.toUpperCase() }}
         <template v-if="dimensions"> · {{ dimensions }}</template>

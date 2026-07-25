@@ -35,7 +35,7 @@ function preventEmbeddedNavigation(event: MouseEvent) {
       v-html="rendered"
       @click="preventEmbeddedNavigation"
     />
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size">
       <template #status>
         MARKDOWN
         <template v-if="file.encoding"> · {{ file.encoding.toUpperCase() }}</template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import DOMPurify from "dompurify";
 import * as mammoth from "mammoth";
 import type { OpenedFile } from "../types/document";
@@ -11,6 +11,12 @@ const html = ref("");
 const loading = ref(true);
 const error = ref("");
 const warnings = ref<string[]>([]);
+const notice = computed(() => {
+  const compatibility = "复杂分页、浮动对象、宏和 Office 专有排版可能与原文档不同；KView 不会执行文档链接或脚本。";
+  return warnings.value.length
+    ? `${compatibility} 解析提示：${warnings.value.join("；")}`
+    : compatibility;
+});
 
 function sanitizeDocumentHtml(value: string) {
   return DOMPurify.sanitize(value, {
@@ -51,19 +57,10 @@ onMounted(async () => {
     <div v-else-if="error" class="grid flex-1 place-items-center p-8 text-center text-sm text-error">{{ error }}</div>
     <div v-else class="min-h-0 flex-1 overflow-auto p-4 sm:p-8">
       <article class="docx-preview mx-auto min-h-full max-w-4xl rounded-lg border border-muted bg-default p-8 shadow-sm sm:p-12" v-html="html" />
-      <p v-if="warnings.length" class="mx-auto mt-3 max-w-4xl text-xs text-muted">解析提示：{{ warnings.join("；") }}</p>
     </div>
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size" :notice="notice">
       <template #status>
-        <span class="inline-flex items-center gap-1">
-          <span>{{ file.extension.toUpperCase() }} · 只读兼容预览</span>
-          <UTooltip :delay-duration="500" :content="{ side: 'top', align: 'start', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }" arrow>
-            <UIcon name="i-lucide-info" class="size-3.5 text-amber-500" />
-            <template #content>
-              <p class="max-w-sm text-xs leading-5 text-default">复杂分页、浮动对象、宏和 Office 专有排版可能与原文档不同；KView 不会执行文档链接或脚本。</p>
-            </template>
-          </UTooltip>
-        </span>
+        {{ file.extension.toUpperCase() }} · 只读兼容预览
       </template>
     </ViewerFooter>
   </div>

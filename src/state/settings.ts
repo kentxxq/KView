@@ -10,6 +10,7 @@ export interface AppSettings {
   residencyMode: ResidencyMode;
   closeBehavior: CloseBehavior;
   autostart: boolean;
+  largeFileThresholdMb: number;
 }
 
 export const appSettings = reactive<AppSettings>({
@@ -17,6 +18,7 @@ export const appSettings = reactive<AppSettings>({
   residencyMode: "fast",
   closeBehavior: "keep-tabs",
   autostart: true,
+  largeFileThresholdMb: 100,
 });
 
 let mediaQuery: MediaQueryList | undefined;

@@ -81,17 +81,9 @@ onMounted(() => {
         <span v-else>选择单元格以查看地址和值</span>
       </div>
     </template>
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size" notice="公式不会重新计算，宏、图表、复杂样式和 Office 专有排版可能与原工作簿不同；KView 不会执行文档链接、宏或脚本。">
       <template #status>
-        <span class="inline-flex items-center gap-1">
-          <span>{{ file.extension.toUpperCase() }}<template v-if="sheetName"> · {{ sheetName }} · {{ filteredRows.length }} 行</template> · 只读</span>
-          <UTooltip :delay-duration="500" :content="{ side: 'top', align: 'start', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }" arrow>
-            <UIcon name="i-lucide-info" class="size-3.5 text-amber-500" />
-            <template #content>
-              <p class="max-w-sm text-xs leading-5 text-default">公式不会重新计算，宏、图表、复杂样式和 Office 专有排版可能与原工作簿不同；KView 不会执行文档链接、宏或脚本。</p>
-            </template>
-          </UTooltip>
-        </span>
+        {{ file.extension.toUpperCase() }}<template v-if="sheetName"> · {{ sheetName }} · {{ filteredRows.length }} 行</template> · 只读
       </template>
       <template v-if="!error" #actions>
         <USelect :model-value="sheetName" class="w-36" size="xs" :items="workbook?.SheetNames ?? []" aria-label="切换工作表" @update:model-value="handleSheetChange" />

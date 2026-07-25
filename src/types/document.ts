@@ -43,7 +43,6 @@ export interface ViewerDefinition {
   extensions: readonly string[];
   fileNames?: readonly string[];
   readOnly: boolean;
-  maxEditableBytes: number | null;
   load: () => Promise<{ default: Component }>;
 }
 
@@ -65,7 +64,7 @@ export interface DocumentState {
   lineEnding: LineEnding | null;
   bom: boolean;
   readOnly: boolean;
-  truncated: boolean;
+  largeTextSession: LargeTextSessionInfo | null;
   error: DocumentError | null;
 }
 
@@ -75,11 +74,11 @@ export interface TextDocument {
   lineEnding: LineEnding;
   bom: boolean;
   readOnly: boolean;
-  truncated: boolean;
 }
 
 export type TextReadResult =
   | { status: "success"; document: TextDocument }
+  | { status: "large-text"; session: LargeTextSessionInfo }
   | { status: "binary-content"; message: string }
   | { status: "unsupported-encoding"; message: string };
 
@@ -123,6 +122,38 @@ export interface BinaryChunk {
   offset: number;
   base64: string;
   bytesRead: number;
+}
+
+export interface LargeTextLine {
+  lineNumber: number;
+  content: string;
+}
+
+export interface LargeTextLinesResult {
+  startLine: number;
+  endLine: number;
+  lines: LargeTextLine[];
+}
+
+export interface LargeTextSessionInfo {
+  sessionId: string;
+  encoding: TextEncoding;
+  lineEnding: LineEnding;
+  bom: boolean;
+  fileSize: number;
+  modifiedAt: number;
+  initialLines: LargeTextLine[];
+  indexedBytes: number;
+  indexedLineCount: number;
+}
+
+export interface LargeTextIndexStatus {
+  indexedBytes: number;
+  fileSize: number;
+  indexedLineCount: number;
+  complete: boolean;
+  totalLines: number | null;
+  error: string | null;
 }
 
 export interface SaveResult {

@@ -36,9 +36,9 @@ function formatBytes(bytes: number) {
       </div>
       <div v-if="!filteredEntries.length" class="grid h-40 place-items-center text-sm text-muted">没有匹配的压缩包条目</div>
     </div>
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size" :notice="archive.truncated ? '压缩包条目较多，仅显示前 5000 项。' : undefined">
       <template #status>
-        {{ archive.format }} · {{ archive.entries.length }} 个条目 · 只读<template v-if="archive.truncated"> · 仅显示前 5000 项</template>
+        {{ archive.format }} · {{ archive.entries.length }} 个条目 · 只读
       </template>
       <template #actions>
         <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">

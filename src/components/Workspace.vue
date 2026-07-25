@@ -7,7 +7,6 @@ import AppShell from "./AppShell.vue";
 import EmptyState from "./EmptyState.vue";
 import ErrorState from "./ErrorState.vue";
 import FileLibraryModal from "./FileLibraryModal.vue";
-import FileReadyState from "./FileReadyState.vue";
 import OpenUrlModal from "./OpenUrlModal.vue";
 import SettingsModal from "./SettingsModal.vue";
 import ViewerFooter from "./ViewerFooter.vue";
@@ -214,6 +213,17 @@ async function openFileWith(path: string) {
   }
 }
 
+async function closeLargeTextSession(state: DocumentState) {
+  const sessionId = state.largeTextSession?.sessionId;
+  state.largeTextSession = null;
+  if (!sessionId || !isTauri()) return;
+  try {
+    await invoke("close_large_text_session", { sessionId });
+  } catch {
+    recordDiagnostic("viewer", "large-text-close-failed");
+  }
+}
+
 async function loadFileState(
   state: DocumentState,
   path: string,
@@ -227,7 +237,7 @@ async function loadFileState(
   state.viewerKind = file.kind;
   state.sourceModifiedAt = file.modifiedAt;
   state.dirty = false;
-  state.truncated = false;
+  state.largeTextSession = null;
 
   if (file.kind === "image") {
     const image = await invoke<ImageDocument>("read_image", { path: file.path });
@@ -251,7 +261,18 @@ async function loadFileState(
     state.readOnly = true;
   } else {
     const result = await invoke<TextReadResult>("read_text", { path: file.path });
-    if (result.status !== "success") {
+    if (result.status === "large-text") {
+      const session = result.session;
+      state.buffer = null;
+      state.encoding = session.encoding;
+      state.lineEnding = session.lineEnding;
+      state.bom = session.bom;
+      state.readOnly = true;
+      state.largeTextSession = session;
+      file.encoding = session.encoding;
+      file.lineEnding = session.lineEnding;
+      file.readOnly = true;
+    } else if (result.status !== "success") {
       state.status = "error";
       state.error = {
         code: result.status,
@@ -260,17 +281,17 @@ async function loadFileState(
         recoverable: true,
       };
       return;
+    } else {
+      const text = result.document;
+      state.buffer = text.content;
+      state.encoding = text.encoding;
+      state.lineEnding = text.lineEnding;
+      state.bom = text.bom;
+      state.readOnly = text.readOnly;
+      file.encoding = text.encoding;
+      file.lineEnding = text.lineEnding;
+      file.readOnly = text.readOnly;
     }
-    const text = result.document;
-    state.buffer = text.content;
-    state.encoding = text.encoding;
-    state.lineEnding = text.lineEnding;
-    state.bom = text.bom;
-    state.readOnly = text.readOnly;
-    state.truncated = text.truncated;
-    file.encoding = text.encoding;
-    file.lineEnding = text.lineEnding;
-    file.readOnly = text.readOnly;
   }
   state.status = "ready";
   addRecent(file.path, file.name);
@@ -295,6 +316,7 @@ async function loadSpaceOpenPath(path: string | null) {
   if (activeTabId.value === tab.id) void nextTick(scrollActiveTabIntoView);
   else activateTab(tab.id);
   if (!path) {
+    await closeLargeTextSession(tab.state);
     Object.assign(tab.state, createDocumentState(), { status: "error" });
     tab.state.error = {
       code: "space-open-unavailable",
@@ -323,6 +345,7 @@ async function loadSpaceOpenPath(path: string | null) {
     const nextViewerKey = nextViewer.componentKey ?? nextViewer.kind;
     const canReuseViewer = tab.state.status === "ready" && currentViewerKey === nextViewerKey;
     if (!canReuseViewer) {
+      await closeLargeTextSession(tab.state);
       Object.assign(tab.state, createDocumentState(), {
         file,
         status: "loading",
@@ -342,6 +365,7 @@ async function loadSpaceOpenPath(path: string | null) {
     };
   }
   if (sequence === spaceOpenSequence && spaceOpenTabId.value === tab.id) {
+    await closeLargeTextSession(tab.state);
     Object.assign(tab.state, nextState);
     tab.sourceKey = `local:${path}`;
     tab.fallbackName = nextState.file?.name ?? tab.fallbackName;
@@ -420,14 +444,15 @@ async function cancelSpaceOpenLink() {
   if (tabId && spaceOpenTabId.value === tabId) resetSpaceOpenLink();
 }
 
-function openCurrentAsHex() {
+async function openCurrentAsHex() {
   if (!documentState.file || !["binary-content", "unsupported-encoding"].includes(documentState.error?.code ?? "")) return;
+  await closeLargeTextSession(documentState);
   documentState.file.kind = "hex";
   documentState.viewerKind = "hex";
   documentState.buffer = null;
   documentState.readOnly = true;
   documentState.dirty = false;
-  documentState.truncated = false;
+  documentState.largeTextSession = null;
   documentState.error = null;
   documentState.status = "ready";
   addRecent(documentState.file.path, documentState.file.name);
@@ -504,7 +529,7 @@ async function openRemoteAsTab(url: string) {
     state.buffer = remote.content;
     state.readOnly = true;
     state.dirty = false;
-    state.truncated = false;
+    state.largeTextSession = null;
     state.status = "ready";
     recordDiagnostic("performance", `open-remote-${state.viewerKind}`, performance.now() - startedAt);
   } catch (error) {
@@ -736,6 +761,7 @@ async function closeTabs(targetIds: string[]) {
   if (spaceOpenTabId.value && targetIdSet.has(spaceOpenTabId.value)) {
     await cancelSpaceOpenLink();
   }
+  await Promise.all(targetTabs.map((tab) => closeLargeTextSession(tab.state)));
   for (let index = tabs.length - 1; index >= 0; index--) {
     if (targetIdSet.has(tabs[index].id)) tabs.splice(index, 1);
   }
@@ -784,7 +810,8 @@ function toggleCurrentFavorite() {
   toggleFavorite(documentState.file.path, documentState.file.name);
 }
 
-function clearWorkspace() {
+async function clearWorkspace() {
+  await Promise.all(tabs.map((tab) => closeLargeTextSession(tab.state)));
   tabs.splice(0);
   activeTabId.value = "";
   resetDocument();
@@ -795,7 +822,7 @@ async function returnHome() {
   if (!tabs.length) return;
   if (!(await requestDirtyDecision([...tabs]))) return;
   await cancelSpaceOpenLink();
-  clearWorkspace();
+  await clearWorkspace();
 }
 
 async function closeWindow() {
@@ -805,7 +832,7 @@ async function closeWindow() {
     const keepTabs = keepTabsOnWindowClose();
     if (!keepTabs && !(await requestDirtyDecision([...tabs]))) return;
     await cancelSpaceOpenLink();
-    if (!keepTabs) clearWorkspace();
+    if (!keepTabs) await clearWorkspace();
     await invoke("close_main_window");
   } catch (error) {
     recordDiagnostic("lifecycle", "window-close-failed");
@@ -890,6 +917,7 @@ watch(tabStrip, (element, previousElement) => {
 onBeforeUnmount(() => {
   tabResizeObserver?.disconnect();
   disposeLifecycle?.();
+  void Promise.all(tabs.map((tab) => closeLargeTextSession(tab.state)));
 });
 </script>
 
@@ -952,23 +980,26 @@ onBeforeUnmount(() => {
             @open-hex="openCurrentAsHex"
           />
         </div>
-        <ViewerFooter><template #status>{{ (documentState.file?.extension || "未知格式").toUpperCase() }} · 打开失败</template></ViewerFooter>
+        <ViewerFooter :file-size="documentState.file?.size"><template #status>{{ (documentState.file?.extension || "未知格式").toUpperCase() }} · 打开失败</template></ViewerFooter>
       </div>
       <div v-else-if="documentState.file && documentState.status === 'ready' && hasViewer" class="flex min-h-0 flex-1 flex-col">
-        <UAlert v-if="documentState.truncated" class="m-3 shrink-0" color="warning" variant="subtle" icon="i-lucide-file-warning" title="大文件只读预览" description="文件超过 20 MiB，仅加载前 2 MiB 内容以保持界面流畅。" />
         <KeepAlive :max="12">
-          <ViewerHost :key="activeTab?.id === spaceOpenTabId ? `space-open:${activeViewerKey}` : activeTabId" class="min-h-0 flex-1" :file="documentState.file" :content="documentState.buffer ?? ''" :read-only="documentState.readOnly" @update:content="updateContent" />
+          <ViewerHost
+            :key="activeTab?.id === spaceOpenTabId ? `space-open:${activeViewerKey}` : activeTabId"
+            class="min-h-0 flex-1"
+            :file="documentState.file"
+            :content="documentState.buffer ?? ''"
+            :read-only="documentState.readOnly"
+            :large-text-session="documentState.largeTextSession"
+            @update:content="updateContent"
+          />
         </KeepAlive>
-      </div>
-      <div v-else-if="documentState.file && documentState.status === 'ready'" class="flex min-h-0 flex-1 flex-col">
-        <div class="grid min-h-0 flex-1 place-items-center p-6"><FileReadyState :file="documentState.file" @open="selectFile" /></div>
-        <ViewerFooter><template #status>{{ (documentState.file.extension || "未知格式").toUpperCase() }} · 暂无查看器</template></ViewerFooter>
       </div>
       <div v-else-if="documentState.status === 'loading'" class="flex min-h-0 flex-1 flex-col">
         <div class="grid flex-1 place-items-center text-center">
           <div><UIcon name="i-lucide-loader-circle" class="mx-auto size-8 animate-spin text-primary" /><p class="mt-3 text-sm text-muted">正在加载文件…</p></div>
         </div>
-        <ViewerFooter><template #status>正在加载</template></ViewerFooter>
+        <ViewerFooter :file-size="documentState.file?.size"><template #status>正在加载</template></ViewerFooter>
       </div>
     </div>
     <EmptyState

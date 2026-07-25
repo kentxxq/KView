@@ -72,7 +72,7 @@ async function copySelectedPath() {
       </template>
     </div>
 
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size">
       <template #status>
         {{ file.extension.toUpperCase() }}
         <template v-if="file.encoding"> · {{ file.encoding.toUpperCase() }}</template>

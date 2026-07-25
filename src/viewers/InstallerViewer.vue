@@ -57,8 +57,8 @@ const details = computed(() => [
         </dl>
       </div>
     </div>
-    <ViewerFooter>
-      <template #status>{{ installer.format }} · {{ installer.architecture || "未知架构" }} · {{ sizeLabel }} · 只读</template>
+    <ViewerFooter :file-size="file.size">
+      <template #status>{{ installer.format }} · {{ installer.architecture || "未知架构" }} · 只读</template>
     </ViewerFooter>
   </section>
 </template>

@@ -182,8 +182,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
         </div>
       </div>
     </div>
-    <ViewerFooter>
-      <template #status>HEX · {{ file.size.toLocaleString() }} bytes · 每行 16 bytes · 只读</template>
+    <ViewerFooter :file-size="file.size">
+      <template #status>HEX · 每行 16 bytes · 只读</template>
     </ViewerFooter>
   </section>
 </template>

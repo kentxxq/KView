@@ -142,11 +142,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size">
       <template #status>
         {{ file.extension.toUpperCase() }}
         <template v-if="width"> · {{ width }} × {{ height }}</template>
-        · {{ (file.size / 1024).toFixed(1) }} KiB
       </template>
       <template #actions>
         <UTooltip text="缩小" :delay-duration="500"><UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-zoom-out" aria-label="缩小" @click="clampZoom(zoom - 0.1)" /></UTooltip>

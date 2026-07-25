@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, type Component } from "vue";
-import type { OpenedFile } from "../types/document";
+import type { LargeTextSessionInfo, OpenedFile } from "../types/document";
 import { resolveViewer, resolveViewerKey } from "./registry";
 
 const props = defineProps<{
   file: OpenedFile;
   content: string;
   readOnly: boolean;
+  largeTextSession: LargeTextSessionInfo | null;
 }>();
 
 defineEmits<{ "update:content": [value: string] }>();
 
 const viewerComponents = new Map<string, Component>();
+const LargeTextViewer = defineAsyncComponent(() => import("./LargeTextViewer.vue"));
 
 const viewer = computed(() => {
   const definition = resolveViewer(props.file);
@@ -27,9 +29,16 @@ const viewer = computed(() => {
 
 <template>
   <div class="flex size-full min-h-0 flex-1">
+    <LargeTextViewer
+      v-if="largeTextSession"
+      :key="`${file.path}:${file.modifiedAt}`"
+      class="min-h-0 flex-1"
+      :file="file"
+      :session="largeTextSession"
+    />
     <component
       :is="viewer"
-      v-if="viewer"
+      v-else-if="viewer"
       class="min-h-0 flex-1"
       :file="file"
       :content="content"

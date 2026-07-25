@@ -106,7 +106,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </div>
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size">
       <template #status>PDF · {{ pageNumber }}/{{ pageCount || "-" }} · 只读</template>
       <template #actions>
         <UTooltip text="上一页" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-chevron-left" color="neutral" variant="ghost" size="xs" aria-label="上一页" :disabled="pageNumber <= 1" @click="pageNumber--" /></UTooltip>

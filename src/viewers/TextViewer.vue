@@ -63,7 +63,7 @@ onMounted(async () => {
     theme: "vs-dark",
     readOnly: props.readOnly,
     automaticLayout: false,
-    minimap: { enabled: false },
+    minimap: { enabled: true },
     folding: true,
     fontFamily: "Cascadia Code, SFMono-Regular, Consolas, monospace",
     fontSize: 13,
@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
   <div v-if="embedded" ref="editorElement" class="size-full min-h-0 bg-inverted" />
   <div v-else class="flex size-full min-h-0 flex-col bg-inverted">
     <div ref="editorElement" class="min-h-0 flex-1 bg-inverted" />
-    <ViewerFooter>
+    <ViewerFooter :file-size="file.size">
       <template #status>
         {{ (file.extension || "TEXT").toUpperCase() }}
         <template v-if="file.encoding"> · {{ file.encoding.toUpperCase() }}</template>

@@ -4,12 +4,13 @@ mod windows_space_open;
 
 use std::{
     cmp::Ordering as CompareOrdering,
+    collections::HashMap,
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -34,10 +35,16 @@ struct AppSettings {
     #[serde(default = "default_close_behavior")]
     close_behavior: String,
     autostart: bool,
+    #[serde(default = "default_large_file_threshold_mb")]
+    large_file_threshold_mb: u64,
 }
 
 fn default_close_behavior() -> String {
     "keep-tabs".into()
+}
+
+fn default_large_file_threshold_mb() -> u64 {
+    100
 }
 
 impl Default for AppSettings {
@@ -47,6 +54,7 @@ impl Default for AppSettings {
             residency_mode: "fast".into(),
             close_behavior: default_close_behavior(),
             autostart: true,
+            large_file_threshold_mb: default_large_file_threshold_mb(),
         }
     }
 }
@@ -57,6 +65,8 @@ struct DesktopState {
     pending_space_open: Mutex<Option<SpaceOpenRequest>>,
     exiting: AtomicBool,
     settings: Mutex<AppSettings>,
+    large_text_sessions: Mutex<HashMap<String, Arc<LargeTextSession>>>,
+    next_large_text_session_id: AtomicU64,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -94,8 +104,9 @@ struct RemoteDocument {
     content: String,
 }
 
-const MAX_EDITABLE_TEXT_BYTES: u64 = 20 * 1024 * 1024;
-const LARGE_TEXT_PREVIEW_BYTES: u64 = 2 * 1024 * 1024;
+const LARGE_TEXT_CHUNK_BYTES: u64 = 2 * 1024 * 1024;
+const LARGE_TEXT_CHECKPOINT_LINES: u64 = 1024;
+const LARGE_TEXT_INITIAL_LINES: u64 = 2048;
 const MAX_IMAGE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_REMOTE_BYTES: u64 = 200 * 1024 * 1024;
 
@@ -107,13 +118,13 @@ struct TextDocument {
     line_ending: &'static str,
     bom: bool,
     read_only: bool,
-    truncated: bool,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 enum TextReadResult {
     Success { document: TextDocument },
+    LargeText { session: LargeTextSessionInfo },
     BinaryContent { message: &'static str },
     UnsupportedEncoding { message: &'static str },
 }
@@ -164,6 +175,73 @@ struct BinaryChunk {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LargeTextLine {
+    line_number: u64,
+    content: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LargeTextLinesResult {
+    start_line: u64,
+    end_line: u64,
+    lines: Vec<LargeTextLine>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LargeTextSessionInfo {
+    session_id: String,
+    encoding: &'static str,
+    line_ending: &'static str,
+    bom: bool,
+    file_size: u64,
+    modified_at: u64,
+    initial_lines: Vec<LargeTextLine>,
+    indexed_bytes: u64,
+    indexed_line_count: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LargeTextIndexStatus {
+    indexed_bytes: u64,
+    file_size: u64,
+    indexed_line_count: u64,
+    complete: bool,
+    total_lines: Option<u64>,
+    error: Option<String>,
+}
+
+#[derive(Clone)]
+struct LargeTextCheckpoint {
+    line_number: u64,
+    byte_offset: u64,
+}
+
+struct LargeTextIndexState {
+    indexed_bytes: u64,
+    indexed_line_count: u64,
+    complete: bool,
+    total_lines: Option<u64>,
+    error: Option<String>,
+    checkpoints: Vec<LargeTextCheckpoint>,
+}
+
+struct LargeTextSession {
+    id: String,
+    path: PathBuf,
+    file_size: u64,
+    modified_at: u64,
+    encoding: &'static str,
+    line_ending: &'static str,
+    bom: bool,
+    cancel: AtomicBool,
+    index: Mutex<LargeTextIndexState>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SaveResult {
     path: String,
     name: String,
@@ -185,7 +263,8 @@ fn read_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let content = std::fs::read_to_string(path).map_err(|error| format!("无法读取设置：{error}"))?;
     let value: serde_json::Value =
         serde_json::from_str(&content).map_err(|error| format!("设置文件已损坏：{error}"))?;
-    let mut needs_migration = value.get("closeBehavior").is_none();
+    let mut needs_migration =
+        value.get("closeBehavior").is_none() || value.get("largeFileThresholdMb").is_none();
     let mut settings: AppSettings =
         serde_json::from_value(value).map_err(|error| format!("设置文件已损坏：{error}"))?;
     if settings.residency_mode == "low-memory" && settings.close_behavior == "keep-tabs" {
@@ -211,6 +290,9 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     }
     if settings.residency_mode == "low-memory" && settings.close_behavior == "keep-tabs" {
         return Err("低内存模式不能保留标签页".into());
+    }
+    if !(1..=1024).contains(&settings.large_file_threshold_mb) {
+        return Err("大文件阈值必须是 1–1024 之间的整数 MiB".into());
     }
     Ok(())
 }
@@ -619,14 +701,45 @@ enum DecodeTextError {
     UnsupportedEncoding,
 }
 
-fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, bool), DecodeTextError> {
+fn complete_utf8_prefix_len(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    let mut lead = bytes.len() - 1;
+    while lead > 0 && bytes[lead] & 0b1100_0000 == 0b1000_0000 {
+        lead -= 1;
+    }
+    let expected = match bytes[lead] {
+        0x00..=0x7F => 1,
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => 1,
+    };
+    if bytes.len() - lead < expected {
+        lead
+    } else {
+        bytes.len()
+    }
+}
+
+fn decode_text(
+    bytes: &[u8],
+    chunked: bool,
+) -> Result<(String, &'static str, bool, usize), DecodeTextError> {
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        let content = if truncated {
-            String::from_utf8_lossy(&bytes[3..]).into_owned()
+        let payload = &bytes[3..];
+        let consumed = if chunked {
+            complete_utf8_prefix_len(payload)
         } else {
-            String::from_utf8(bytes[3..].to_vec()).map_err(|_| DecodeTextError::UnsupportedEncoding)?
+            payload.len()
         };
-        return Ok((content, "utf-8-bom", true));
+        let content = if chunked {
+            String::from_utf8_lossy(&payload[..consumed]).into_owned()
+        } else {
+            String::from_utf8(payload.to_vec()).map_err(|_| DecodeTextError::UnsupportedEncoding)?
+        };
+        return Ok((content, "utf-8-bom", true, 3 + consumed));
     }
 
     if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
@@ -645,11 +758,21 @@ fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, b
                 }
             })
             .collect();
-        let content = String::from_utf16(&units).map_err(|_| DecodeTextError::UnsupportedEncoding)?;
+        let complete_units = if chunked && units.last().is_some_and(|unit| (0xD800..=0xDBFF).contains(unit)) {
+            &units[..units.len() - 1]
+        } else {
+            &units
+        };
+        let content = if chunked {
+            String::from_utf16_lossy(complete_units)
+        } else {
+            String::from_utf16(complete_units).map_err(|_| DecodeTextError::UnsupportedEncoding)?
+        };
         return Ok((
             content,
             if little_endian { "utf-16-le" } else { "utf-16-be" },
             true,
+            2 + complete_units.len() * 2,
         ));
     }
 
@@ -657,16 +780,424 @@ fn decode_text(bytes: &[u8], truncated: bool) -> Result<(String, &'static str, b
         return Err(DecodeTextError::BinaryContent);
     }
 
-    let content = if truncated {
-        String::from_utf8_lossy(bytes).into_owned()
+    let consumed = if chunked {
+        complete_utf8_prefix_len(bytes)
+    } else {
+        bytes.len()
+    };
+    let content = if chunked {
+        String::from_utf8_lossy(&bytes[..consumed]).into_owned()
     } else {
         String::from_utf8(bytes.to_vec()).map_err(|_| DecodeTextError::UnsupportedEncoding)?
     };
-    Ok((content, "utf-8", false))
+    Ok((content, "utf-8", false, consumed))
+}
+
+fn utf16_unit(pair: &[u8], little_endian: bool) -> u16 {
+    if little_endian {
+        u16::from_le_bytes([pair[0], pair[1]])
+    } else {
+        u16::from_be_bytes([pair[0], pair[1]])
+    }
+}
+
+enum OpenLargeTextError {
+    BinaryContent,
+    UnsupportedEncoding,
+    Message(String),
+}
+
+fn large_text_content_start(encoding: &str, bom: bool) -> u64 {
+    if !bom {
+        0
+    } else if encoding == "utf-8-bom" {
+        3
+    } else {
+        2
+    }
+}
+
+fn large_text_unit_width(encoding: &str) -> usize {
+    if matches!(encoding, "utf-16-le" | "utf-16-be") {
+        2
+    } else {
+        1
+    }
+}
+
+fn large_text_unit(bytes: &[u8], encoding: &str) -> u16 {
+    match encoding {
+        "utf-16-le" => utf16_unit(bytes, true),
+        "utf-16-be" => utf16_unit(bytes, false),
+        _ => bytes[0] as u16,
+    }
+}
+
+fn decode_large_text_line(bytes: &[u8], encoding: &str) -> String {
+    match encoding {
+        "utf-16-le" | "utf-16-be" => {
+            let little_endian = encoding == "utf-16-le";
+            let units: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|pair| utf16_unit(pair, little_endian))
+                .collect();
+            String::from_utf16_lossy(&units)
+        }
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
+fn mark_large_text_error(session: &LargeTextSession, message: String) {
+    session.cancel.store(true, Ordering::Release);
+    if let Ok(mut index) = session.index.lock() {
+        index.error = Some(message);
+        index.complete = false;
+    }
+}
+
+fn validate_large_text_file(session: &LargeTextSession) -> Result<(), String> {
+    let metadata = session
+        .path
+        .metadata()
+        .map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if metadata.len() != session.file_size || modified_millis(&metadata) != session.modified_at {
+        let message = "文件已被外部修改，请重新打开后继续查看".to_string();
+        mark_large_text_error(session, message.clone());
+        return Err(message);
+    }
+    Ok(())
+}
+
+fn record_large_text_break(
+    index: &mut LargeTextIndexState,
+    line_number: &mut u64,
+    next_line_offset: u64,
+) {
+    *line_number += 1;
+    if (*line_number - 1) % LARGE_TEXT_CHECKPOINT_LINES == 0 {
+        index.checkpoints.push(LargeTextCheckpoint {
+            line_number: *line_number,
+            byte_offset: next_line_offset,
+        });
+    }
+}
+
+fn run_large_text_index(session: Arc<LargeTextSession>) {
+    let result = (|| -> Result<(), String> {
+        let unit_width = large_text_unit_width(session.encoding);
+        let content_start = large_text_content_start(session.encoding, session.bom);
+        let mut file = File::open(&session.path).map_err(|error| format!("无法打开文件：{error}"))?;
+        file.seek(SeekFrom::Start(content_start))
+            .map_err(|error| format!("无法定位文件内容：{error}"))?;
+        let mut buffer = vec![0; LARGE_TEXT_CHUNK_BYTES as usize];
+        let mut byte_offset = content_start;
+        let mut line_number = 1_u64;
+        let mut pending_cr_end: Option<u64> = None;
+
+        loop {
+            if session.cancel.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            validate_large_text_file(&session)?;
+            let read = file
+                .read(&mut buffer)
+                .map_err(|error| format!("无法读取文件：{error}"))?;
+            if read == 0 {
+                break;
+            }
+            let complete = read - read % unit_width;
+            let mut index = session.index.lock().map_err(|_| "大文件索引状态不可用")?;
+            for raw in buffer[..complete].chunks_exact(unit_width) {
+                let unit = large_text_unit(raw, session.encoding);
+                let next_offset = byte_offset + unit_width as u64;
+                if let Some(cr_end) = pending_cr_end.take() {
+                    if unit == 0x0A {
+                        record_large_text_break(&mut index, &mut line_number, next_offset);
+                        byte_offset = next_offset;
+                        continue;
+                    }
+                    record_large_text_break(&mut index, &mut line_number, cr_end);
+                }
+                if unit == 0x0D {
+                    pending_cr_end = Some(next_offset);
+                } else if unit == 0x0A {
+                    record_large_text_break(&mut index, &mut line_number, next_offset);
+                }
+                byte_offset = next_offset;
+            }
+            index.indexed_bytes = byte_offset;
+            index.indexed_line_count = line_number;
+        }
+
+        let mut index = session.index.lock().map_err(|_| "大文件索引状态不可用")?;
+        if let Some(cr_end) = pending_cr_end {
+            record_large_text_break(&mut index, &mut line_number, cr_end);
+        }
+        index.indexed_bytes = session.file_size;
+        index.indexed_line_count = line_number;
+        index.total_lines = Some(line_number);
+        index.complete = true;
+        Ok(())
+    })();
+
+    if let Err(message) = result {
+        mark_large_text_error(&session, message);
+    }
+}
+
+fn append_large_text_line(
+    session: &LargeTextSession,
+    requested_start: u64,
+    requested_count: u64,
+    line_number: &mut u64,
+    content: &[u8],
+    response_bytes: &mut usize,
+    lines: &mut Vec<LargeTextLine>,
+) -> bool {
+    if *line_number >= requested_start && (lines.len() as u64) < requested_count {
+        if !lines.is_empty()
+            && response_bytes.saturating_add(content.len()) > LARGE_TEXT_CHUNK_BYTES as usize
+        {
+            return true;
+        }
+        let decoded = decode_large_text_line(content, session.encoding);
+        *response_bytes = response_bytes.saturating_add(decoded.len());
+        lines.push(LargeTextLine {
+            line_number: *line_number,
+            content: decoded,
+        });
+    }
+    *line_number += 1;
+    lines.len() as u64 >= requested_count
+}
+
+fn read_large_text_lines_internal(
+    session: &LargeTextSession,
+    start_line: u64,
+    line_count: u64,
+) -> Result<LargeTextLinesResult, String> {
+    if start_line == 0 || line_count == 0 {
+        return Err("行号和读取行数必须大于 0".into());
+    }
+    validate_large_text_file(session)?;
+    let checkpoint = {
+        let index = session.index.lock().map_err(|_| "大文件索引状态不可用")?;
+        if let Some(error) = &index.error {
+            return Err(error.clone());
+        }
+        index
+            .checkpoints
+            .iter()
+            .rev()
+            .find(|checkpoint| checkpoint.line_number <= start_line)
+            .cloned()
+            .unwrap_or(LargeTextCheckpoint {
+                line_number: 1,
+                byte_offset: large_text_content_start(session.encoding, session.bom),
+            })
+    };
+
+    let unit_width = large_text_unit_width(session.encoding);
+    let mut file = File::open(&session.path).map_err(|error| format!("无法打开文件：{error}"))?;
+    file.seek(SeekFrom::Start(checkpoint.byte_offset))
+        .map_err(|error| format!("无法定位文件内容：{error}"))?;
+    let mut buffer = vec![0; LARGE_TEXT_CHUNK_BYTES as usize];
+    let mut line_number = checkpoint.line_number;
+    let mut current_content = Vec::new();
+    let mut pending_cr = false;
+    let mut lines = Vec::new();
+    let mut response_bytes = 0_usize;
+    let mut stopped = false;
+
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("无法读取文件：{error}"))?;
+        if read == 0 {
+            break;
+        }
+        let complete = read - read % unit_width;
+        for raw in buffer[..complete].chunks_exact(unit_width) {
+            let unit = large_text_unit(raw, session.encoding);
+            if pending_cr {
+                if unit == 0x0A {
+                    stopped = append_large_text_line(
+                        session,
+                        start_line,
+                        line_count,
+                        &mut line_number,
+                        &current_content,
+                        &mut response_bytes,
+                        &mut lines,
+                    );
+                    current_content.clear();
+                    pending_cr = false;
+                    if stopped {
+                        break;
+                    }
+                    continue;
+                }
+                stopped = append_large_text_line(
+                    session,
+                    start_line,
+                    line_count,
+                    &mut line_number,
+                    &current_content,
+                    &mut response_bytes,
+                    &mut lines,
+                );
+                current_content.clear();
+                pending_cr = false;
+                if stopped {
+                    break;
+                }
+            }
+            if unit == 0x0D {
+                pending_cr = true;
+            } else if unit == 0x0A {
+                stopped = append_large_text_line(
+                    session,
+                    start_line,
+                    line_count,
+                    &mut line_number,
+                    &current_content,
+                    &mut response_bytes,
+                    &mut lines,
+                );
+                current_content.clear();
+                if stopped {
+                    break;
+                }
+            } else if line_number >= start_line {
+                current_content.extend_from_slice(raw);
+            }
+        }
+        if stopped {
+            break;
+        }
+    }
+
+    if !stopped {
+        if pending_cr {
+            stopped = append_large_text_line(
+                session,
+                start_line,
+                line_count,
+                &mut line_number,
+                &current_content,
+                &mut response_bytes,
+                &mut lines,
+            );
+            current_content.clear();
+        }
+        if !stopped {
+            append_large_text_line(
+                session,
+                start_line,
+                line_count,
+                &mut line_number,
+                &current_content,
+                &mut response_bytes,
+                &mut lines,
+            );
+        }
+    }
+
+    validate_large_text_file(session)?;
+    let actual_start = lines.first().map(|line| line.line_number).unwrap_or(start_line);
+    let end_line = lines.last().map(|line| line.line_number).unwrap_or(start_line.saturating_sub(1));
+    Ok(LargeTextLinesResult {
+        start_line: actual_start,
+        end_line,
+        lines,
+    })
+}
+
+fn create_large_text_session(
+    state: &tauri::State<'_, DesktopState>,
+    canonical: PathBuf,
+    metadata: std::fs::Metadata,
+) -> Result<LargeTextSessionInfo, OpenLargeTextError> {
+    let read_limit = metadata.len().min(LARGE_TEXT_CHUNK_BYTES);
+    let mut bytes = Vec::with_capacity(read_limit as usize);
+    File::open(&canonical)
+        .map_err(|error| OpenLargeTextError::Message(format!("无法打开文件：{error}")))?
+        .take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| OpenLargeTextError::Message(format!("无法读取文件：{error}")))?;
+    let (content, encoding, bom, _) = decode_text(&bytes, true).map_err(|error| match error {
+        DecodeTextError::BinaryContent => OpenLargeTextError::BinaryContent,
+        DecodeTextError::UnsupportedEncoding => OpenLargeTextError::UnsupportedEncoding,
+    })?;
+    let line_ending = detect_line_ending(&content);
+    let id = state
+        .next_large_text_session_id
+        .fetch_add(1, Ordering::Relaxed)
+        .saturating_add(1)
+        .to_string();
+    let content_start = large_text_content_start(encoding, bom);
+    let session = Arc::new(LargeTextSession {
+        id: id.clone(),
+        path: canonical,
+        file_size: metadata.len(),
+        modified_at: modified_millis(&metadata),
+        encoding,
+        line_ending,
+        bom,
+        cancel: AtomicBool::new(false),
+        index: Mutex::new(LargeTextIndexState {
+            indexed_bytes: content_start,
+            indexed_line_count: 1,
+            complete: false,
+            total_lines: None,
+            error: None,
+            checkpoints: vec![LargeTextCheckpoint {
+                line_number: 1,
+                byte_offset: content_start,
+            }],
+        }),
+    });
+    let initial = read_large_text_lines_internal(&session, 1, LARGE_TEXT_INITIAL_LINES)
+        .map_err(OpenLargeTextError::Message)?;
+    state
+        .large_text_sessions
+        .lock()
+        .map_err(|_| OpenLargeTextError::Message("大文件会话状态不可用".into()))?
+        .insert(id.clone(), Arc::clone(&session));
+    let index_session = Arc::clone(&session);
+    std::thread::spawn(move || run_large_text_index(index_session));
+
+    Ok(LargeTextSessionInfo {
+        session_id: session.id.clone(),
+        encoding,
+        line_ending: session.line_ending,
+        bom,
+        file_size: session.file_size,
+        modified_at: session.modified_at,
+        initial_lines: initial.lines,
+        indexed_bytes: content_start,
+        indexed_line_count: 1,
+    })
+}
+
+fn get_large_text_session(
+    state: &tauri::State<'_, DesktopState>,
+    session_id: &str,
+) -> Result<Arc<LargeTextSession>, String> {
+    state
+        .large_text_sessions
+        .lock()
+        .map_err(|_| "大文件会话状态不可用".to_string())?
+        .get(session_id)
+        .cloned()
+        .ok_or_else(|| "大文件会话不存在或已关闭".to_string())
 }
 
 #[tauri::command]
-fn read_text(path: String) -> Result<TextReadResult, String> {
+fn read_text(
+    state: tauri::State<'_, DesktopState>,
+    path: String,
+) -> Result<TextReadResult, String> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -676,20 +1207,33 @@ fn read_text(path: String) -> Result<TextReadResult, String> {
     if !metadata.is_file() {
         return Err("所选路径不是文件".into());
     }
+    let threshold_bytes = state
+        .settings
+        .lock()
+        .map_err(|_| "设置状态不可用")?
+        .large_file_threshold_mb
+        .saturating_mul(1024 * 1024);
+    if metadata.len() > threshold_bytes {
+        return match create_large_text_session(&state, canonical, metadata) {
+            Ok(session) => Ok(TextReadResult::LargeText { session }),
+            Err(OpenLargeTextError::BinaryContent) => Ok(TextReadResult::BinaryContent {
+                message: "文件包含二进制内容，不能作为文本打开。",
+            }),
+            Err(OpenLargeTextError::UnsupportedEncoding) => {
+                Ok(TextReadResult::UnsupportedEncoding {
+                    message: "文件可能是文本，但其编码暂不受支持。",
+                })
+            }
+            Err(OpenLargeTextError::Message(message)) => Err(message),
+        };
+    }
 
-    let truncated = metadata.len() > MAX_EDITABLE_TEXT_BYTES;
-    let read_limit = if truncated {
-        LARGE_TEXT_PREVIEW_BYTES
-    } else {
-        metadata.len()
-    };
-    let mut bytes = Vec::with_capacity(read_limit.min(usize::MAX as u64) as usize);
+    let mut bytes = Vec::with_capacity(metadata.len().min(usize::MAX as u64) as usize);
     File::open(&canonical)
         .map_err(|error| format!("无法打开文件：{error}"))?
-        .take(read_limit)
         .read_to_end(&mut bytes)
         .map_err(|error| format!("无法读取文件：{error}"))?;
-    let (content, encoding, bom) = match decode_text(&bytes, truncated) {
+    let (content, encoding, bom, _) = match decode_text(&bytes, false) {
         Ok(result) => result,
         Err(DecodeTextError::BinaryContent) => {
             return Ok(TextReadResult::BinaryContent {
@@ -703,17 +1247,81 @@ fn read_text(path: String) -> Result<TextReadResult, String> {
         }
     };
     let line_ending = detect_line_ending(&content);
-
     Ok(TextReadResult::Success {
         document: TextDocument {
             content,
             encoding,
             line_ending,
             bom,
-            read_only: truncated,
-            truncated,
+            read_only: false,
         },
     })
+}
+
+#[tauri::command]
+fn open_large_text_session(
+    state: tauri::State<'_, DesktopState>,
+    path: String,
+) -> Result<LargeTextSessionInfo, String> {
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    create_large_text_session(&state, canonical, metadata).map_err(|error| match error {
+        OpenLargeTextError::BinaryContent => "文件包含二进制内容，不能作为文本打开。".into(),
+        OpenLargeTextError::UnsupportedEncoding => "文件可能是文本，但其编码暂不受支持。".into(),
+        OpenLargeTextError::Message(message) => message,
+    })
+}
+
+#[tauri::command]
+fn get_large_text_index_status(
+    state: tauri::State<'_, DesktopState>,
+    session_id: String,
+) -> Result<LargeTextIndexStatus, String> {
+    let session = get_large_text_session(&state, &session_id)?;
+    validate_large_text_file(&session)?;
+    let index = session.index.lock().map_err(|_| "大文件索引状态不可用")?;
+    Ok(LargeTextIndexStatus {
+        indexed_bytes: index.indexed_bytes,
+        file_size: session.file_size,
+        indexed_line_count: index.indexed_line_count,
+        complete: index.complete,
+        total_lines: index.total_lines,
+        error: index.error.clone(),
+    })
+}
+
+#[tauri::command]
+fn read_text_lines(
+    state: tauri::State<'_, DesktopState>,
+    session_id: String,
+    start_line: u64,
+    line_count: u64,
+) -> Result<LargeTextLinesResult, String> {
+    let session = get_large_text_session(&state, &session_id)?;
+    read_large_text_lines_internal(&session, start_line, line_count)
+}
+
+#[tauri::command]
+fn close_large_text_session(
+    state: tauri::State<'_, DesktopState>,
+    session_id: String,
+) -> Result<(), String> {
+    let session = state
+        .large_text_sessions
+        .lock()
+        .map_err(|_| "大文件会话状态不可用")?
+        .remove(&session_id);
+    if let Some(session) = session {
+        session.cancel.store(true, Ordering::Release);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1470,6 +2078,10 @@ pub fn run() {
             fetch_remote_document,
             installer::read_installer,
             read_text,
+            open_large_text_session,
+            get_large_text_index_status,
+            read_text_lines,
+            close_large_text_session,
             read_image,
             read_binary,
             read_legacy_doc,

@@ -23,56 +23,48 @@ export function initializeViewerRegistry() {
     kind: "image",
     extensions: ["jpg", "jpeg", "png", "webp", "gif", "svg"],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./ImageViewer.vue"),
   });
   registerViewer({
     kind: "pdf",
     extensions: ["pdf"],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./PdfViewer.vue"),
   });
   registerViewer({
     kind: "docx",
     extensions: ["doc", "docx"],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./DocxViewer.vue"),
   });
   registerViewer({
     kind: "xlsx",
     extensions: ["xls", "xlsx"],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./XlsxViewer.vue"),
   });
   registerViewer({
     kind: "archive",
     extensions: ["zip", "tar", "tgz", "gz"],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./ArchiveViewer.vue"),
   });
   registerViewer({
     kind: "video",
     extensions: ["mp4", "webm", "mov"],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./VideoViewer.vue"),
   });
   registerViewer({
     kind: "installer",
     extensions: ["exe", "msi", "msixbundle"],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./InstallerViewer.vue"),
   });
   registerViewer({
     kind: "markdown",
     extensions: ["md", "markdown"],
     readOnly: false,
-    maxEditableBytes: 20 * 1024 * 1024,
     load: () => import("./MarkdownViewer.vue"),
   });
   registerViewer({
@@ -80,7 +72,6 @@ export function initializeViewerRegistry() {
     componentKey: "structured",
     extensions: ["json"],
     readOnly: false,
-    maxEditableBytes: 20 * 1024 * 1024,
     load: () => import("./StructuredViewer.vue"),
   });
   registerViewer({
@@ -88,7 +79,6 @@ export function initializeViewerRegistry() {
     componentKey: "structured",
     extensions: ["yaml", "yml"],
     readOnly: false,
-    maxEditableBytes: 20 * 1024 * 1024,
     load: () => import("./StructuredViewer.vue"),
   });
   registerViewer({
@@ -96,14 +86,12 @@ export function initializeViewerRegistry() {
     extensions: [],
     fileNames: ["Dockerfile", "Makefile", "CMakeLists.txt"],
     readOnly: false,
-    maxEditableBytes: 20 * 1024 * 1024,
     load: () => import("./TextViewer.vue"),
   });
   registerViewer({
     kind: "hex",
     extensions: [],
     readOnly: true,
-    maxEditableBytes: null,
     load: () => import("./HexViewer.vue"),
   });
 }
