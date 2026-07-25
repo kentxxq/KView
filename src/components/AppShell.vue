@@ -3,6 +3,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 defineProps<{ immersive?: boolean }>();
+const emit = defineEmits<{ "request-close": [] }>();
 
 function withWindow(action: (window: ReturnType<typeof getCurrentWindow>) => Promise<void>) {
   if (isTauri()) void action(getCurrentWindow());
@@ -17,7 +18,7 @@ function toggleMaximizeWindow() {
 }
 
 function closeWindow() {
-  withWindow((window) => window.close());
+  emit("request-close");
 }
 </script>
 

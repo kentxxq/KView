@@ -2,7 +2,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { defineShortcuts, useToast } from "@nuxt/ui/composables";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import AppShell from "./AppShell.vue";
 import EmptyState from "./EmptyState.vue";
@@ -70,6 +69,7 @@ const canScrollTabsRight = ref(false);
 let tabSequence = 0;
 let spaceOpenSequence = 0;
 let spaceOpenSessionSequence = 0;
+let windowClosePending = false;
 let disposeLifecycle: (() => void) | undefined;
 let resolveGuard: ((result: boolean) => void) | undefined;
 let tabResizeObserver: ResizeObserver | undefined;
@@ -416,13 +416,8 @@ function resetSpaceOpenLink() {
 
 async function cancelSpaceOpenLink() {
   const tabId = spaceOpenTabId.value;
-  if (!tabId) return;
   await invoke("cancel_space_open");
-  if (spaceOpenTabId.value === tabId) resetSpaceOpenLink();
-}
-
-function handleSpaceOpenCloseRequested() {
-  resetSpaceOpenLink();
+  if (tabId && spaceOpenTabId.value === tabId) resetSpaceOpenLink();
 }
 
 function openCurrentAsHex() {
@@ -804,8 +799,25 @@ async function returnHome() {
 }
 
 async function closeWindow() {
-  if (!isTauri()) return;
-  await getCurrentWindow().close();
+  if (!isTauri() || windowClosePending) return;
+  windowClosePending = true;
+  try {
+    const keepTabs = keepTabsOnWindowClose();
+    if (!keepTabs && !(await requestDirtyDecision([...tabs]))) return;
+    await cancelSpaceOpenLink();
+    if (!keepTabs) clearWorkspace();
+    await invoke("close_main_window");
+  } catch (error) {
+    recordDiagnostic("lifecycle", "window-close-failed");
+    toast.add({
+      title: "无法关闭窗口",
+      description: errorMessage(error),
+      color: "error",
+      icon: "i-lucide-triangle-alert",
+    });
+  } finally {
+    windowClosePending = false;
+  }
 }
 
 function keepTabsOnWindowClose() {
@@ -852,12 +864,7 @@ onMounted(async () => {
   disposeLifecycle = await initializeDesktopLifecycle({
     onPaths: openPaths,
     onSpaceOpenPath: startSpaceOpen,
-    onSpaceOpenCloseRequested: handleSpaceOpenCloseRequested,
-    onRequestClose: () => keepTabsOnWindowClose() || requestDirtyDecision([...tabs]),
-    onBeforeClose: async () => {
-      await cancelSpaceOpenLink();
-      if (!keepTabsOnWindowClose()) clearWorkspace();
-    },
+    onWindowCloseRequested: closeWindow,
     onDragStateChange: (active) => { dragActive.value = active; },
     onOpenFile: selectFile,
     onCloseTab: () => closeTab(),
@@ -887,7 +894,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <AppShell :immersive="tabs.length > 0">
+  <AppShell :immersive="tabs.length > 0" @request-close="closeWindow">
     <template #title-content>
       <div v-if="tabs.length" class="workspace-tab-viewport relative h-full max-w-full" data-tauri-drag-region>
         <div

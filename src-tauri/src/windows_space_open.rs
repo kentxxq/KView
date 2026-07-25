@@ -159,7 +159,7 @@ fn open_with_space(app: &AppHandle, path: String) {
 }
 
 fn request_window_close(app: &AppHandle) {
-    if stop_space_open(app) {
+    if SPACE_OPEN_ACTIVE.load(Ordering::SeqCst) {
         let _ = app.emit("space-open-close-requested", ());
     }
 }

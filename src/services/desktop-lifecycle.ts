@@ -6,9 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 interface DesktopLifecycleHandlers {
   onPaths: (paths: string[]) => void | Promise<void>;
   onSpaceOpenPath?: (path: string | null) => void | Promise<void>;
-  onSpaceOpenCloseRequested?: () => void | Promise<void>;
-  onRequestClose: () => boolean | Promise<boolean>;
-  onBeforeClose: () => void | Promise<void>;
+  onWindowCloseRequested: () => void | Promise<void>;
   onDragStateChange: (active: boolean) => void;
   onOpenFile?: () => void | Promise<void>;
   onCloseTab?: () => void | Promise<void>;
@@ -31,10 +29,7 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
 
   unlisteners.push(await listen("open-requested", consumePendingPaths));
   unlisteners.push(await listen("space-open-path-changed", consumePendingSpaceOpen));
-  unlisteners.push(await listen("space-open-close-requested", async () => {
-    await handlers.onSpaceOpenCloseRequested?.();
-    await getCurrentWindow().close();
-  }));
+  unlisteners.push(await listen("space-open-close-requested", handlers.onWindowCloseRequested));
   if (handlers.onOpenFile) unlisteners.push(await listen("menu-open-file", handlers.onOpenFile));
   if (handlers.onCloseTab) unlisteners.push(await listen("menu-close-tab", handlers.onCloseTab));
   if (handlers.onNextTab) unlisteners.push(await listen("menu-next-tab", handlers.onNextTab));
@@ -54,10 +49,7 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
   unlisteners.push(
     await getCurrentWindow().onCloseRequested(async (event) => {
       event.preventDefault();
-      if (await handlers.onRequestClose()) {
-        await handlers.onBeforeClose();
-        await invoke("close_main_window");
-      }
+      await handlers.onWindowCloseRequested();
     }),
   );
 
