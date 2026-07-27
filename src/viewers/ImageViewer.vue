@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import type { CSSProperties } from "vue";
 import DOMPurify from "dompurify";
 import type { OpenedFile } from "../types/document";
@@ -10,6 +10,7 @@ const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean
 
 const viewport = ref<HTMLElement>();
 const imageViewport = ref<HTMLElement>();
+const imageFrame = ref<HTMLElement>();
 const zoom = ref(1);
 const rotation = ref(0);
 const width = ref(0);
@@ -17,9 +18,14 @@ const height = ref(0);
 const availableWidth = ref(1);
 const availableHeight = ref(1);
 const failed = ref(false);
+const isDragging = ref(false);
 const safeSource = ref(props.content);
 let objectUrl: string | undefined;
 let resizeObserver: ResizeObserver | undefined;
+let dragPointerId: number | undefined;
+let lastPointerX = 0;
+let lastPointerY = 0;
+let zoomRequestId = 0;
 
 const rotated = computed(() => rotation.value % 180 !== 0);
 const fitScale = computed(() => {
@@ -36,6 +42,9 @@ const displayedWidth = computed(() => width.value * fitScale.value * zoom.value)
 const displayedHeight = computed(() => height.value * fitScale.value * zoom.value);
 const frameWidth = computed(() => rotated.value ? displayedHeight.value : displayedWidth.value);
 const frameHeight = computed(() => rotated.value ? displayedWidth.value : displayedHeight.value);
+const canPan = computed(() => (
+  frameWidth.value > availableWidth.value || frameHeight.value > availableHeight.value
+));
 const contentStyle = computed(() => ({
   width: `${Math.max(availableWidth.value, frameWidth.value)}px`,
   height: `${Math.max(availableHeight.value, frameHeight.value)}px`,
@@ -60,8 +69,62 @@ function rotate() {
   rotation.value = (rotation.value + 90) % 360;
 }
 
-function handleWheel(event: WheelEvent) {
+async function handleWheel(event: WheelEvent) {
+  const element = imageViewport.value;
+  const frame = imageFrame.value;
+  if (!element || !frame) return;
+
+  const frameBounds = frame.getBoundingClientRect();
+  const focalX = frameBounds.width
+    ? (event.clientX - frameBounds.left) / frameBounds.width
+    : 0.5;
+  const focalY = frameBounds.height
+    ? (event.clientY - frameBounds.top) / frameBounds.height
+    : 0.5;
+  const requestId = ++zoomRequestId;
+
   clampZoom(zoom.value * Math.exp(-event.deltaY * 0.0015));
+  await nextTick();
+  if (requestId !== zoomRequestId) return;
+
+  const nextFrameBounds = frame.getBoundingClientRect();
+  const focalClientX = nextFrameBounds.left + nextFrameBounds.width * focalX;
+  const focalClientY = nextFrameBounds.top + nextFrameBounds.height * focalY;
+  element.scrollLeft += focalClientX - event.clientX;
+  element.scrollTop += focalClientY - event.clientY;
+}
+
+function startDragging(event: PointerEvent) {
+  const element = imageViewport.value;
+  if (!element || !canPan.value || event.button !== 0) return;
+
+  event.preventDefault();
+  dragPointerId = event.pointerId;
+  lastPointerX = event.clientX;
+  lastPointerY = event.clientY;
+  isDragging.value = true;
+  element.setPointerCapture(event.pointerId);
+}
+
+function dragImage(event: PointerEvent) {
+  const element = imageViewport.value;
+  if (!element || !isDragging.value || event.pointerId !== dragPointerId) return;
+
+  element.scrollLeft -= event.clientX - lastPointerX;
+  element.scrollTop -= event.clientY - lastPointerY;
+  lastPointerX = event.clientX;
+  lastPointerY = event.clientY;
+}
+
+function stopDragging(event: PointerEvent) {
+  const element = imageViewport.value;
+  if (!element || event.pointerId !== dragPointerId) return;
+
+  if (element.hasPointerCapture(event.pointerId)) {
+    element.releasePointerCapture(event.pointerId);
+  }
+  dragPointerId = undefined;
+  isDragging.value = false;
 }
 
 async function toggleFullscreen() {
@@ -85,10 +148,19 @@ function updateAvailableSize() {
   const element = imageViewport.value;
   if (!element) return;
   const styles = window.getComputedStyle(element);
-  const horizontalPadding = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
-  const verticalPadding = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
-  availableWidth.value = Math.max(1, element.clientWidth - horizontalPadding);
-  availableHeight.value = Math.max(1, element.clientHeight - verticalPadding);
+  const horizontalInsets = (Number.parseFloat(styles.paddingLeft) || 0)
+    + (Number.parseFloat(styles.paddingRight) || 0)
+    + (Number.parseFloat(styles.borderLeftWidth) || 0)
+    + (Number.parseFloat(styles.borderRightWidth) || 0);
+  const verticalInsets = (Number.parseFloat(styles.paddingTop) || 0)
+    + (Number.parseFloat(styles.paddingBottom) || 0)
+    + (Number.parseFloat(styles.borderTopWidth) || 0)
+    + (Number.parseFloat(styles.borderBottomWidth) || 0);
+  const bounds = element.getBoundingClientRect();
+
+  // clientWidth/clientHeight 会随滚动条出现或消失而改变，临界缩放比例下会导致适配尺寸反复震荡。
+  availableWidth.value = Math.max(1, bounds.width - horizontalInsets);
+  availableHeight.value = Math.max(1, bounds.height - verticalInsets);
 }
 
 onMounted(() => {
@@ -117,7 +189,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="viewport" class="relative flex size-full min-h-0 flex-col bg-muted">
-    <div ref="imageViewport" class="min-h-0 flex-1 overflow-auto p-8" @wheel.prevent="handleWheel">
+    <div
+      ref="imageViewport"
+      class="min-h-0 flex-1 overflow-auto p-8"
+      :class="canPan ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : ''"
+      @pointerdown="startDragging"
+      @pointermove="dragImage"
+      @pointerup="stopDragging"
+      @pointercancel="stopDragging"
+      @wheel.prevent="handleWheel"
+    >
       <div v-if="failed" class="grid size-full place-items-center">
         <UAlert
           class="max-w-md"
@@ -129,7 +210,7 @@ onBeforeUnmount(() => {
         />
       </div>
       <div v-else class="relative" :style="contentStyle">
-        <div class="absolute left-1/2 top-1/2" :style="frameStyle">
+        <div ref="imageFrame" class="absolute left-1/2 top-1/2" :style="frameStyle">
           <img
             :src="safeSource"
             :alt="file.name"
