@@ -21,7 +21,14 @@ export function initializeViewerRegistry() {
 
   registerViewer({
     kind: "image",
-    extensions: ["jpg", "jpeg", "png", "webp", "gif", "svg"],
+    extensions: ["jpg", "jpeg", "heic", "heif", "png", "webp", "gif", "svg"],
+    readOnly: true,
+    load: () => import("./ImageViewer.vue"),
+  });
+  registerViewer({
+    kind: "live-photo",
+    componentKey: "image",
+    extensions: ["livp"],
     readOnly: true,
     load: () => import("./ImageViewer.vue"),
   });

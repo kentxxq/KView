@@ -1,4 +1,5 @@
 mod installer;
+mod live_photo;
 #[cfg(target_os = "windows")]
 mod windows_space_open;
 
@@ -441,7 +442,8 @@ fn open_log_directory(app: AppHandle) -> Result<(), String> {
 
 fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
     match extension {
-        "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" => "image",
+        "livp" => "live-photo",
+        "jpg" | "jpeg" | "heic" | "heif" | "png" | "webp" | "gif" | "svg" => "image",
         "md" | "markdown" => "markdown",
         "json" => "json",
         "yaml" | "yml" => "yaml",
@@ -1343,6 +1345,7 @@ fn read_image(path: String) -> Result<ImageDocument, String> {
         .to_lowercase();
     let mime_type = match extension.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
+        "heic" | "heif" => return Err("HEIC/HEIF 图片需要使用二进制预览接口".into()),
         "png" => "image/png",
         "webp" => "image/webp",
         "gif" => "image/gif",
@@ -1355,6 +1358,22 @@ fn read_image(path: String) -> Result<ImageDocument, String> {
         data_url: format!("data:{mime_type};base64,{}", BASE64.encode(bytes)),
         mime_type,
     })
+}
+
+#[tauri::command]
+fn read_heic_preview(path: String) -> Result<tauri::ipc::Response, String> {
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    live_photo::read_heic_preview(&canonical).map(tauri::ipc::Response::new)
+}
+
+#[tauri::command]
+fn read_live_photo(path: String) -> Result<tauri::ipc::Response, String> {
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问文件：{error}"))?;
+    live_photo::read_live_photo(&canonical).map(tauri::ipc::Response::new)
 }
 
 #[tauri::command]
@@ -1767,7 +1786,12 @@ fn inspect_file(path: String) -> Result<OpenedFile, String> {
         extension = name.trim_start_matches('.').to_lowercase();
     }
     let modified_at = modified_millis(&metadata);
-    let kind = viewer_kind(&extension, &name);
+    let mut kind = viewer_kind(&extension, &name);
+    if matches!(extension.as_str(), "livp" | "jpg" | "jpeg" | "heic" | "heif")
+        && live_photo::is_live_photo(&canonical)
+    {
+        kind = "live-photo";
+    }
 
     Ok(OpenedFile {
         source: "local",
@@ -1850,6 +1874,9 @@ fn collect_sibling_files(path: &str) -> Result<SiblingFileList, String> {
         .filter(|entry_path| entry_path.metadata().is_ok_and(|metadata| metadata.is_file()))
         .filter(|entry_path| entry_path.file_name().and_then(|name| name.to_str()).is_some())
         .collect();
+
+    let paired_videos = live_photo::paired_video_paths(&files);
+    files.retain(|entry_path| !paired_videos.contains(entry_path) || entry_path == &current);
 
     if !files.iter().any(|entry_path| entry_path == &current) {
         files.push(current.clone());
@@ -2083,6 +2110,8 @@ pub fn run() {
             read_text_lines,
             close_large_text_session,
             read_image,
+            read_heic_preview,
+            read_live_photo,
             read_binary,
             read_legacy_doc,
             read_archive,

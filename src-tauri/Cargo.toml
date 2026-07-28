@@ -31,6 +31,7 @@ tar = "0.4"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
 msi = "0.10"
 pelite = "0.10"
+hpvcd = "0.3.2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -41,6 +42,9 @@ opt-level = 3
 panic = "abort"
 strip = true
 
+[profile.dev.package.hpvcd]
+opt-level = 3
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
@@ -49,6 +53,7 @@ tauri-plugin-single-instance = "2"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows = { version = "0.61.3", features = [
   "Win32_Foundation",
+  "Win32_Graphics_Imaging",
   "Win32_System_Com",
   "Win32_System_Ole",
   "Win32_System_Variant",

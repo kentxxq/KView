@@ -53,7 +53,7 @@ const closeBehaviorOptions = computed(() => [
 ]);
 
 const associationGroups = [
-  { label: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "svg"] },
+  { label: "图片与动态照片", extensions: ["jpg", "jpeg", "heic", "heif", "livp", "png", "webp", "gif", "svg"] },
   {
     label: "文本与数据",
     extensions: ["txt", "log", "json", "yaml", "yml", "xml", "toml", "ini", "env", "conf", "config", "properties", "sql", "csv", "tsv", "md", "markdown"],

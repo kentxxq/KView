@@ -6,6 +6,7 @@ export type LineEnding = "lf" | "crlf" | "cr";
 export type ViewerKind =
   | "empty"
   | "image"
+  | "live-photo"
   | "text"
   | "markdown"
   | "json"
@@ -65,6 +66,7 @@ export interface DocumentState {
   bom: boolean;
   readOnly: boolean;
   largeTextSession: LargeTextSessionInfo | null;
+  objectUrls: string[];
   error: DocumentError | null;
 }
 
@@ -85,6 +87,21 @@ export type TextReadResult =
 export interface ImageDocument {
   dataUrl: string;
   mimeType: string;
+}
+
+export interface LivePhotoDocument {
+  imageUrl: string;
+  imageMimeType: string;
+  videoUrl: string;
+  videoMimeType: string;
+  sourceKind: "livp" | "paired" | "motion-photo";
+}
+
+export interface LivePhotoBinaryHeader {
+  imageLength: number;
+  imageMimeType: string;
+  videoMimeType: string;
+  sourceKind: LivePhotoDocument["sourceKind"];
 }
 
 export interface BinaryDocument {

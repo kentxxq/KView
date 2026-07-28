@@ -13,6 +13,7 @@ export const createDocumentState = (): DocumentState => ({
   bom: false,
   readOnly: true,
   largeTextSession: null,
+  objectUrls: [],
   error: null,
 });
 

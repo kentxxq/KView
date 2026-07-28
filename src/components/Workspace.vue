@@ -29,6 +29,8 @@ import type {
   HtmlDocument,
   ImageDocument,
   InstallerDocument,
+  LivePhotoBinaryHeader,
+  LivePhotoDocument,
   OpenedFile,
   RemoteDocument,
   SaveResult,
@@ -224,6 +226,73 @@ async function closeLargeTextSession(state: DocumentState) {
   }
 }
 
+function revokeObjectUrls(state: DocumentState) {
+  for (const url of state.objectUrls.splice(0)) URL.revokeObjectURL(url);
+}
+
+async function closeDocumentResources(state: DocumentState) {
+  revokeObjectUrls(state);
+  await closeLargeTextSession(state);
+}
+
+function createStateObjectUrl(
+  state: DocumentState,
+  bytes: Uint8Array<ArrayBuffer>,
+  mimeType: string,
+) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  state.objectUrls.push(url);
+  return url;
+}
+
+async function invokeBytes(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const response = await invoke<ArrayBuffer>(command, args);
+  return new Uint8Array(response);
+}
+
+async function loadLivePhotoDocument(state: DocumentState, path: string): Promise<LivePhotoDocument> {
+  const payload = await invokeBytes("read_live_photo", { path });
+  if (payload.byteLength < 4) throw new Error("动态照片数据不完整");
+  const headerLength = new DataView(
+    payload.buffer,
+    payload.byteOffset,
+    payload.byteLength,
+  ).getUint32(0, true);
+  const contentStart = 4 + headerLength;
+  if (headerLength === 0 || contentStart > payload.byteLength) {
+    throw new Error("动态照片数据头无效");
+  }
+  const header = JSON.parse(
+    new TextDecoder().decode(payload.subarray(4, contentStart)),
+  ) as LivePhotoBinaryHeader;
+  const videoStart = contentStart + header.imageLength;
+  if (
+    !Number.isSafeInteger(header.imageLength)
+    || header.imageLength <= 0
+    || videoStart >= payload.byteLength
+  ) {
+    throw new Error("动态照片媒体长度无效");
+  }
+  return {
+    imageUrl: createStateObjectUrl(
+      state,
+      payload.subarray(contentStart, videoStart),
+      header.imageMimeType,
+    ),
+    imageMimeType: header.imageMimeType,
+    videoUrl: createStateObjectUrl(
+      state,
+      payload.subarray(videoStart),
+      header.videoMimeType,
+    ),
+    videoMimeType: header.videoMimeType,
+    sourceKind: header.sourceKind,
+  };
+}
+
 async function loadFileState(
   state: DocumentState,
   path: string,
@@ -240,8 +309,17 @@ async function loadFileState(
   state.largeTextSession = null;
 
   if (file.kind === "image") {
-    const image = await invoke<ImageDocument>("read_image", { path: file.path });
-    state.buffer = image.dataUrl;
+    if (file.extension === "heic" || file.extension === "heif") {
+      const preview = await invokeBytes("read_heic_preview", { path: file.path });
+      state.buffer = createStateObjectUrl(state, preview, "image/bmp");
+    } else {
+      const image = await invoke<ImageDocument>("read_image", { path: file.path });
+      state.buffer = image.dataUrl;
+    }
+    state.readOnly = true;
+  } else if (file.kind === "live-photo") {
+    const livePhoto = await loadLivePhotoDocument(state, file.path);
+    state.buffer = JSON.stringify(livePhoto);
     state.readOnly = true;
   } else if (file.kind === "installer") {
     const installer = await invoke<InstallerDocument>("read_installer", { path: file.path });
@@ -316,7 +394,7 @@ async function loadSpaceOpenPath(path: string | null) {
   if (activeTabId.value === tab.id) void nextTick(scrollActiveTabIntoView);
   else activateTab(tab.id);
   if (!path) {
-    await closeLargeTextSession(tab.state);
+    await closeDocumentResources(tab.state);
     Object.assign(tab.state, createDocumentState(), { status: "error" });
     tab.state.error = {
       code: "space-open-unavailable",
@@ -345,7 +423,7 @@ async function loadSpaceOpenPath(path: string | null) {
     const nextViewerKey = nextViewer.componentKey ?? nextViewer.kind;
     const canReuseViewer = tab.state.status === "ready" && currentViewerKey === nextViewerKey;
     if (!canReuseViewer) {
-      await closeLargeTextSession(tab.state);
+      await closeDocumentResources(tab.state);
       Object.assign(tab.state, createDocumentState(), {
         file,
         status: "loading",
@@ -365,12 +443,14 @@ async function loadSpaceOpenPath(path: string | null) {
     };
   }
   if (sequence === spaceOpenSequence && spaceOpenTabId.value === tab.id) {
-    await closeLargeTextSession(tab.state);
+    await closeDocumentResources(tab.state);
     Object.assign(tab.state, nextState);
     tab.sourceKey = `local:${path}`;
     tab.fallbackName = nextState.file?.name ?? tab.fallbackName;
     if (activeTabId.value === tab.id) Object.assign(documentState, tab.state);
     persistTabs();
+  } else {
+    await closeDocumentResources(nextState);
   }
 }
 
@@ -446,7 +526,7 @@ async function cancelSpaceOpenLink() {
 
 async function openCurrentAsHex() {
   if (!documentState.file || !["binary-content", "unsupported-encoding"].includes(documentState.error?.code ?? "")) return;
-  await closeLargeTextSession(documentState);
+  await closeDocumentResources(documentState);
   documentState.file.kind = "hex";
   documentState.viewerKind = "hex";
   documentState.buffer = null;
@@ -761,7 +841,7 @@ async function closeTabs(targetIds: string[]) {
   if (spaceOpenTabId.value && targetIdSet.has(spaceOpenTabId.value)) {
     await cancelSpaceOpenLink();
   }
-  await Promise.all(targetTabs.map((tab) => closeLargeTextSession(tab.state)));
+  await Promise.all(targetTabs.map((tab) => closeDocumentResources(tab.state)));
   for (let index = tabs.length - 1; index >= 0; index--) {
     if (targetIdSet.has(tabs[index].id)) tabs.splice(index, 1);
   }
@@ -811,7 +891,7 @@ function toggleCurrentFavorite() {
 }
 
 async function clearWorkspace() {
-  await Promise.all(tabs.map((tab) => closeLargeTextSession(tab.state)));
+  await Promise.all(tabs.map((tab) => closeDocumentResources(tab.state)));
   tabs.splice(0);
   activeTabId.value = "";
   resetDocument();
@@ -917,7 +997,7 @@ watch(tabStrip, (element, previousElement) => {
 onBeforeUnmount(() => {
   tabResizeObserver?.disconnect();
   disposeLifecycle?.();
-  void Promise.all(tabs.map((tab) => closeLargeTextSession(tab.state)));
+  void Promise.all(tabs.map((tab) => closeDocumentResources(tab.state)));
 });
 </script>
 

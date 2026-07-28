@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { CSSProperties } from "vue";
 import DOMPurify from "dompurify";
-import type { OpenedFile } from "../types/document";
+import type { LivePhotoDocument, OpenedFile } from "../types/document";
 import { recordDiagnostic } from "../services/diagnostics";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
@@ -19,8 +19,13 @@ const availableWidth = ref(1);
 const availableHeight = ref(1);
 const failed = ref(false);
 const isDragging = ref(false);
-const safeSource = ref(props.content);
-let objectUrl: string | undefined;
+const safeSource = ref("");
+const livePhoto = ref<LivePhotoDocument>();
+const video = ref<HTMLVideoElement>();
+const videoUrl = ref("");
+const playing = ref(false);
+const videoError = ref("");
+let imageObjectUrl: string | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let dragPointerId: number | undefined;
 let lastPointerX = 0;
@@ -60,6 +65,14 @@ const imageStyle = computed<CSSProperties>(() => ({
   transform: `translate(-50%, -50%) rotate(${rotation.value}deg)`,
   visibility: width.value && height.value ? "visible" : "hidden",
 }));
+const livePhotoSourceLabel = computed(() => {
+  if (!livePhoto.value) return "";
+  return {
+    livp: "LIVP",
+    paired: "图片 + 视频",
+    "motion-photo": "Motion Photo",
+  }[livePhoto.value.sourceKind];
+});
 
 function clampZoom(value: number) {
   zoom.value = Math.min(8, Math.max(0.1, value));
@@ -106,6 +119,38 @@ function startDragging(event: PointerEvent) {
   element.setPointerCapture(event.pointerId);
 }
 
+async function startLivePhoto(event?: Event) {
+  if (!livePhoto.value || !video.value || videoError.value) return;
+  event?.preventDefault();
+  playing.value = true;
+  video.value.currentTime = 0;
+  try {
+    await video.value.play();
+  } catch {
+    playing.value = false;
+    videoError.value = "动态部分不受系统解码器支持";
+    recordDiagnostic("viewer", "live-photo-video-decode-failed");
+  }
+}
+
+function stopLivePhoto(event?: Event) {
+  if (!livePhoto.value || !video.value) return;
+  event?.preventDefault();
+  video.value.pause();
+  video.value.currentTime = 0;
+  playing.value = false;
+}
+
+function handleLivePhotoKeyDown(event: KeyboardEvent) {
+  if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+    void startLivePhoto(event);
+  }
+}
+
+function handleLivePhotoKeyUp(event: KeyboardEvent) {
+  if (event.key === " " || event.key === "Enter") stopLivePhoto(event);
+}
+
 function dragImage(event: PointerEvent) {
   const element = imageViewport.value;
   if (!element || !isDragging.value || event.pointerId !== dragPointerId) return;
@@ -144,6 +189,64 @@ function onImageError() {
   recordDiagnostic("viewer", "image-decode-failed");
 }
 
+function onVideoError() {
+  playing.value = false;
+  videoError.value = "动态部分不受系统解码器支持";
+  recordDiagnostic("viewer", "live-photo-video-decode-failed");
+}
+
+function revokeMediaUrls() {
+  if (imageObjectUrl) {
+    URL.revokeObjectURL(imageObjectUrl);
+    imageObjectUrl = undefined;
+  }
+  if (videoUrl.value) {
+    videoUrl.value = "";
+  }
+}
+
+function prepareMedia() {
+  revokeMediaUrls();
+  livePhoto.value = undefined;
+  playing.value = false;
+  videoError.value = "";
+  failed.value = false;
+  width.value = 0;
+  height.value = 0;
+
+  if (props.file.kind === "live-photo") {
+    try {
+      const document = JSON.parse(props.content) as LivePhotoDocument;
+      livePhoto.value = document;
+      safeSource.value = document.imageUrl;
+      const probe = window.document.createElement("video");
+      if (!probe.canPlayType(document.videoMimeType)) {
+        videoError.value = "动态部分不受系统解码器支持";
+        return;
+      }
+      videoUrl.value = document.videoUrl;
+    } catch {
+      failed.value = true;
+      recordDiagnostic("viewer", "live-photo-parse-failed");
+    }
+    return;
+  }
+
+  safeSource.value = props.content;
+  if (props.file.extension === "svg") {
+    const encoded = props.content.split(",", 2)[1] ?? "";
+    const source = new TextDecoder().decode(
+      Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0)),
+    );
+    const sanitized = DOMPurify.sanitize(source, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+      FORBID_TAGS: ["script", "foreignObject"],
+    });
+    imageObjectUrl = URL.createObjectURL(new Blob([sanitized], { type: "image/svg+xml" }));
+    safeSource.value = imageObjectUrl;
+  }
+}
+
 function updateAvailableSize() {
   const element = imageViewport.value;
   if (!element) return;
@@ -164,18 +267,6 @@ function updateAvailableSize() {
 }
 
 onMounted(() => {
-  if (props.file.extension === "svg") {
-    const encoded = props.content.split(",", 2)[1] ?? "";
-    const source = new TextDecoder().decode(
-      Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0)),
-    );
-    const sanitized = DOMPurify.sanitize(source, {
-      USE_PROFILES: { svg: true, svgFilters: true },
-      FORBID_TAGS: ["script", "foreignObject"],
-    });
-    objectUrl = URL.createObjectURL(new Blob([sanitized], { type: "image/svg+xml" }));
-    safeSource.value = objectUrl;
-  }
   resizeObserver = new ResizeObserver(updateAvailableSize);
   if (imageViewport.value) resizeObserver.observe(imageViewport.value);
   updateAvailableSize();
@@ -183,8 +274,14 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
-  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  revokeMediaUrls();
 });
+
+watch(
+  () => [props.file.path, props.file.modifiedAt, props.content] as const,
+  prepareMedia,
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -193,10 +290,16 @@ onBeforeUnmount(() => {
       ref="imageViewport"
       class="min-h-0 flex-1 overflow-auto p-8"
       :class="canPan ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : ''"
+      :tabindex="livePhoto ? 0 : undefined"
+      :aria-label="livePhoto ? '按住播放动态照片' : undefined"
       @pointerdown="startDragging"
+      @pointerdown.left="startLivePhoto"
       @pointermove="dragImage"
-      @pointerup="stopDragging"
-      @pointercancel="stopDragging"
+      @pointerup="stopDragging($event); stopLivePhoto($event)"
+      @pointercancel="stopDragging($event); stopLivePhoto($event)"
+      @pointerleave="stopLivePhoto"
+      @keydown="handleLivePhotoKeyDown"
+      @keyup="handleLivePhotoKeyUp"
       @wheel.prevent="handleWheel"
     >
       <div v-if="failed" class="grid size-full place-items-center">
@@ -220,13 +323,33 @@ onBeforeUnmount(() => {
             @load="onImageLoad"
             @error="onImageError"
           />
+          <video
+            v-if="livePhoto && videoUrl"
+            ref="video"
+            :src="videoUrl"
+            class="absolute left-1/2 top-1/2 max-w-none select-none object-contain shadow-lg transition-opacity"
+            :class="playing ? 'opacity-100' : 'pointer-events-none opacity-0'"
+            :style="imageStyle"
+            playsinline
+            preload="auto"
+            @ended="stopLivePhoto"
+            @error="onVideoError"
+          />
+          <span
+            v-if="livePhoto"
+            class="pointer-events-none absolute left-2 top-2 rounded-md bg-black/65 px-2 py-1 text-[11px] font-semibold tracking-wide text-white backdrop-blur"
+          >
+            LIVE
+          </span>
         </div>
       </div>
     </div>
     <ViewerFooter :file-size="file.size">
       <template #status>
         {{ file.extension.toUpperCase() }}
+        <template v-if="livePhotoSourceLabel"> · {{ livePhotoSourceLabel }}</template>
         <template v-if="width"> · {{ width }} × {{ height }}</template>
+        <template v-if="videoError"> · {{ videoError }}</template>
       </template>
       <template #actions>
         <UTooltip text="缩小" :delay-duration="500"><UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-zoom-out" aria-label="缩小" @click="clampZoom(zoom - 0.1)" /></UTooltip>

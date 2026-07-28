@@ -38,7 +38,7 @@ KView 主要服务于经常查看日志、配置文件和结构化数据的开�
 
 | 类别 | 支持格式 | 已实现能力 |
 | --- | --- | --- |
-| 图片 | JPG/JPEG、PNG、WebP、GIF、SVG | 小图原尺寸居中、大图等比适配，以及缩放、旋转、全屏、尺寸/格式/大小信息；操作不修改源文件 |
+| 图片与动态照片 | JPG/JPEG、HEIC/HEIF、LIVP、PNG、WebP、GIF、SVG | 静态图片支持缩放、旋转、全屏和基本信息；LIVP、Apple 图片与 MOV 文件对、Android Motion Photo 可按住播放动态片段，操作不修改源文件 |
 | 文本与代码 | TXT、LOG、XML、TOML、INI、ENV、CONF、SQL，以及常见代码文件、`Dockerfile`、`Makefile`、`CMakeLists.txt` 等 | Monaco 语法高亮、搜索、折叠、编辑、保存、另存为、暗色主题 |
 | Markdown | MD、Markdown | 源码与安全预览切换、编辑与保存 |
 | 结构化数据 | JSON、YAML/YML | 源码/树形视图、节点搜索、路径复制、格式化、编辑与保存 |
@@ -92,7 +92,7 @@ KView 使用一个 Tauri/Rust 进程负责单实例协调、托盘、文件打�
 ### 核心模型
 
 - `OpenedFile`：归一化后的路径、文件名、扩展名、大小、修改时间、类型、编码、换行符和只读状态。
-- `ViewerKind`：空白、图片、文本、Markdown、JSON、YAML、PDF、DOCX、XLSX、安装包、压缩包、视频、十六进制或不支持。
+- `ViewerKind`：空白、图片、动态照片、文本、Markdown、JSON、YAML、PDF、DOCX、XLSX、安装包、压缩包、视频、十六进制或不支持。
 - `ViewerDefinition`：Viewer 支持的扩展名/文件名、只读属性、编辑大小限制和懒加载入口。
 - `DocumentState`：当前文件、加载/错误状态、Viewer 状态、编辑缓冲区、脏状态和源文件修改时间。
 
@@ -129,14 +129,15 @@ Vue 前端负责应用外壳、多标签和交互状态、Viewer 选择与懒加
 ## 已知限制
 
 - 文本仅支持 UTF-8、UTF-8 BOM 和带 BOM 的 UTF-16 LE/BE；其他本地编码会显示错误，并可按二进制方式查看。
-- 超过 20 MiB 的文本使用 2 MiB 窗口分块只读浏览，不提供编辑、格式化、Markdown 预览或 JSON/YAML 树形视图；图片安全上限为 100 MiB。
+- 超过 20 MiB 的文本使用 2 MiB 窗口分块只读浏览，不提供编辑、格式化、Markdown 预览或 JSON/YAML 树形视图；单张图片安全上限为 100 MiB，LIVP 容器及其解压后媒体总量安全上限为 300 MiB。
 - 远程图片安全上限为 100 MiB，远程 PDF 和视频安全上限为 200 MiB；不支持 HTML 网页、HLS/DASH 流媒体清单和需要登录鉴权的资源。
 - SVG 会移除脚本、事件属性和 `foreignObject`，复杂 SVG 的外观可能发生变化。
 - DOC/DOCX 复杂版式可能与原文件不同；不支持宏和 Office 级排版保真。
 - XLS/XLSX 不承诺宏、图表、公式重算和复杂样式保真。
 - MOV 仅在当前系统 WebView 实际支持对应编码时可播放。
 - 压缩包最多展示前 5,000 个条目，当前仅供浏览，不提供解压和修改。
-- 图片、PDF、Office、安装包、压缩包和视频均不会修改源文件。
+- 图片、动态照片、PDF、Office、安装包、压缩包和视频均不会修改源文件。
+- HEIC/HEIF 静态部分在 Windows 上优先使用系统 WIC/HEIF 解码器，缺少系统组件或其他平台时回退应用内置解码器；解码后的无压缩预览通过二进制 IPC 传输并按路径和修改时间缓存，不再执行 PNG 压缩或 Base64 转换。Live Photo 的 MOV/MP4 动态部分仍依赖当前系统 WebView 支持对应的视频编码，不支持时保留静态封面并显示兼容提示。
 
 ## 技术栈
 
