@@ -3,7 +3,7 @@
 use std::{
     path::Path,
     sync::{
-        atomic::{AtomicBool, AtomicIsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Sender},
         OnceLock,
     },
@@ -35,7 +35,7 @@ use windows::{
 use super::{ensure_main_window, DesktopState, SpaceOpenRequest};
 
 enum SpaceOpenCommand {
-    Toggle(isize),
+    Open(isize),
     RequestWindowClose,
 }
 
@@ -44,7 +44,6 @@ static SPACE_OPEN_ACTIVE: AtomicBool = AtomicBool::new(false);
 static SPACE_DOWN: AtomicBool = AtomicBool::new(false);
 static SPACE_HANDLED: AtomicBool = AtomicBool::new(false);
 static ESCAPE_HANDLED: AtomicBool = AtomicBool::new(false);
-static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
 pub fn install(app: AppHandle) -> Result<(), String> {
     let (sender, receiver) = mpsc::channel();
@@ -58,10 +57,8 @@ pub fn install(app: AppHandle) -> Result<(), String> {
         }
         while let Ok(command) = receiver.recv() {
             match command {
-                SpaceOpenCommand::Toggle(source) => {
-                    if SPACE_OPEN_ACTIVE.load(Ordering::SeqCst) {
-                        request_window_close(&app);
-                    } else if let Some(path) = selected_file(source) {
+                SpaceOpenCommand::Open(source) => {
+                    if let Some(path) = selected_file(source) {
                         open_with_space(&app, path);
                     }
                 }
@@ -91,12 +88,9 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
     let is_down = wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN;
     let is_up = wparam.0 as u32 == WM_KEYUP || wparam.0 as u32 == WM_SYSKEYUP;
     let foreground = unsafe { GetForegroundWindow() }.0 as isize;
-    let main = MAIN_WINDOW.load(Ordering::SeqCst);
     let foreground_window = HWND(foreground as *mut _);
     let explorer_context = is_explorer_window(foreground_window)
         && !is_explorer_search_focused(foreground_window);
-    let space_open_context = SPACE_OPEN_ACTIVE.load(Ordering::SeqCst)
-        && (explorer_context || foreground == main);
 
     if key == VK_SPACE.0 {
         if is_down {
@@ -104,13 +98,9 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                 if SPACE_HANDLED.load(Ordering::SeqCst) {
                     return LRESULT(1);
                 }
-            } else if space_open_context {
-                SPACE_HANDLED.store(true, Ordering::SeqCst);
-                send(SpaceOpenCommand::RequestWindowClose);
-                return LRESULT(1);
             } else if explorer_context {
                 SPACE_HANDLED.store(true, Ordering::SeqCst);
-                send(SpaceOpenCommand::Toggle(foreground));
+                send(SpaceOpenCommand::Open(foreground));
                 return LRESULT(1);
             }
         } else if is_up {
@@ -149,9 +139,6 @@ fn open_with_space(app: &AppHandle, path: String) {
     let app_handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let Ok(window) = ensure_main_window(&app_handle, true) else { return };
-        if let Ok(hwnd) = window.hwnd() {
-            MAIN_WINDOW.store(hwnd.0 as isize, Ordering::SeqCst);
-        }
         let _ = window.set_focus();
         SPACE_OPEN_ACTIVE.store(true, Ordering::SeqCst);
         queue_space_open(&app_handle, Some(path));

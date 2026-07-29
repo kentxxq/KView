@@ -8,7 +8,7 @@ import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const emit = defineEmits<{ "update:content": [value: string] }>();
-const mode = ref<"source" | "preview">("preview");
+const mode = ref<"text" | "preview">("preview");
 const markdown = new MarkdownIt({ html: false, linkify: true, typographer: true });
 const rendered = computed(() => DOMPurify.sanitize(markdown.render(props.content)));
 
@@ -21,7 +21,7 @@ function preventEmbeddedNavigation(event: MouseEvent) {
 <template>
   <div class="flex size-full min-h-0 flex-col bg-default">
     <TextViewer
-      v-if="mode === 'source'"
+      v-if="mode === 'text'"
       class="min-h-0 flex-1"
       :file="file"
       :content="content"
@@ -31,7 +31,7 @@ function preventEmbeddedNavigation(event: MouseEvent) {
     />
     <article
       v-else
-      class="markdown-preview mx-auto w-full max-w-4xl flex-1 overflow-auto px-8 py-10 text-default"
+      class="markdown-preview w-full flex-1 overflow-auto px-8 py-10 text-default"
       v-html="rendered"
       @click="preventEmbeddedNavigation"
     />
@@ -42,8 +42,8 @@ function preventEmbeddedNavigation(event: MouseEvent) {
         <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
       </template>
       <template #actions>
-        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-code-xml" label="源码" :variant="mode === 'source' ? 'soft' : 'ghost'" @click="mode = 'source'" />
-        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-eye" label="预览" :variant="mode === 'preview' ? 'soft' : 'ghost'" @click="mode = 'preview'" />
+        <UButton class="viewer-footer-button transition-colors hover:bg-accented hover:text-highlighted" color="neutral" size="xs" icon="i-lucide-file-text" label="文本" :variant="mode === 'text' ? 'soft' : 'ghost'" @click="mode = 'text'" />
+        <UButton class="viewer-footer-button transition-colors hover:bg-accented hover:text-highlighted" color="neutral" size="xs" icon="i-lucide-eye" label="预览" :variant="mode === 'preview' ? 'soft' : 'ghost'" @click="mode = 'preview'" />
       </template>
     </ViewerFooter>
   </div>

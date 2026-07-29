@@ -333,7 +333,7 @@ async function loadFileState(
     const archive = await invoke<ArchiveDocument>("read_archive", { path: file.path });
     state.buffer = JSON.stringify(archive);
     state.readOnly = true;
-  } else if (["pdf", "docx", "xlsx", "video"].includes(file.kind)) {
+  } else if (["pdf", "docx", "xlsx", "audio", "video"].includes(file.kind)) {
     const binary = await invoke<BinaryDocument>("read_binary", { path: file.path });
     state.buffer = binary.base64;
     state.readOnly = true;

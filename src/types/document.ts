@@ -15,6 +15,7 @@ export type ViewerKind =
   | "docx"
   | "xlsx"
   | "archive"
+  | "audio"
   | "video"
   | "installer"
   | "hex"

@@ -64,6 +64,7 @@ const associationGroups = [
   },
   { label: "文档", extensions: ["pdf", "doc", "docx", "xls", "xlsx"] },
   { label: "压缩包", extensions: ["zip", "tar", "tgz", "gz"] },
+  { label: "音频", extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"] },
   { label: "视频", extensions: ["mp4", "webm"] },
 ];
 

@@ -452,6 +452,7 @@ fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
         "xls" | "xlsx" => "xlsx",
         "zip" | "tar" | "tgz" => "archive",
         "gz" if file_name.to_ascii_lowercase().ends_with(".tar.gz") => "archive",
+        "mp3" | "wav" | "m4a" | "aac" | "flac" | "ogg" | "opus" => "audio",
         "mp4" | "webm" | "mov" => "video",
         "exe" | "msi" | "msixbundle" => "installer",
         _ => "text",

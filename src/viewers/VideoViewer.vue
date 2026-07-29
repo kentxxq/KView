@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import Artplayer from "artplayer";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import type { OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
-const video = ref<HTMLVideoElement>();
+const container = ref<HTMLDivElement>();
+const player = shallowRef<Artplayer>();
 const url = ref("");
 const error = ref("");
 const duration = ref(0);
@@ -23,39 +25,77 @@ function formatDuration(seconds: number) {
   return `${minutes}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
 }
 
+function updateMetadata() {
+  if (!player.value) return;
+  const video = player.value.video;
+  duration.value = video.duration;
+  dimensions.value = `${video.videoWidth} × ${video.videoHeight}`;
+}
+
+function handlePlaybackError() {
+  error.value = "视频无法播放：编码可能不受当前系统 WebView 支持，或文件已经损坏。";
+  player.value?.pause();
+}
+
 onMounted(() => {
   const probe = document.createElement("video");
   if (!probe.canPlayType(mimeType.value)) {
     error.value = `${props.file.extension.toUpperCase()} 的编码或容器不受当前系统 WebView 支持。`;
     return;
   }
+
   const bytes = decodeBase64(props.content);
   url.value = URL.createObjectURL(new Blob([bytes], { type: mimeType.value }));
+  if (!container.value) return;
+
+  const instance = new Artplayer({
+    container: container.value,
+    url: url.value,
+    type: props.file.extension,
+    theme: "#0ea5e9",
+    lang: "zh-cn",
+    autoplay: false,
+    loop: false,
+    setting: false,
+    hotkey: false,
+    pip: false,
+    backdrop: false,
+    fullscreen: true,
+    fullscreenWeb: false,
+    screenshot: false,
+    flip: false,
+    playbackRate: false,
+    aspectRatio: false,
+    subtitleOffset: false,
+    miniProgressBar: false,
+    moreVideoAttr: {
+      preload: "metadata",
+      playsInline: true,
+    },
+  });
+  player.value = instance;
+  instance.on("video:loadedmetadata", updateMetadata);
+  instance.on("video:error", handlePlaybackError);
+  if (instance.video.readyState >= HTMLMediaElement.HAVE_METADATA) updateMetadata();
 });
 
 onBeforeUnmount(() => {
+  player.value?.destroy(false);
+  player.value = undefined;
   if (url.value) URL.revokeObjectURL(url.value);
 });
 </script>
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-black text-white">
-    <div v-if="error" class="grid flex-1 place-items-center p-8 text-center">
-      <div>
-        <UIcon name="i-lucide-circle-slash-2" class="mx-auto mb-3 size-9 text-red-400" />
-        <p class="text-sm text-red-300">{{ error }}</p>
+    <div class="relative min-h-0 flex-1 overflow-hidden bg-black p-4">
+      <div ref="container" class="size-full overflow-hidden bg-black" />
+      <div v-if="error" class="absolute inset-0 grid place-items-center bg-black p-8 text-center">
+        <div>
+          <UIcon name="i-lucide-circle-slash-2" class="mx-auto mb-3 size-9 text-red-400" />
+          <p class="text-sm text-red-300">{{ error }}</p>
+        </div>
       </div>
-    </div>
-    <div v-else class="grid min-h-0 flex-1 place-items-center overflow-hidden bg-black p-4">
-      <video
-        ref="video"
-        class="block max-h-full max-w-full object-contain bg-black"
-        :src="url"
-        controls
-        playsinline
-        @loadedmetadata="duration = video?.duration ?? 0; dimensions = `${video?.videoWidth ?? 0} × ${video?.videoHeight ?? 0}`"
-        @error="error = '视频无法播放：编码可能不受当前系统 WebView 支持，或文件已经损坏。'"
-      />
     </div>
     <ViewerFooter :file-size="file.size">
       <template #status>

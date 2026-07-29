@@ -63,6 +63,12 @@ export function initializeViewerRegistry() {
     load: () => import("./VideoViewer.vue"),
   });
   registerViewer({
+    kind: "audio",
+    extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"],
+    readOnly: true,
+    load: () => import("./AudioViewer.vue"),
+  });
+  registerViewer({
     kind: "installer",
     extensions: ["exe", "msi", "msixbundle"],
     readOnly: true,
