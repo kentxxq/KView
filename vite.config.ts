@@ -10,6 +10,9 @@ export default defineConfig(() => ({
   plugins: [vue(), ui({
     icon: {
       mode: "svg",
+      clientBundle: {
+        scan: true,
+      },
     },
     ui: {
       colors: {
