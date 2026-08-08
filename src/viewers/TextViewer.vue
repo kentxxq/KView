@@ -38,12 +38,25 @@ import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.
 import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js";
 
-const props = withDefaults(defineProps<{ file: OpenedFile; content: string; readOnly: boolean; embedded?: boolean }>(), {
+const props = withDefaults(defineProps<{
+  file: OpenedFile;
+  content: string;
+  readOnly: boolean;
+  embedded?: boolean;
+  wordWrap?: boolean;
+  unicodeHighlight?: boolean;
+}>(), {
   embedded: false,
 });
-const emit = defineEmits<{ "update:content": [value: string] }>();
+const emit = defineEmits<{
+  "update:content": [value: string];
+  "update:wordWrap": [value: boolean];
+  "update:unicodeHighlight": [value: boolean];
+}>();
 
 const editorElement = ref<HTMLElement>();
+const wordWrap = ref(props.wordWrap ?? props.file.extension !== "log");
+const unicodeHighlight = ref(props.unicodeHighlight ?? false);
 let editor: import("monaco-editor").editor.IStandaloneCodeEditor | undefined;
 let monacoApi: typeof import("monaco-editor/esm/vs/editor/editor.api.js") | undefined;
 let resizeObserver: ResizeObserver | undefined;
@@ -71,7 +84,12 @@ onMounted(async () => {
     padding: { top: 12, bottom: 12 },
     scrollBeyondLastLine: false,
     smoothScrolling: true,
-    wordWrap: props.file.extension === "log" ? "off" : "on",
+    wordWrap: wordWrap.value ? "on" : "off",
+    unicodeHighlight: {
+      ambiguousCharacters: unicodeHighlight.value,
+      invisibleCharacters: unicodeHighlight.value,
+      nonBasicASCII: false,
+    },
   });
   editor = instance;
   instance.onDidChangeModelContent(() => {
@@ -96,14 +114,52 @@ watch(
   (readOnly) => editor?.updateOptions({ readOnly }),
 );
 
+watch(wordWrap, (enabled) => {
+  editor?.updateOptions({ wordWrap: enabled ? "on" : "off" });
+});
+
+watch(unicodeHighlight, (enabled) => {
+  editor?.updateOptions({
+    unicodeHighlight: {
+      ambiguousCharacters: enabled,
+      invisibleCharacters: enabled,
+      nonBasicASCII: false,
+    },
+  });
+});
+
+watch(
+  () => props.wordWrap,
+  (enabled) => {
+    if (enabled !== undefined) wordWrap.value = enabled;
+  },
+);
+
+watch(
+  () => props.unicodeHighlight,
+  (enabled) => {
+    if (enabled !== undefined) unicodeHighlight.value = enabled;
+  },
+);
+
 watch(
   () => props.file,
   (file) => {
     const model = editor?.getModel();
     if (model) monacoApi?.editor.setModelLanguage(model, resolveLanguage(file));
-    editor?.updateOptions({ wordWrap: file.extension === "log" ? "off" : "on" });
+    if (props.wordWrap === undefined) wordWrap.value = file.extension !== "log";
   },
 );
+
+function updateWordWrap(enabled: boolean) {
+  wordWrap.value = enabled;
+  emit("update:wordWrap", enabled);
+}
+
+function updateUnicodeHighlight(enabled: boolean) {
+  unicodeHighlight.value = enabled;
+  emit("update:unicodeHighlight", enabled);
+}
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
@@ -121,6 +177,22 @@ onBeforeUnmount(() => {
         <template v-if="file.encoding"> · {{ file.encoding.toUpperCase() }}</template>
         <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
         · {{ readOnly ? "只读" : "可编辑" }}
+      </template>
+      <template #actions>
+        <div class="flex items-center gap-3">
+          <USwitch
+            :model-value="wordWrap"
+            size="xs"
+            label="自动换行"
+            @update:model-value="updateWordWrap"
+          />
+          <USwitch
+            :model-value="unicodeHighlight"
+            size="xs"
+            label="字符高亮"
+            @update:model-value="updateUnicodeHighlight"
+          />
+        </div>
       </template>
     </ViewerFooter>
   </div>

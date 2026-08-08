@@ -10,8 +10,14 @@ const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean
 const emit = defineEmits<{ "update:content": [value: string] }>();
 
 const mode = ref<"source" | "tree">("source");
+const wordWrap = ref(true);
+const unicodeHighlight = ref(false);
 const search = ref("");
 const selectedPath = ref("$");
+const viewModes = [
+  { label: "源码", value: "source", icon: "i-lucide-code-xml" },
+  { label: "树形", value: "tree", icon: "i-lucide-list-tree" },
+];
 
 const parsed = computed(() => {
   try {
@@ -36,6 +42,10 @@ function formatSource() {
 async function copySelectedPath() {
   await navigator.clipboard.writeText(selectedPath.value);
 }
+
+function updateMode(value: string | number) {
+  if (value === "source" || value === "tree") mode.value = value;
+}
 </script>
 
 <template>
@@ -46,6 +56,8 @@ async function copySelectedPath() {
       :file="file"
       :content="content"
       :read-only="readOnly"
+      v-model:word-wrap="wordWrap"
+      v-model:unicode-highlight="unicodeHighlight"
       embedded
       @update:content="emit('update:content', $event)"
     />
@@ -79,9 +91,26 @@ async function copySelectedPath() {
         <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
       </template>
       <template #actions>
-        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-code-xml" label="源码" :variant="mode === 'source' ? 'soft' : 'ghost'" @click="mode = 'source'" />
-        <UButton class="viewer-footer-button" color="neutral" size="xs" icon="i-lucide-list-tree" label="树形" :variant="mode === 'tree' ? 'soft' : 'ghost'" @click="mode = 'tree'" />
-        <UButton class="viewer-footer-button" color="neutral" size="xs" variant="ghost" icon="i-lucide-align-left" label="格式化" :disabled="readOnly || !!parsed.error" @click="formatSource" />
+        <UTabs
+          :model-value="mode"
+          :items="viewModes"
+          :content="false"
+          activation-mode="automatic"
+          color="neutral"
+          variant="pill"
+          size="xs"
+          :ui="{ root: 'w-auto gap-0', list: 'w-auto p-0.5', trigger: 'py-0.5' }"
+          @update:model-value="updateMode"
+        />
+        <template v-if="mode === 'source'">
+          <div class="ml-1 border-l border-muted/70 pl-2">
+            <UButton class="viewer-footer-button" color="neutral" size="xs" variant="ghost" icon="i-lucide-align-left" label="格式化" :disabled="readOnly || !!parsed.error" @click="formatSource" />
+          </div>
+          <div class="ml-1 flex items-center gap-3 border-l border-muted/70 pl-2">
+            <USwitch v-model="wordWrap" size="xs" label="自动换行" />
+            <USwitch v-model="unicodeHighlight" size="xs" label="字符高亮" />
+          </div>
+        </template>
       </template>
       <template v-if="mode === 'tree'" #more>
         <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">

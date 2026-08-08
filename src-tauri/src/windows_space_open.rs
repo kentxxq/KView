@@ -12,7 +12,7 @@ use std::{
 
 use tauri::{AppHandle, Emitter, Manager};
 use windows::{
-    core::{w, Interface, PCWSTR},
+    core::Interface,
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         System::{
@@ -23,10 +23,9 @@ use windows::{
             Input::KeyboardAndMouse::{VK_ESCAPE, VK_SPACE},
             Shell::{FolderItems, IShellFolderViewDual, IShellWindows, IWebBrowserApp, ShellWindows},
             WindowsAndMessaging::{
-                CallNextHookEx, FindWindowExW, GetClassNameW, GetForegroundWindow,
-                GetGUIThreadInfo, GetWindowThreadProcessId, SetWindowsHookExW, GUITHREADINFO,
-                HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN,
-                WM_SYSKEYUP,
+                CallNextHookEx, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
+                GetWindowThreadProcessId, IsChild, SetWindowsHookExW, GUITHREADINFO, HHOOK,
+                KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
             },
         },
     },
@@ -184,22 +183,21 @@ fn selected_path(source: isize) -> Option<String> {
         let shell_windows: IShellWindows =
             CoCreateInstance(&ShellWindows, None, CLSCTX_ALL).ok()?;
         let source_window = HWND(source as *mut _);
-        let tab_window = FindWindowExW(
-            Some(source_window),
-            None,
-            w!("ShellTabWindowClass"),
-            PCWSTR::null(),
-        )
-        .ok();
+        let focused_window = explorer_focused_window(source_window);
         for index in 0..shell_windows.Count().ok()? {
             let variant = index_variant(index);
             let Ok(dispatch) = shell_windows.Item(&variant) else { continue };
             let Ok(browser): Result<IWebBrowserApp, _> = dispatch.cast() else { continue };
             let Ok(browser_window) = browser.HWND() else { continue };
-            let matches_tab = tab_window
-                .map(|tab| browser_window.0 == tab.0 as isize)
+            let browser_window = HWND(browser_window.0 as *mut _);
+            let matches_tab = focused_window
+                .map(|focused| {
+                    IsChild(source_window, browser_window).as_bool()
+                        && (browser_window == focused
+                            || IsChild(browser_window, focused).as_bool())
+                })
                 .unwrap_or(false);
-            if browser_window.0 as isize != source && !matches_tab {
+            if browser_window != source_window && !matches_tab {
                 continue;
             }
             let Ok(document) = browser.Document() else { continue };
@@ -238,6 +236,14 @@ fn is_explorer_window(hwnd: HWND) -> bool {
 }
 
 fn is_explorer_search_focused(hwnd: HWND) -> bool {
+    let Some(focused_window) = explorer_focused_window(hwnd) else {
+        return false;
+    };
+    let class = window_class(focused_window);
+    class == "Windows.UI.Core.CoreWindow" || class == "Edit"
+}
+
+fn explorer_focused_window(hwnd: HWND) -> Option<HWND> {
     unsafe {
         let thread_id = GetWindowThreadProcessId(hwnd, None);
         let mut info = GUITHREADINFO {
@@ -245,10 +251,9 @@ fn is_explorer_search_focused(hwnd: HWND) -> bool {
             ..Default::default()
         };
         if GetGUIThreadInfo(thread_id, &mut info).is_err() {
-            return false;
+            return None;
         }
-        let class = window_class(info.hwndFocus);
-        class == "Windows.UI.Core.CoreWindow" || class == "Edit"
+        Some(info.hwndFocus)
     }
 }
 

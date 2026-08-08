@@ -9,6 +9,8 @@ import ViewerFooter from "../components/ViewerFooter.vue";
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const emit = defineEmits<{ "update:content": [value: string] }>();
 const mode = ref<"text" | "preview">("preview");
+const wordWrap = ref(true);
+const unicodeHighlight = ref(false);
 const markdown = new MarkdownIt({ html: false, linkify: true, typographer: true });
 const rendered = computed(() => DOMPurify.sanitize(markdown.render(props.content)));
 
@@ -26,6 +28,8 @@ function preventEmbeddedNavigation(event: MouseEvent) {
       :file="file"
       :content="content"
       :read-only="readOnly"
+      v-model:word-wrap="wordWrap"
+      v-model:unicode-highlight="unicodeHighlight"
       embedded
       @update:content="emit('update:content', $event)"
     />
@@ -44,6 +48,10 @@ function preventEmbeddedNavigation(event: MouseEvent) {
       <template #actions>
         <UButton class="viewer-footer-button transition-colors hover:bg-accented hover:text-highlighted" color="neutral" size="xs" icon="i-lucide-file-text" label="文本" :variant="mode === 'text' ? 'soft' : 'ghost'" @click="mode = 'text'" />
         <UButton class="viewer-footer-button transition-colors hover:bg-accented hover:text-highlighted" color="neutral" size="xs" icon="i-lucide-eye" label="预览" :variant="mode === 'preview' ? 'soft' : 'ghost'" @click="mode = 'preview'" />
+        <div v-if="mode === 'text'" class="ml-1 flex items-center gap-3 border-l border-muted/70 pl-2">
+          <USwitch v-model="wordWrap" size="xs" label="自动换行" />
+          <USwitch v-model="unicodeHighlight" size="xs" label="字符高亮" />
+        </div>
       </template>
     </ViewerFooter>
   </div>
