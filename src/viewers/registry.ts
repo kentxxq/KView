@@ -51,6 +51,12 @@ export function initializeViewerRegistry() {
     load: () => import("./XlsxViewer.vue"),
   });
   registerViewer({
+    kind: "ebook",
+    extensions: ["epub", "mobi"],
+    readOnly: true,
+    load: () => import("./EbookViewer.vue"),
+  });
+  registerViewer({
     kind: "archive",
     extensions: ["zip", "tar", "tgz", "gz"],
     readOnly: true,

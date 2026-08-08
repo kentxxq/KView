@@ -20,7 +20,7 @@ KView 主要服务于经常查看日志、配置文件和结构化数据的开�
 ### 文件打开与工作区
 
 - 支持系统文件关联和“打开方式”、应用内文件选择、窗口拖拽以及运行中再次双击文件。
-- Windows 资源管理器中仅选中一个文件时，可按 `Space` 聚焦 KView 并快速打开；使用四个方向键可按同目录文件名自然排序循环预览，按 `Esc` 关闭窗口。
+- Windows 资源管理器或桌面中仅选中一个文件时，可按 `Space` 聚焦 KView 并快速打开；使用四个方向键可按同目录文件名自然排序循环预览，按 `Esc` 关闭窗口。
 - 支持从首页或标题栏打开公开的 HTTP/HTTPS 图片、PDF 和视频 URL；首页还可直接粘贴 URL 或剪贴板图片，远程与剪贴板内容仅在当前会话中保留。
 - 单实例运行；新的打开请求会交给已有进程处理。
 - 支持多标签打开、切换和关闭，并保持每个标签的 Viewer 状态。
@@ -45,6 +45,7 @@ KView 主要服务于经常查看日志、配置文件和结构化数据的开�
 | PDF | PDF | 分页浏览、搜索、缩放、目录跳转、文本复制 |
 | Word | DOC、DOCX | 只读展示标题、段落、列表、表格、图片和基础文本样式 |
 | Excel | XLS、XLSX | Sheet 切换、虚拟化表格、搜索、冻结首行、单元格信息 |
+| 电子书 | EPUB、MOBI | 只读展示正文与内嵌图片，支持目录、章节切换和字号调整 |
 | 安装包 | EXE、MSI、MSIXBUNDLE | 只读展示名称、版本、发布者、Logo、文件大小、修改时间和 x86/x64/ARM 架构 |
 | 压缩包 | ZIP、TAR、TGZ、TAR.GZ | 只读浏览条目、搜索、原始大小和压缩后大小 |
 | 视频 | MP4、WebM，系统支持时的 MOV | 播放、时间轴、全屏、媒体信息 |
@@ -92,7 +93,7 @@ KView 使用一个 Tauri/Rust 进程负责单实例协调、托盘、文件打�
 ### 核心模型
 
 - `OpenedFile`：归一化后的路径、文件名、扩展名、大小、修改时间、类型、编码、换行符和只读状态。
-- `ViewerKind`：空白、图片、动态照片、文本、Markdown、JSON、YAML、PDF、DOCX、XLSX、安装包、压缩包、视频、十六进制或不支持。
+- `ViewerKind`：空白、图片、动态照片、文本、Markdown、JSON、YAML、PDF、DOCX、XLSX、电子书、安装包、压缩包、视频、十六进制或不支持。
 - `ViewerDefinition`：Viewer 支持的扩展名/文件名、只读属性、编辑大小限制和懒加载入口。
 - `DocumentState`：当前文件、加载/错误状态、Viewer 状态、编辑缓冲区、脏状态和源文件修改时间。
 
@@ -134,9 +135,10 @@ Vue 前端负责应用外壳、多标签和交互状态、Viewer 选择与懒加
 - SVG 会移除脚本、事件属性和 `foreignObject`，复杂 SVG 的外观可能发生变化。
 - DOC/DOCX 复杂版式可能与原文件不同；不支持宏和 Office 级排版保真。
 - XLS/XLSX 不承诺宏、图表、公式重算和复杂样式保真。
+- EPUB/MOBI 仅提供基础安全排版，不执行书内脚本、不加载外部资源，不支持 DRM、固定版式还原、AZW/AZW3、书签或阅读进度。
 - MOV 仅在当前系统 WebView 实际支持对应编码时可播放。
 - 压缩包最多展示前 5,000 个条目，当前仅供浏览，不提供解压和修改。
-- 图片、动态照片、PDF、Office、安装包、压缩包和视频均不会修改源文件。
+- 图片、动态照片、PDF、Office、电子书、安装包、压缩包和视频均不会修改源文件。
 - HEIC/HEIF 静态部分在 Windows 上优先使用系统 WIC/HEIF 解码器，缺少系统组件或其他平台时回退应用内置解码器；解码后的无压缩预览通过二进制 IPC 传输并按路径和修改时间缓存，不再执行 PNG 压缩或 Base64 转换。Live Photo 的 MOV/MP4 动态部分仍依赖当前系统 WebView 支持对应的视频编码，不支持时保留静态封面并显示兼容提示。
 
 ## 技术栈
@@ -144,7 +146,7 @@ Vue 前端负责应用外壳、多标签和交互状态、Viewer 选择与懒加
 - Vue 3、TypeScript、Vite
 - Tailwind CSS、Nuxt UI
 - Tauri 2、Rust
-- Monaco Editor、markdown-it、PDF.js、Mammoth.js、SheetJS
+- Monaco Editor、markdown-it、PDF.js、Mammoth.js、SheetJS、rbook EPUB Parser、Lingo Reader MOBI Parser
 
 ## 开发命令
 

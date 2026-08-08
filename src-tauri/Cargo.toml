@@ -29,6 +29,7 @@ office_oxide = "0.1.6"
 flate2 = "1"
 tar = "0.4"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
+rbook = { version = "0.7.10", default-features = false, features = ["threadsafe"] }
 msi = "0.10"
 pelite = "0.10"
 hpvcd = "0.3.2"

@@ -1,4 +1,4 @@
-//! Windows 资源管理器中的空格打开处理。
+//! Windows 资源管理器和桌面中的空格打开处理。
 
 use std::{
     path::Path,
@@ -16,12 +16,20 @@ use windows::{
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         System::{
-            Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED},
+            Com::{
+                CoCreateInstance, CoInitializeEx, CoTaskMemFree, IDataObject, IServiceProvider,
+                CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+            },
             Variant::{VARIANT, VT_I4},
         },
         UI::{
             Input::KeyboardAndMouse::{VK_ESCAPE, VK_SPACE},
-            Shell::{FolderItems, IShellFolderViewDual, IShellWindows, IWebBrowserApp, ShellWindows},
+            Shell::{
+                FolderItems, IShellBrowser, IShellFolderViewDual, IShellItemArray, IShellWindows,
+                IWebBrowserApp, ShellWindows, CSIDL_DESKTOP, SHCreateShellItemArrayFromDataObject,
+                SID_STopLevelBrowser, SIGDN_FILESYSPATH, SVGIO_SELECTION, SWC_DESKTOP,
+                SWFO_NEEDDISPATCH,
+            },
             WindowsAndMessaging::{
                 CallNextHookEx, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
                 GetWindowThreadProcessId, IsChild, SetWindowsHookExW, GUITHREADINFO, HHOOK,
@@ -88,8 +96,9 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
     let is_up = wparam.0 as u32 == WM_KEYUP || wparam.0 as u32 == WM_SYSKEYUP;
     let foreground = unsafe { GetForegroundWindow() }.0 as isize;
     let foreground_window = HWND(foreground as *mut _);
-    let explorer_context = is_explorer_window(foreground_window)
-        && !is_explorer_search_focused(foreground_window);
+    let space_open_context = is_desktop_window(foreground_window)
+        || (is_explorer_window(foreground_window)
+            && !is_explorer_search_focused(foreground_window));
 
     if key == VK_SPACE.0 {
         if is_down {
@@ -97,7 +106,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                 if SPACE_HANDLED.load(Ordering::SeqCst) {
                     return LRESULT(1);
                 }
-            } else if explorer_context {
+            } else if space_open_context {
                 SPACE_HANDLED.store(true, Ordering::SeqCst);
                 send(SpaceOpenCommand::Open(foreground));
                 return LRESULT(1);
@@ -183,6 +192,9 @@ fn selected_path(source: isize) -> Option<String> {
         let shell_windows: IShellWindows =
             CoCreateInstance(&ShellWindows, None, CLSCTX_ALL).ok()?;
         let source_window = HWND(source as *mut _);
+        if is_desktop_window(source_window) {
+            return desktop_selected_path(&shell_windows);
+        }
         let focused_window = explorer_focused_window(source_window);
         for index in 0..shell_windows.Count().ok()? {
             let variant = index_variant(index);
@@ -209,6 +221,39 @@ fn selected_path(source: isize) -> Option<String> {
     None
 }
 
+fn desktop_selected_path(shell_windows: &IShellWindows) -> Option<String> {
+    unsafe {
+        let location = index_variant(CSIDL_DESKTOP as i32);
+        let root = VARIANT::default();
+        let mut desktop_window = 0;
+        let dispatch = shell_windows
+            .FindWindowSW(
+                &location,
+                &root,
+                SWC_DESKTOP,
+                &mut desktop_window,
+                SWFO_NEEDDISPATCH,
+            )
+            .ok()?;
+        let service_provider: IServiceProvider = dispatch.cast().ok()?;
+        let browser: IShellBrowser = service_provider
+            .QueryService(&SID_STopLevelBrowser)
+            .ok()?;
+        let view = browser.QueryActiveShellView().ok()?;
+        let selection: IDataObject = view.GetItemObject(SVGIO_SELECTION).ok()?;
+        let items: IShellItemArray = SHCreateShellItemArrayFromDataObject(&selection).ok()?;
+        if items.GetCount().ok()? != 1 {
+            return None;
+        }
+
+        let item = items.GetItemAt(0).ok()?;
+        let display_name = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let path = display_name.to_string().ok();
+        CoTaskMemFree(Some(display_name.0.cast()));
+        path
+    }
+}
+
 unsafe fn single_path(items: FolderItems) -> Option<String> {
     if unsafe { items.Count().ok()? } != 1 {
         return None;
@@ -233,6 +278,10 @@ fn index_variant(index: i32) -> VARIANT {
 
 fn is_explorer_window(hwnd: HWND) -> bool {
     matches!(window_class(hwnd).as_str(), "CabinetWClass" | "ExploreWClass")
+}
+
+fn is_desktop_window(hwnd: HWND) -> bool {
+    matches!(window_class(hwnd).as_str(), "Progman" | "WorkerW")
 }
 
 fn is_explorer_search_focused(hwnd: HWND) -> bool {

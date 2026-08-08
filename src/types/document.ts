@@ -14,6 +14,7 @@ export type ViewerKind =
   | "pdf"
   | "docx"
   | "xlsx"
+  | "ebook"
   | "archive"
   | "audio"
   | "video"
@@ -67,6 +68,7 @@ export interface DocumentState {
   bom: boolean;
   readOnly: boolean;
   largeTextSession: LargeTextSessionInfo | null;
+  ebookSessionId: string | null;
   objectUrls: string[];
   error: DocumentError | null;
 }
@@ -106,6 +108,38 @@ export interface LivePhotoBinaryHeader {
 }
 
 export interface BinaryDocument {
+  base64: string;
+}
+
+export interface EpubSpineItem {
+  id: string;
+  href: string;
+  linear: boolean;
+}
+
+export interface EpubTocItem {
+  label: string;
+  href: string;
+  chapterId: string | null;
+  fragment: string | null;
+  children: EpubTocItem[];
+}
+
+export interface EpubDocument {
+  sessionId: string;
+  title: string | null;
+  spine: EpubSpineItem[];
+  toc: EpubTocItem[];
+}
+
+export interface EpubChapter {
+  id: string;
+  href: string;
+  html: string;
+}
+
+export interface EpubResource {
+  mimeType: string;
   base64: string;
 }
 

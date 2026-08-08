@@ -1,6 +1,7 @@
 import { addIcon } from "@iconify/vue";
 import alignLeft from "@iconify-icons/lucide/align-left";
 import arrowLeft from "@iconify-icons/lucide/arrow-left";
+import binary from "@iconify-icons/lucide/binary";
 import check from "@iconify-icons/lucide/check";
 import circleSlash from "@iconify-icons/lucide/circle-slash-2";
 import clock from "@iconify-icons/lucide/clock-3";
@@ -24,6 +25,7 @@ import library from "@iconify-icons/lucide/library";
 import loaderCircle from "@iconify-icons/lucide/loader-2";
 import maximize from "@iconify-icons/lucide/maximize";
 import minus from "@iconify-icons/lucide/minus";
+import plus from "@iconify-icons/lucide/plus";
 import rotateCw from "@iconify-icons/lucide/rotate-cw";
 import save from "@iconify-icons/lucide/save";
 import scanEye from "@iconify-icons/lucide/scan-eye";
@@ -41,6 +43,7 @@ import zoomOut from "@iconify-icons/lucide/zoom-out";
 const icons = {
   "align-left": alignLeft,
   "arrow-left": arrowLeft,
+  binary,
   check,
   "circle-slash-2": circleSlash,
   "clock-3": clock,
@@ -64,6 +67,7 @@ const icons = {
   "loader-circle": loaderCircle,
   maximize,
   minus,
+  plus,
   "rotate-cw": rotateCw,
   save,
   "scan-eye": scanEye,

@@ -107,6 +107,8 @@
   !insertmacro ${ACTION} "docx"
   !insertmacro ${ACTION} "xls"
   !insertmacro ${ACTION} "xlsx"
+  !insertmacro ${ACTION} "epub"
+  !insertmacro ${ACTION} "mobi"
   !insertmacro ${ACTION} "zip"
   !insertmacro ${ACTION} "tar"
   !insertmacro ${ACTION} "tgz"

@@ -10,7 +10,10 @@ const props = defineProps<{
   largeTextSession: LargeTextSessionInfo | null;
 }>();
 
-defineEmits<{ "update:content": [value: string] }>();
+defineEmits<{
+  "update:content": [value: string];
+  "open-hex": [];
+}>();
 
 const viewerComponents = new Map<string, Component>();
 const LargeTextViewer = defineAsyncComponent(() => import("./LargeTextViewer.vue"));
@@ -44,6 +47,7 @@ const viewer = computed(() => {
       :content="content"
       :read-only="readOnly"
       @update:content="$emit('update:content', $event)"
+      @open-hex="$emit('open-hex')"
     />
   </div>
 </template>

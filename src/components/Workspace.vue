@@ -26,6 +26,7 @@ import type {
   BinaryDocument,
   ArchiveDocument,
   DocumentState,
+  EpubDocument,
   HtmlDocument,
   ImageDocument,
   InstallerDocument,
@@ -226,13 +227,24 @@ async function closeLargeTextSession(state: DocumentState) {
   }
 }
 
+async function closeEpubSession(state: DocumentState) {
+  const sessionId = state.ebookSessionId;
+  state.ebookSessionId = null;
+  if (!sessionId || !isTauri()) return;
+  try {
+    await invoke("close_epub", { sessionId });
+  } catch {
+    recordDiagnostic("viewer", "epub-close-failed");
+  }
+}
+
 function revokeObjectUrls(state: DocumentState) {
   for (const url of state.objectUrls.splice(0)) URL.revokeObjectURL(url);
 }
 
 async function closeDocumentResources(state: DocumentState) {
   revokeObjectUrls(state);
-  await closeLargeTextSession(state);
+  await Promise.all([closeLargeTextSession(state), closeEpubSession(state)]);
 }
 
 function createStateObjectUrl(
@@ -307,6 +319,7 @@ async function loadFileState(
   state.sourceModifiedAt = file.modifiedAt;
   state.dirty = false;
   state.largeTextSession = null;
+  state.ebookSessionId = null;
 
   if (file.kind === "image") {
     if (file.extension === "heic" || file.extension === "heif") {
@@ -332,6 +345,15 @@ async function loadFileState(
   } else if (file.kind === "archive") {
     const archive = await invoke<ArchiveDocument>("read_archive", { path: file.path });
     state.buffer = JSON.stringify(archive);
+    state.readOnly = true;
+  } else if (file.kind === "ebook" && file.extension === "epub") {
+    const document = await invoke<EpubDocument>("open_epub", { path: file.path });
+    state.ebookSessionId = document.sessionId;
+    state.buffer = JSON.stringify(document);
+    state.readOnly = true;
+  } else if (file.kind === "ebook") {
+    const binary = await invoke<BinaryDocument>("read_mobi", { path: file.path });
+    state.buffer = binary.base64;
     state.readOnly = true;
   } else if (["pdf", "docx", "xlsx", "audio", "video"].includes(file.kind)) {
     const binary = await invoke<BinaryDocument>("read_binary", { path: file.path });
@@ -525,7 +547,13 @@ async function cancelSpaceOpenLink() {
 }
 
 async function openCurrentAsHex() {
-  if (!documentState.file || !["binary-content", "unsupported-encoding"].includes(documentState.error?.code ?? "")) return;
+  if (
+    !documentState.file
+    || (
+      documentState.file.kind !== "ebook"
+      && !["binary-content", "unsupported-encoding"].includes(documentState.error?.code ?? "")
+    )
+  ) return;
   await closeDocumentResources(documentState);
   documentState.file.kind = "hex";
   documentState.viewerKind = "hex";
@@ -1055,7 +1083,7 @@ onBeforeUnmount(() => {
         <div class="grid min-h-0 flex-1 place-items-center p-6">
           <ErrorState
             :error="documentState.error"
-            :can-open-hex="['binary-content', 'unsupported-encoding'].includes(documentState.error.code)"
+            :can-open-hex="['binary-content', 'unsupported-encoding'].includes(documentState.error.code) || documentState.file?.kind === 'ebook'"
             @dismiss="closeTab()"
             @open-hex="openCurrentAsHex"
           />
@@ -1072,6 +1100,7 @@ onBeforeUnmount(() => {
             :read-only="documentState.readOnly"
             :large-text-session="documentState.largeTextSession"
             @update:content="updateContent"
+            @open-hex="openCurrentAsHex"
           />
         </KeepAlive>
       </div>

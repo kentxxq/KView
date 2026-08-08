@@ -209,3 +209,24 @@ button,
 .docx-preview th,
 .docx-preview td { border: 1px solid var(--ui-border); padding: 0.45rem 0.65rem; }
 .docx-preview img { max-width: 100%; height: auto; }
+
+.ebook-preview { color: var(--ui-text); line-height: 1.85; overflow-wrap: anywhere; }
+.ebook-preview h1,
+.ebook-preview h2,
+.ebook-preview h3,
+.ebook-preview h4 { margin: 1.35em 0 0.6em; color: var(--ui-text-highlighted); font-weight: 700; line-height: 1.3; }
+.ebook-preview h1 { font-size: 1.8em; }
+.ebook-preview h2 { font-size: 1.5em; }
+.ebook-preview h3 { font-size: 1.25em; }
+.ebook-preview h4 { font-size: 1.1em; }
+.ebook-preview p { margin: 0.8em 0; }
+.ebook-preview ul,
+.ebook-preview ol { margin: 0.8em 0; padding-left: 1.8em; }
+.ebook-preview ul { list-style: disc; }
+.ebook-preview ol { list-style: decimal; }
+.ebook-preview blockquote { margin: 1em 0; border-left: 3px solid var(--ui-border-accented); padding-left: 1em; color: var(--ui-text-muted); }
+.ebook-preview img { display: block; max-width: 100%; height: auto; margin: 1em auto; }
+.ebook-preview table { width: 100%; border-collapse: collapse; }
+.ebook-preview th,
+.ebook-preview td { border: 1px solid var(--ui-border); padding: 0.45em 0.65em; }
+.ebook-preview a[href] { color: var(--ui-primary); text-decoration: underline; cursor: pointer; }

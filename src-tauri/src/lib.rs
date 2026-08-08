@@ -1,5 +1,6 @@
 mod installer;
 mod live_photo;
+mod epub_reader;
 #[cfg(target_os = "windows")]
 mod windows_space_open;
 
@@ -450,6 +451,7 @@ fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
         "pdf" => "pdf",
         "doc" | "docx" => "docx",
         "xls" | "xlsx" => "xlsx",
+        "epub" | "mobi" => "ebook",
         "zip" | "tar" | "tgz" => "archive",
         "gz" if file_name.to_ascii_lowercase().ends_with(".tar.gz") => "archive",
         "mp3" | "wav" | "m4a" | "aac" | "flac" | "ogg" | "opus" => "audio",
@@ -1397,6 +1399,40 @@ fn read_binary(path: String) -> Result<BinaryDocument, String> {
 }
 
 #[tauri::command]
+fn read_mobi(path: String) -> Result<BinaryDocument, String> {
+    const MAX_EBOOK_BYTES: u64 = 100 * 1024 * 1024;
+
+    let canonical = Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("无法访问电子书：{error}"))?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|error| format!("无法读取电子书信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    if metadata.len() > MAX_EBOOK_BYTES {
+        return Err("电子书超过 100 MiB 安全限制".into());
+    }
+
+    let extension = canonical
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if extension != "mobi" {
+        return Err("MOBI 读取器仅支持 .mobi 文件".into());
+    }
+
+    let bytes = std::fs::read(&canonical).map_err(|error| format!("无法读取电子书：{error}"))?;
+    if bytes.len() < 68 || &bytes[60..68] != b"BOOKMOBI" {
+        return Err("文件不是有效的 MOBI 电子书".into());
+    }
+
+    Ok(BinaryDocument { base64: BASE64.encode(bytes) })
+}
+
+#[tauri::command]
 fn read_legacy_doc(path: String) -> Result<HtmlDocument, String> {
     const MAX_DOCUMENT_BYTES: u64 = 200 * 1024 * 1024;
     let canonical = Path::new(&path)
@@ -2100,6 +2136,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .manage(DesktopState::default())
+        .manage(epub_reader::EpubSessions::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
             list_sibling_files,
@@ -2114,6 +2151,11 @@ pub fn run() {
             read_heic_preview,
             read_live_photo,
             read_binary,
+            read_mobi,
+            epub_reader::open_epub,
+            epub_reader::read_epub_chapter,
+            epub_reader::read_epub_resource,
+            epub_reader::close_epub,
             read_legacy_doc,
             read_archive,
             read_binary_chunk,

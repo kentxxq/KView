@@ -63,6 +63,7 @@ const associationGroups = [
     extensions: ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "html", "htm", "css", "scss", "sass", "less", "py", "java", "kt", "kts", "c", "h", "cc", "cpp", "cxx", "hpp", "cs", "go", "rs", "php", "rb", "swift", "dart", "lua", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "graphql", "gql", "proto", "gitignore", "gitattributes", "editorconfig"],
   },
   { label: "文档", extensions: ["pdf", "doc", "docx", "xls", "xlsx"] },
+  { label: "电子书", extensions: ["epub", "mobi"] },
   { label: "压缩包", extensions: ["zip", "tar", "tgz", "gz"] },
   { label: "音频", extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"] },
   { label: "视频", extensions: ["mp4", "webm"] },
