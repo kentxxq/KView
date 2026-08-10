@@ -1,5 +1,6 @@
-import { reactive } from "vue";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { defineStore } from "pinia";
+import { isTauri } from "@tauri-apps/api/core";
+import { desktopInvoke as invoke } from "../services/desktop-api";
 
 export interface LibraryEntry {
   path: string;
@@ -7,84 +8,111 @@ export interface LibraryEntry {
   timestamp: number;
 }
 
-interface StoredLibrary {
+interface StoredLibraryV1 {
+  recent?: unknown;
+  favorites?: unknown;
+  sessionPaths?: unknown;
+  activePath?: unknown;
+}
+
+interface StoredLibraryV2 {
+  schemaVersion: 2;
   recent: LibraryEntry[];
   favorites: LibraryEntry[];
   sessionPaths: string[];
   activePath: string | null;
 }
 
-const STORAGE_KEY = "kview-library-v1";
+const STORAGE_KEY = "kview-library-v2";
+const LEGACY_STORAGE_KEY = "kview-library-v1";
 
-export const libraryState = reactive<StoredLibrary>({
-  recent: [],
-  favorites: [],
-  sessionPaths: [],
-  activePath: null,
-});
-
-function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(libraryState));
+function validEntry(value: unknown): value is LibraryEntry {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Partial<LibraryEntry>;
+  return typeof entry.path === "string"
+    && typeof entry.name === "string"
+    && typeof entry.timestamp === "number";
 }
 
-export async function loadLibrary() {
+function parseStored(value: string | null): StoredLibraryV2 | null {
+  if (!value) return null;
   try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<StoredLibrary> | null;
-    if (stored) {
-      libraryState.recent = Array.isArray(stored.recent) ? stored.recent.slice(0, 30) : [];
-      libraryState.favorites = Array.isArray(stored.favorites) ? stored.favorites : [];
-      libraryState.sessionPaths = Array.isArray(stored.sessionPaths) ? stored.sessionPaths : [];
-      libraryState.activePath = typeof stored.activePath === "string" ? stored.activePath : null;
-    }
-    if (isTauri()) {
-      const paths = [...new Set([
-        ...libraryState.recent.map((entry) => entry.path),
-        ...libraryState.favorites.map((entry) => entry.path),
-        ...libraryState.sessionPaths,
-      ])];
-      const existing = new Set(await invoke<string[]>("existing_paths", { paths }));
-      libraryState.recent = libraryState.recent.filter((entry) => existing.has(entry.path));
-      libraryState.favorites = libraryState.favorites.filter((entry) => existing.has(entry.path));
-      libraryState.sessionPaths = libraryState.sessionPaths.filter((path) => existing.has(path));
-      if (libraryState.activePath && !existing.has(libraryState.activePath)) libraryState.activePath = null;
-    }
+    const stored = JSON.parse(value) as StoredLibraryV1 & { schemaVersion?: unknown };
+    return {
+      schemaVersion: 2,
+      recent: Array.isArray(stored.recent) ? stored.recent.filter(validEntry).slice(0, 30) : [],
+      favorites: Array.isArray(stored.favorites) ? stored.favorites.filter(validEntry) : [],
+      sessionPaths: Array.isArray(stored.sessionPaths)
+        ? stored.sessionPaths.filter((path): path is string => typeof path === "string")
+        : [],
+      activePath: typeof stored.activePath === "string" ? stored.activePath : null,
+    };
   } catch {
-    libraryState.recent = [];
-    libraryState.favorites = [];
-    libraryState.sessionPaths = [];
-    libraryState.activePath = null;
+    return null;
   }
-  persist();
 }
 
-export function addRecent(path: string, name: string) {
-  libraryState.recent = [
-    { path, name, timestamp: Date.now() },
-    ...libraryState.recent.filter((entry) => entry.path !== path),
-  ].slice(0, 30);
-  persist();
-}
-
-export function toggleFavorite(path: string, name: string) {
-  const exists = libraryState.favorites.some((entry) => entry.path === path);
-  libraryState.favorites = exists
-    ? libraryState.favorites.filter((entry) => entry.path !== path)
-    : [{ path, name, timestamp: Date.now() }, ...libraryState.favorites];
-  persist();
-}
-
-export function isFavorite(path: string) {
-  return libraryState.favorites.some((entry) => entry.path === path);
-}
-
-export function removeRecent(path: string) {
-  libraryState.recent = libraryState.recent.filter((entry) => entry.path !== path);
-  persist();
-}
-
-export function saveSession(paths: string[], activePath: string | null) {
-  libraryState.sessionPaths = [...new Set(paths)];
-  libraryState.activePath = activePath;
-  persist();
-}
-
+export const useLibraryStore = defineStore("library", {
+  state: (): StoredLibraryV2 => ({
+    schemaVersion: 2,
+    recent: [],
+    favorites: [],
+    sessionPaths: [],
+    activePath: null,
+  }),
+  actions: {
+    persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.$state));
+    },
+    async load() {
+      const current = parseStored(localStorage.getItem(STORAGE_KEY));
+      const legacy = current ? null : parseStored(localStorage.getItem(LEGACY_STORAGE_KEY));
+      const stored = current ?? legacy;
+      if (stored) this.$patch(stored);
+      if (isTauri()) {
+        try {
+          const paths = [...new Set([
+            ...this.recent.map((entry) => entry.path),
+            ...this.favorites.map((entry) => entry.path),
+            ...this.sessionPaths,
+          ])];
+          const existing = new Set(await invoke<string[]>("existing_paths", { paths }));
+          this.recent = this.recent.filter((entry) => existing.has(entry.path));
+          this.favorites = this.favorites.filter((entry) => existing.has(entry.path));
+          this.sessionPaths = this.sessionPaths.filter((path) => existing.has(path));
+          if (this.activePath && !existing.has(this.activePath)) this.activePath = null;
+        } catch {
+          return;
+        }
+      }
+      this.persist();
+      if (legacy) localStorage.removeItem(LEGACY_STORAGE_KEY);
+    },
+    addRecent(path: string, name: string) {
+      this.recent = [
+        { path, name, timestamp: Date.now() },
+        ...this.recent.filter((entry) => entry.path !== path),
+      ].slice(0, 30);
+      this.persist();
+    },
+    toggleFavorite(path: string, name: string) {
+      const exists = this.favorites.some((entry) => entry.path === path);
+      this.favorites = exists
+        ? this.favorites.filter((entry) => entry.path !== path)
+        : [{ path, name, timestamp: Date.now() }, ...this.favorites];
+      this.persist();
+    },
+    isFavorite(path: string) {
+      return this.favorites.some((entry) => entry.path === path);
+    },
+    removeRecent(path: string) {
+      this.recent = this.recent.filter((entry) => entry.path !== path);
+      this.persist();
+    },
+    saveSession(paths: string[], activePath: string | null) {
+      this.sessionPaths = [...new Set(paths)];
+      this.activePath = activePath;
+      this.persist();
+    },
+  },
+});

@@ -1,5 +1,6 @@
-import { reactive } from "vue";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { defineStore } from "pinia";
+import { isTauri } from "@tauri-apps/api/core";
+import { desktopInvoke as invoke } from "../services/desktop-api";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResidencyMode = "fast" | "low-memory";
@@ -13,7 +14,7 @@ export interface AppSettings {
   largeFileThresholdMb: number;
 }
 
-export const appSettings = reactive<AppSettings>({
+const defaults = (): AppSettings => ({
   theme: "system",
   residencyMode: "fast",
   closeBehavior: "keep-tabs",
@@ -23,24 +24,28 @@ export const appSettings = reactive<AppSettings>({
 
 let mediaQuery: MediaQueryList | undefined;
 
-export function applyTheme() {
-  mediaQuery ??= window.matchMedia("(prefers-color-scheme: dark)");
-  const dark = appSettings.theme === "dark" || (appSettings.theme === "system" && mediaQuery.matches);
-  document.documentElement.classList.toggle("dark", dark);
-  document.documentElement.style.colorScheme = dark ? "dark" : "light";
-}
-
-export async function loadSettings() {
-  if (isTauri()) Object.assign(appSettings, await invoke<AppSettings>("get_settings"));
-  applyTheme();
-  mediaQuery ??= window.matchMedia("(prefers-color-scheme: dark)");
-  mediaQuery.addEventListener("change", applyTheme);
-}
-
-export async function saveSettings(settings: AppSettings) {
-  const saved = isTauri()
-    ? await invoke<AppSettings>("update_settings", { settings })
-    : settings;
-  Object.assign(appSettings, saved);
-  applyTheme();
-}
+export const useSettingsStore = defineStore("settings", {
+  state: defaults,
+  actions: {
+    applyTheme() {
+      mediaQuery ??= window.matchMedia("(prefers-color-scheme: dark)");
+      const dark = this.theme === "dark" || (this.theme === "system" && mediaQuery.matches);
+      document.documentElement.classList.toggle("dark", dark);
+      document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    },
+    async load() {
+      if (isTauri()) this.$patch(await invoke<AppSettings>("get_settings"));
+      this.applyTheme();
+      mediaQuery ??= window.matchMedia("(prefers-color-scheme: dark)");
+      mediaQuery.removeEventListener("change", this.applyTheme);
+      mediaQuery.addEventListener("change", this.applyTheme);
+    },
+    async save(settings: AppSettings) {
+      const saved = isTauri()
+        ? await invoke<AppSettings>("update_settings", { settings })
+        : settings;
+      this.$patch(saved);
+      this.applyTheme();
+    },
+  },
+});

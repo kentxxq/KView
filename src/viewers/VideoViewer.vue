@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import Artplayer from "artplayer";
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import type { OpenedFile } from "../types/document";
-import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
 const container = ref<HTMLDivElement>();
 const player = shallowRef<Artplayer>();
 const url = ref("");
@@ -37,14 +36,25 @@ function handlePlaybackError() {
   player.value?.pause();
 }
 
-onMounted(() => {
+function loadVideo() {
+  player.value?.destroy(false);
+  player.value = undefined;
+  if (url.value) URL.revokeObjectURL(url.value);
+  url.value = "";
+  error.value = "";
+  duration.value = 0;
+  dimensions.value = "";
   const probe = document.createElement("video");
   if (!probe.canPlayType(mimeType.value)) {
     error.value = `${props.file.extension.toUpperCase()} 的编码或容器不受当前系统 WebView 支持。`;
     return;
   }
 
-  const bytes = decodeBase64(props.content);
+  const bytes = props.binaryContent;
+  if (!bytes) {
+    error.value = "视频二进制内容不可用";
+    return;
+  }
   url.value = URL.createObjectURL(new Blob([bytes], { type: mimeType.value }));
   if (!container.value) return;
 
@@ -77,7 +87,10 @@ onMounted(() => {
   instance.on("video:loadedmetadata", updateMetadata);
   instance.on("video:error", handlePlaybackError);
   if (instance.video.readyState >= HTMLMediaElement.HAVE_METADATA) updateMetadata();
-});
+}
+
+onMounted(loadVideo);
+watch(() => [props.file.path, props.file.modifiedAt], loadVideo);
 
 onBeforeUnmount(() => {
   player.value?.destroy(false);

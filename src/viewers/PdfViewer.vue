@@ -3,12 +3,11 @@ import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vu
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import type { OpenedFile } from "../types/document";
-import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
 const canvas = ref<HTMLCanvasElement>();
 const document = shallowRef<PDFDocumentProxy>();
 const pageNumber = ref(1);
@@ -22,6 +21,7 @@ const matches = ref<number[]>([]);
 const pageText = ref("");
 let renderTask: { cancel: () => void; promise: Promise<unknown> } | undefined;
 let loadingTask: PDFDocumentLoadingTask | undefined;
+let loadGeneration = 0;
 
 async function renderPage() {
   if (!document.value || !canvas.value) return;
@@ -66,25 +66,51 @@ async function copyPageText() {
   await navigator.clipboard.writeText(pageText.value);
 }
 
-onMounted(async () => {
+async function loadPdf() {
+  const generation = ++loadGeneration;
+  renderTask?.cancel();
+  const previousLoadingTask = loadingTask;
+  loadingTask = undefined;
+  await previousLoadingTask?.destroy().catch(() => undefined);
+  if (generation !== loadGeneration) return;
+  document.value = undefined;
+  pageNumber.value = 1;
+  pageCount.value = 0;
+  outline.value = [];
+  error.value = "";
+  loading.value = true;
   try {
-    loadingTask = pdfjs.getDocument({ data: decodeBase64(props.content) });
-    document.value = await loadingTask.promise;
-    pageCount.value = document.value.numPages;
-    const entries = await document.value.getOutline();
+    const bytes = props.binaryContent;
+    if (!bytes) throw new Error("PDF 二进制内容不可用");
+    const task = pdfjs.getDocument({ data: bytes.slice() });
+    loadingTask = task;
+    const nextDocument = await task.promise;
+    if (generation !== loadGeneration) {
+      await task.destroy();
+      return;
+    }
+    document.value = nextDocument;
+    pageCount.value = nextDocument.numPages;
+    const entries = await nextDocument.getOutline();
+    if (generation !== loadGeneration) return;
     outline.value = (entries ?? []).map((entry) => ({ title: entry.title, destination: entry.dest }));
     loading.value = false;
     await nextTick();
     await renderPage();
   } catch (cause) {
+    if (generation !== loadGeneration) return;
     error.value = `无法解析 PDF。文件可能已损坏、加密或使用了不支持的特性。${cause instanceof Error ? ` ${cause.message}` : ""}`;
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
-});
+}
+
+onMounted(loadPdf);
+watch(() => [props.file.path, props.file.modifiedAt], () => void loadPdf());
 
 watch([pageNumber, scale], () => void nextTick(renderPage));
 onBeforeUnmount(() => {
+  loadGeneration++;
   renderTask?.cancel();
   void loadingTask?.destroy();
 });

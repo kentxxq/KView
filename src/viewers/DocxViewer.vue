@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import DOMPurify from "dompurify";
 import * as mammoth from "mammoth";
 import type { OpenedFile } from "../types/document";
-import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
 const html = ref("");
 const loading = ref(true);
 const error = ref("");
 const warnings = ref<string[]>([]);
+let loadGeneration = 0;
 const notice = computed(() => {
   const compatibility = "复杂分页、浮动对象、宏和 Office 专有排版可能与原文档不同；KView 不会执行文档链接或脚本。";
   return warnings.value.length
@@ -26,13 +26,21 @@ function sanitizeDocumentHtml(value: string) {
   });
 }
 
-onMounted(async () => {
+async function loadDocument() {
+  const generation = ++loadGeneration;
+  const extension = props.file.extension;
+  const content = props.content;
+  const bytes = props.binaryContent;
+  html.value = "";
+  warnings.value = [];
+  error.value = "";
+  loading.value = true;
   try {
-    if (props.file.extension === "doc") {
-      html.value = sanitizeDocumentHtml(props.content);
+    if (extension === "doc") {
+      if (generation === loadGeneration) html.value = sanitizeDocumentHtml(content);
       return;
     }
-    const bytes = decodeBase64(props.content);
+    if (!bytes) throw new Error("DOCX 二进制内容不可用");
     const result = await mammoth.convertToHtml(
       { arrayBuffer: bytes.buffer as ArrayBuffer },
       {
@@ -41,13 +49,21 @@ onMounted(async () => {
         })),
       },
     );
+    if (generation !== loadGeneration) return;
     html.value = sanitizeDocumentHtml(result.value);
     warnings.value = result.messages.map((message) => message.message).slice(0, 3);
   } catch (cause) {
-    error.value = `无法解析 ${props.file.extension.toUpperCase()}。文件可能已损坏、加密或包含不支持的结构。${cause instanceof Error ? ` ${cause.message}` : ""}`;
+    if (generation !== loadGeneration) return;
+    error.value = `无法解析 ${extension.toUpperCase()}。文件可能已损坏、加密或包含不支持的结构。${cause instanceof Error ? ` ${cause.message}` : ""}`;
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
+}
+
+onMounted(loadDocument);
+watch(() => [props.file.path, props.file.modifiedAt], () => void loadDocument());
+onBeforeUnmount(() => {
+  loadGeneration++;
 });
 </script>
 

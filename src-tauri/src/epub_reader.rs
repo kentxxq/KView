@@ -19,6 +19,7 @@ use rbook::{
 };
 use serde::Serialize;
 use tauri::State;
+use crate::command_error::CommandResult;
 
 const MAX_EBOOK_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_EPUB_ENTRIES: usize = 10_000;
@@ -227,7 +228,7 @@ fn normalize_resource_href(base: &str, href: &str) -> Option<String> {
 pub fn open_epub(
     path: String,
     sessions: State<'_, EpubSessions>,
-) -> Result<EpubDocument, String> {
+) -> CommandResult<EpubDocument> {
     let file = validate_epub(&path)?;
     let mut options = Epub::options();
     options.strict(false);
@@ -298,7 +299,7 @@ pub fn read_epub_chapter(
     session_id: String,
     chapter_id: String,
     sessions: State<'_, EpubSessions>,
-) -> Result<EpubChapter, String> {
+) -> CommandResult<EpubChapter> {
     let session = session(&sessions, &session_id)?;
     let chapter = session
         .chapters
@@ -327,7 +328,7 @@ pub fn read_epub_resource(
     chapter_id: String,
     href: String,
     sessions: State<'_, EpubSessions>,
-) -> Result<EpubResource, String> {
+) -> CommandResult<EpubResource> {
     let session = session(&sessions, &session_id)?;
     let chapter = session
         .chapters
@@ -364,7 +365,7 @@ pub fn read_epub_resource(
 }
 
 #[tauri::command]
-pub fn close_epub(session_id: String, sessions: State<'_, EpubSessions>) -> Result<(), String> {
+pub fn close_epub(session_id: String, sessions: State<'_, EpubSessions>) -> CommandResult<()> {
     sessions
         .sessions
         .lock()

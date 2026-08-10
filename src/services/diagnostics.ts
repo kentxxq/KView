@@ -1,4 +1,5 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { desktopInvoke as invoke } from "./desktop-api";
 
 export function recordDiagnostic(category: string, code: string, durationMs?: number) {
   if (!isTauri()) return;

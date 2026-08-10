@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { desktopInvoke as invoke } from "../services/desktop-api";
 import DOMPurify from "dompurify";
 import type {
   EpubChapter,
@@ -247,7 +247,7 @@ class RustEpubParser implements EbookParser {
   destroy() {}
 }
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
 const emit = defineEmits<{ openHex: [] }>();
 const contentScroller = ref<HTMLElement>();
 const chapterElement = ref<HTMLElement>();
@@ -470,7 +470,9 @@ async function initialize() {
   loading.value = true;
   try {
     const nextParser = await createParser(
-      props.file.extension === "epub" ? new Uint8Array() : decodeBase64(props.content),
+      props.file.extension === "epub"
+        ? new Uint8Array()
+        : props.binaryContent?.slice() ?? (() => { throw new Error("MOBI 二进制内容不可用"); })(),
     );
     if (generation !== loadGeneration) {
       nextParser.destroy();
@@ -494,7 +496,7 @@ async function initialize() {
   }
 }
 
-watch(() => [props.file.path, props.content], () => void initialize(), { immediate: true });
+watch(() => [props.file.path, props.file.modifiedAt], () => void initialize(), { immediate: true });
 
 onBeforeUnmount(() => {
   loadGeneration += 1;

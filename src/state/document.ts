@@ -5,7 +5,7 @@ export const createDocumentState = (): DocumentState => ({
   file: null,
   status: "empty",
   viewerKind: "empty",
-  buffer: null,
+  content: { type: "empty" },
   dirty: false,
   sourceModifiedAt: null,
   encoding: null,
@@ -13,8 +13,6 @@ export const createDocumentState = (): DocumentState => ({
   bom: false,
   readOnly: true,
   largeTextSession: null,
-  ebookSessionId: null,
-  objectUrls: [],
   error: null,
 });
 

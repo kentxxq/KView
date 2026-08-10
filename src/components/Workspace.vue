@@ -1,7 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import {
+  computed,
+  defineComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  toRef,
+  watch,
+  type Component,
+} from "vue";
 import { defineShortcuts, useToast } from "@nuxt/ui/composables";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import AppShell from "./AppShell.vue";
 import EmptyState from "./EmptyState.vue";
@@ -12,41 +23,25 @@ import SettingsModal from "./SettingsModal.vue";
 import ViewerFooter from "./ViewerFooter.vue";
 import ViewerHost from "../viewers/ViewerHost.vue";
 import { resolveViewer, resolveViewerKey } from "../viewers/registry";
-import { createDocumentState, documentState, resetDocument } from "../state/document";
-import {
-  addRecent,
-  isFavorite,
-  libraryState,
-  loadLibrary,
-  removeRecent,
-  saveSession,
-  toggleFavorite,
-} from "../state/library";
+import { createDocumentState } from "../state/document";
+import { useLibraryStore } from "../state/library";
+import { useWorkspaceStore, type WorkspaceTab } from "../state/workspace";
 import type {
-  BinaryDocument,
-  ArchiveDocument,
   DocumentState,
-  EpubDocument,
-  HtmlDocument,
-  ImageDocument,
-  InstallerDocument,
-  LivePhotoBinaryHeader,
-  LivePhotoDocument,
   OpenedFile,
   RemoteDocument,
   SaveResult,
-  TextReadResult,
 } from "../types/document";
+import { decodeBase64 } from "../utils/binary";
+import { loadLocalDocument } from "../services/document-loader";
 import { initializeDesktopLifecycle } from "../services/desktop-lifecycle";
 import { recordDiagnostic } from "../services/diagnostics";
-import { appSettings, loadSettings } from "../state/settings";
-
-interface WorkspaceTab {
-  id: string;
-  sourceKey: string;
-  state: DocumentState;
-  fallbackName: string;
-}
+import { useSettingsStore } from "../state/settings";
+import { desktopInvoke as invoke } from "../services/desktop-api";
+import {
+  disposeDocumentResources as closeDocumentResources,
+  transferDocumentResources,
+} from "../services/document-resources";
 
 interface SiblingFileList {
   paths: string[];
@@ -54,8 +49,15 @@ interface SiblingFileList {
 }
 
 const toast = useToast();
-const tabs = reactive<WorkspaceTab[]>([]);
-const activeTabId = ref("");
+const workspaceState = useWorkspaceStore();
+const libraryState = useLibraryStore();
+const appSettings = useSettingsStore();
+const addRecent = (path: string, name: string) => libraryState.addRecent(path, name);
+const removeRecent = (path: string) => libraryState.removeRecent(path);
+const toggleFavorite = (path: string, name: string) => libraryState.toggleFavorite(path, name);
+const tabs = workspaceState.tabs;
+const activeTabId = toRef(workspaceState, "activeTabId");
+const emptyDocumentState = reactive(createDocumentState());
 const spaceOpenTabId = ref("");
 const spaceOpenPaths = ref<string[]>([]);
 const spaceOpenIndex = ref(-1);
@@ -65,6 +67,8 @@ const settingsOpen = ref(false);
 const libraryOpen = ref(false);
 const openUrlModalOpen = ref(false);
 const guardTargetIds = ref<string[]>([]);
+const viewerCacheExclusions = ref<string[]>([]);
+const viewerShells = new Map<string, Component>();
 const tabStrip = ref<HTMLElement>();
 const canScrollTabsLeft = ref(false);
 const canScrollTabsRight = ref(false);
@@ -77,17 +81,39 @@ let resolveGuard: ((result: boolean) => void) | undefined;
 let tabResizeObserver: ResizeObserver | undefined;
 
 const activeTab = computed(() => tabs.find((tab) => tab.id === activeTabId.value) ?? null);
-const activeViewerKey = computed(() => documentState.file
-  ? resolveViewerKey(documentState.file) ?? documentState.viewerKind
-  : documentState.viewerKind);
+function viewerShellName(tabId: string) {
+  return `KViewTabViewer_${tabId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+}
+
+function viewerShellFor(tabId: string) {
+  let shell = viewerShells.get(tabId);
+  if (!shell) {
+    shell = defineComponent({
+      name: viewerShellName(tabId),
+      setup(_, { slots }) {
+        return () => slots.default?.();
+      },
+    });
+    viewerShells.set(tabId, shell);
+  }
+  return shell;
+}
+
+const activeViewerShell = computed(() => (
+  activeTab.value ? viewerShellFor(activeTab.value.id) : null
+));
+const documentState = computed(() => activeTab.value?.state ?? emptyDocumentState);
+const activeViewerKey = computed(() => documentState.value.file
+  ? resolveViewerKey(documentState.value.file) ?? documentState.value.viewerKind
+  : documentState.value.viewerKind);
 const guardedDirtyTabs = computed(() => {
   const targetIds = new Set(guardTargetIds.value);
   return tabs.filter((tab) => targetIds.has(tab.id) && tab.state.dirty);
 });
-const hasViewer = computed(() => !!documentState.file && !!resolveViewer(documentState.file));
+const hasViewer = computed(() => !!documentState.value.file && !!resolveViewer(documentState.value.file));
 const currentFavorite = computed(() => {
-  const file = documentState.file;
-  return file?.source === "local" && isFavorite(file.path);
+  const file = documentState.value.file;
+  return file?.source === "local" && libraryState.isFavorite(file.path);
 });
 
 function errorMessage(error: unknown) {
@@ -95,14 +121,13 @@ function errorMessage(error: unknown) {
 }
 
 function syncActiveTab() {
-  if (activeTab.value) Object.assign(activeTab.value.state, documentState);
   persistTabs();
 }
 
 function persistTabs() {
   const activeFile = activeTab.value?.state.file;
   const activeLocalPath = activeFile?.source === "local" ? activeFile.path : null;
-  saveSession(
+  libraryState.saveSession(
     tabs.flatMap((tab) => {
       const file = tab.state.file;
       return file?.source === "local" ? [file.path] : [];
@@ -117,7 +142,6 @@ function activateTab(id: string) {
   const target = tabs.find((tab) => tab.id === id);
   if (!target) return;
   activeTabId.value = id;
-  Object.assign(documentState, target.state);
   persistTabs();
   void nextTick(scrollActiveTabIntoView);
 }
@@ -216,185 +240,12 @@ async function openFileWith(path: string) {
   }
 }
 
-async function closeLargeTextSession(state: DocumentState) {
-  const sessionId = state.largeTextSession?.sessionId;
-  state.largeTextSession = null;
-  if (!sessionId || !isTauri()) return;
-  try {
-    await invoke("close_large_text_session", { sessionId });
-  } catch {
-    recordDiagnostic("viewer", "large-text-close-failed");
-  }
-}
-
-async function closeEpubSession(state: DocumentState) {
-  const sessionId = state.ebookSessionId;
-  state.ebookSessionId = null;
-  if (!sessionId || !isTauri()) return;
-  try {
-    await invoke("close_epub", { sessionId });
-  } catch {
-    recordDiagnostic("viewer", "epub-close-failed");
-  }
-}
-
-function revokeObjectUrls(state: DocumentState) {
-  for (const url of state.objectUrls.splice(0)) URL.revokeObjectURL(url);
-}
-
-async function closeDocumentResources(state: DocumentState) {
-  revokeObjectUrls(state);
-  await Promise.all([closeLargeTextSession(state), closeEpubSession(state)]);
-}
-
-function createStateObjectUrl(
-  state: DocumentState,
-  bytes: Uint8Array<ArrayBuffer>,
-  mimeType: string,
-) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-  state.objectUrls.push(url);
-  return url;
-}
-
-async function invokeBytes(
-  command: string,
-  args: Record<string, unknown>,
-): Promise<Uint8Array<ArrayBuffer>> {
-  const response = await invoke<ArrayBuffer>(command, args);
-  return new Uint8Array(response);
-}
-
-async function loadLivePhotoDocument(state: DocumentState, path: string): Promise<LivePhotoDocument> {
-  const payload = await invokeBytes("read_live_photo", { path });
-  if (payload.byteLength < 4) throw new Error("动态照片数据不完整");
-  const headerLength = new DataView(
-    payload.buffer,
-    payload.byteOffset,
-    payload.byteLength,
-  ).getUint32(0, true);
-  const contentStart = 4 + headerLength;
-  if (headerLength === 0 || contentStart > payload.byteLength) {
-    throw new Error("动态照片数据头无效");
-  }
-  const header = JSON.parse(
-    new TextDecoder().decode(payload.subarray(4, contentStart)),
-  ) as LivePhotoBinaryHeader;
-  const videoStart = contentStart + header.imageLength;
-  if (
-    !Number.isSafeInteger(header.imageLength)
-    || header.imageLength <= 0
-    || videoStart >= payload.byteLength
-  ) {
-    throw new Error("动态照片媒体长度无效");
-  }
-  return {
-    imageUrl: createStateObjectUrl(
-      state,
-      payload.subarray(contentStart, videoStart),
-      header.imageMimeType,
-    ),
-    imageMimeType: header.imageMimeType,
-    videoUrl: createStateObjectUrl(
-      state,
-      payload.subarray(videoStart),
-      header.videoMimeType,
-    ),
-    videoMimeType: header.videoMimeType,
-    sourceKind: header.sourceKind,
-  };
-}
-
 async function loadFileState(
-  state: DocumentState,
+  target: DocumentState,
   path: string,
   options: { inspectedFile?: OpenedFile } = {},
 ) {
-  const file = options.inspectedFile ?? await invoke<OpenedFile>("inspect_file", { path });
-  const definition = resolveViewer(file);
-  if (!definition) throw new Error(`暂不支持 .${file.extension || "未知"} 文件`);
-
-  state.file = file;
-  state.viewerKind = file.kind;
-  state.sourceModifiedAt = file.modifiedAt;
-  state.dirty = false;
-  state.largeTextSession = null;
-  state.ebookSessionId = null;
-
-  if (file.kind === "image") {
-    if (file.extension === "heic" || file.extension === "heif") {
-      const preview = await invokeBytes("read_heic_preview", { path: file.path });
-      state.buffer = createStateObjectUrl(state, preview, "image/bmp");
-    } else {
-      const image = await invoke<ImageDocument>("read_image", { path: file.path });
-      state.buffer = image.dataUrl;
-    }
-    state.readOnly = true;
-  } else if (file.kind === "live-photo") {
-    const livePhoto = await loadLivePhotoDocument(state, file.path);
-    state.buffer = JSON.stringify(livePhoto);
-    state.readOnly = true;
-  } else if (file.kind === "installer") {
-    const installer = await invoke<InstallerDocument>("read_installer", { path: file.path });
-    state.buffer = JSON.stringify(installer);
-    state.readOnly = true;
-  } else if (file.kind === "docx" && file.extension === "doc") {
-    const document = await invoke<HtmlDocument>("read_legacy_doc", { path: file.path });
-    state.buffer = document.html;
-    state.readOnly = true;
-  } else if (file.kind === "archive") {
-    const archive = await invoke<ArchiveDocument>("read_archive", { path: file.path });
-    state.buffer = JSON.stringify(archive);
-    state.readOnly = true;
-  } else if (file.kind === "ebook" && file.extension === "epub") {
-    const document = await invoke<EpubDocument>("open_epub", { path: file.path });
-    state.ebookSessionId = document.sessionId;
-    state.buffer = JSON.stringify(document);
-    state.readOnly = true;
-  } else if (file.kind === "ebook") {
-    const binary = await invoke<BinaryDocument>("read_mobi", { path: file.path });
-    state.buffer = binary.base64;
-    state.readOnly = true;
-  } else if (["pdf", "docx", "xlsx", "audio", "video"].includes(file.kind)) {
-    const binary = await invoke<BinaryDocument>("read_binary", { path: file.path });
-    state.buffer = binary.base64;
-    state.readOnly = true;
-  } else {
-    const result = await invoke<TextReadResult>("read_text", { path: file.path });
-    if (result.status === "large-text") {
-      const session = result.session;
-      state.buffer = null;
-      state.encoding = session.encoding;
-      state.lineEnding = session.lineEnding;
-      state.bom = session.bom;
-      state.readOnly = true;
-      state.largeTextSession = session;
-      file.encoding = session.encoding;
-      file.lineEnding = session.lineEnding;
-      file.readOnly = true;
-    } else if (result.status !== "success") {
-      state.status = "error";
-      state.error = {
-        code: result.status,
-        title: result.status === "binary-content" ? "这是一个二进制文件" : "暂不支持此文本编码",
-        message: result.message,
-        recoverable: true,
-      };
-      return;
-    } else {
-      const text = result.document;
-      state.buffer = text.content;
-      state.encoding = text.encoding;
-      state.lineEnding = text.lineEnding;
-      state.bom = text.bom;
-      state.readOnly = text.readOnly;
-      file.encoding = text.encoding;
-      file.lineEnding = text.lineEnding;
-      file.readOnly = text.readOnly;
-    }
-  }
-  state.status = "ready";
-  addRecent(file.path, file.name);
+  await loadLocalDocument(target, path, { ...options, onRecent: addRecent });
 }
 
 async function loadSpaceOpenPath(path: string | null) {
@@ -424,13 +275,11 @@ async function loadSpaceOpenPath(path: string | null) {
       message: "请选择一个文件，然后继续使用方向键切换打开。",
       recoverable: false,
     };
-    Object.assign(documentState, tab.state);
     persistTabs();
     return;
   }
   if (tab.state.status === "empty") {
     tab.state.status = "loading";
-    Object.assign(documentState, tab.state);
   }
 
   const nextState = createDocumentState();
@@ -451,7 +300,6 @@ async function loadSpaceOpenPath(path: string | null) {
         status: "loading",
         viewerKind: file.kind,
       });
-      if (activeTabId.value === tab.id) Object.assign(documentState, tab.state);
     }
 
     await loadFileState(nextState, path, { inspectedFile: file });
@@ -466,10 +314,10 @@ async function loadSpaceOpenPath(path: string | null) {
   }
   if (sequence === spaceOpenSequence && spaceOpenTabId.value === tab.id) {
     await closeDocumentResources(tab.state);
+    transferDocumentResources(nextState, tab.state);
     Object.assign(tab.state, nextState);
     tab.sourceKey = `local:${path}`;
     tab.fallbackName = nextState.file?.name ?? tab.fallbackName;
-    if (activeTabId.value === tab.id) Object.assign(documentState, tab.state);
     persistTabs();
   } else {
     await closeDocumentResources(nextState);
@@ -548,22 +396,22 @@ async function cancelSpaceOpenLink() {
 
 async function openCurrentAsHex() {
   if (
-    !documentState.file
+    !documentState.value.file
     || (
-      documentState.file.kind !== "ebook"
-      && !["binary-content", "unsupported-encoding"].includes(documentState.error?.code ?? "")
+      documentState.value.file.kind !== "ebook"
+      && !["binary-content", "unsupported-encoding"].includes(documentState.value.error?.code ?? "")
     )
   ) return;
-  await closeDocumentResources(documentState);
-  documentState.file.kind = "hex";
-  documentState.viewerKind = "hex";
-  documentState.buffer = null;
-  documentState.readOnly = true;
-  documentState.dirty = false;
-  documentState.largeTextSession = null;
-  documentState.error = null;
-  documentState.status = "ready";
-  addRecent(documentState.file.path, documentState.file.name);
+  await closeDocumentResources(documentState.value);
+  documentState.value.file.kind = "hex";
+  documentState.value.viewerKind = "hex";
+  documentState.value.content = { type: "empty" };
+  documentState.value.readOnly = true;
+  documentState.value.dirty = false;
+  documentState.value.largeTextSession = null;
+  documentState.value.error = null;
+  documentState.value.status = "ready";
+  addRecent(documentState.value.file.path, documentState.value.file.name);
   syncActiveTab();
 }
 
@@ -576,7 +424,7 @@ async function openPathAsTab(path: string) {
     return;
   }
 
-  const state = createDocumentState();
+  const state = reactive(createDocumentState());
   state.status = "loading";
   const tab: WorkspaceTab = {
     id: `tab-${Date.now()}-${tabSequence++}`,
@@ -600,7 +448,6 @@ async function openPathAsTab(path: string) {
       recoverable: true,
     };
   }
-  if (activeTabId.value === tab.id) Object.assign(documentState, state);
   persistTabs();
 }
 
@@ -616,7 +463,7 @@ async function openRemoteAsTab(url: string) {
     return;
   }
 
-  const state = createDocumentState();
+  const state = reactive(createDocumentState());
   state.status = "loading";
   const parsed = new URL(url);
   const tab: WorkspaceTab = {
@@ -634,7 +481,9 @@ async function openRemoteAsTab(url: string) {
     state.file = remote.file;
     state.viewerKind = remote.file.kind;
     state.sourceModifiedAt = null;
-    state.buffer = remote.content;
+    state.content = remote.file.kind === "image"
+      ? { type: "data-url", value: remote.content }
+      : { type: "bytes", value: decodeBase64(remote.content) };
     state.readOnly = true;
     state.dirty = false;
     state.largeTextSession = null;
@@ -650,7 +499,6 @@ async function openRemoteAsTab(url: string) {
       recoverable: true,
     };
   }
-  if (activeTabId.value === tab.id) Object.assign(documentState, state);
   persistTabs();
 }
 
@@ -684,7 +532,7 @@ async function openClipboardImage(file: File) {
 
   const sequence = tabSequence++;
   const id = `tab-${Date.now()}-${sequence}`;
-  const state = createDocumentState();
+  const state = reactive(createDocumentState());
   state.status = "loading";
   const tab: WorkspaceTab = {
     id,
@@ -708,7 +556,7 @@ async function openClipboardImage(file: File) {
       readOnly: true,
     };
     state.viewerKind = "image";
-    state.buffer = await readFileAsDataUrl(file);
+    state.content = { type: "data-url", value: await readFileAsDataUrl(file) };
     state.readOnly = true;
     state.status = "ready";
     recordDiagnostic("viewer", "open-clipboard-image");
@@ -721,7 +569,6 @@ async function openClipboardImage(file: File) {
       recoverable: true,
     };
   }
-  if (activeTabId.value === tab.id) Object.assign(documentState, state);
   persistTabs();
 }
 
@@ -744,7 +591,7 @@ function openClipboardText(text: string) {
   };
   state.status = "ready";
   state.viewerKind = "text";
-  state.buffer = text;
+  state.content = { type: "text", value: text };
   state.dirty = true;
   state.encoding = "utf-8";
   state.lineEnding = state.file.lineEnding;
@@ -757,14 +604,13 @@ function openClipboardText(text: string) {
   };
   tabs.push(tab);
   activateTab(id);
-  Object.assign(documentState, state);
   persistTabs();
   recordDiagnostic("viewer", "open-clipboard-text");
 }
 
 async function selectFile() {
   if (!isTauri()) {
-    documentState.error = {
+    documentState.value.error = {
       code: "desktop-only",
       title: "请在 KView 桌面应用中打开文件",
       message: "浏览器预览不具备本地文件选择权限。",
@@ -777,14 +623,18 @@ async function selectFile() {
 }
 
 function updateContent(value: string) {
-  if (documentState.readOnly || documentState.buffer === value) return;
-  documentState.buffer = value;
-  documentState.dirty = true;
+  if (
+    documentState.value.readOnly
+    || documentState.value.content.type !== "text"
+    || documentState.value.content.value === value
+  ) return;
+  documentState.value.content = { type: "text", value };
+  documentState.value.dirty = true;
   syncActiveTab();
 }
 
 async function saveState(state: DocumentState, saveAs: boolean) {
-  if (!state.file || state.readOnly || state.buffer === null || state.status !== "ready") return false;
+  if (!state.file || state.readOnly || state.content.type !== "text" || state.status !== "ready") return false;
   const shouldSaveAs = saveAs || state.file.source === "clipboard";
   let targetPath = state.file.path;
   if (shouldSaveAs) {
@@ -796,10 +646,21 @@ async function saveState(state: DocumentState, saveAs: boolean) {
     targetPath = selected;
   }
 
+  const duplicate = tabs.find((tab) => tab.state !== state && tab.sourceKey === `local:${targetPath}`);
+  if (duplicate) {
+    toast.add({
+      title: "目标文件已在其他标签页打开",
+      description: "请关闭已有标签页或选择其他保存位置。",
+      color: "warning",
+      icon: "i-lucide-files",
+    });
+    return false;
+  }
+
   try {
     const result = await invoke<SaveResult>("save_text", {
       path: targetPath,
-      content: state.buffer,
+      content: state.content.value,
       encoding: state.encoding ?? "utf-8",
       lineEnding: state.lineEnding ?? "lf",
       bom: state.bom,
@@ -812,6 +673,11 @@ async function saveState(state: DocumentState, saveAs: boolean) {
     state.file = refreshed;
     state.sourceModifiedAt = result.modifiedAt;
     state.dirty = false;
+    const owner = tabs.find((tab) => tab.state === state);
+    if (owner) {
+      owner.sourceKey = `local:${refreshed.path}`;
+      owner.fallbackName = refreshed.name;
+    }
     addRecent(refreshed.path, refreshed.name);
     toast.add({ title: shouldSaveAs ? "文件已另存" : "文件已保存", description: result.name, color: "success", icon: "i-lucide-check" });
     return true;
@@ -823,7 +689,7 @@ async function saveState(state: DocumentState, saveAs: boolean) {
 }
 
 async function saveDocument(saveAs: boolean) {
-  const saved = await saveState(documentState, saveAs);
+  const saved = await saveState(documentState.value, saveAs);
   syncActiveTab();
   return saved;
 }
@@ -855,7 +721,6 @@ async function saveAllFromGuard() {
   for (const tab of [...guardedDirtyTabs.value]) {
     if (!(await saveState(tab.state, false))) return;
   }
-  if (activeTab.value) Object.assign(documentState, activeTab.value.state);
   finishGuard(true);
 }
 
@@ -866,6 +731,8 @@ async function closeTabs(targetIds: string[]) {
 
   const firstTargetIndex = tabs.findIndex((tab) => targetIdSet.has(tab.id));
   const activeTabClosed = targetIdSet.has(activeTabId.value);
+  viewerCacheExclusions.value = targetTabs.map((tab) => viewerShellName(tab.id));
+  await nextTick();
   if (spaceOpenTabId.value && targetIdSet.has(spaceOpenTabId.value)) {
     await cancelSpaceOpenLink();
   }
@@ -873,12 +740,12 @@ async function closeTabs(targetIds: string[]) {
   for (let index = tabs.length - 1; index >= 0; index--) {
     if (targetIdSet.has(tabs[index].id)) tabs.splice(index, 1);
   }
-
+  for (const tab of targetTabs) viewerShells.delete(tab.id);
+  viewerCacheExclusions.value = [];
   if (activeTabClosed) {
     activeTabId.value = "";
     const nextTab = tabs[Math.min(firstTargetIndex, tabs.length - 1)];
     if (nextTab) activateTab(nextTab.id);
-    else resetDocument();
   }
   persistTabs();
 }
@@ -914,15 +781,15 @@ function cycleTab(direction: number) {
 }
 
 function toggleCurrentFavorite() {
-  if (!documentState.file || documentState.file.source !== "local") return;
-  toggleFavorite(documentState.file.path, documentState.file.name);
+  if (!documentState.value.file || documentState.value.file.source !== "local") return;
+  toggleFavorite(documentState.value.file.path, documentState.value.file.name);
 }
 
 async function clearWorkspace() {
   await Promise.all(tabs.map((tab) => closeDocumentResources(tab.state)));
   tabs.splice(0);
   activeTabId.value = "";
-  resetDocument();
+  Object.assign(emptyDocumentState, createDocumentState());
   persistTabs();
 }
 
@@ -987,7 +854,7 @@ onMounted(async () => {
   if (tabStrip.value) tabResizeObserver.observe(tabStrip.value);
   if (!isTauri()) return;
   try {
-    await Promise.all([loadSettings(), loadLibrary()]);
+    await Promise.all([appSettings.load(), libraryState.load()]);
   } catch {
     recordDiagnostic("settings", "load-failed");
   }
@@ -1073,7 +940,7 @@ onBeforeUnmount(() => {
       <UTooltip text="回到首页" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-house" aria-label="回到首页" :disabled="!tabs.length" @click="returnHome" /></UTooltip>
       <UTooltip text="打开文件" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" @click="selectFile" /></UTooltip>
       <UTooltip text="打开 URL" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-link" aria-label="打开 URL" @click="openUrlModalOpen = true" /></UTooltip>
-      <UTooltip v-if="documentState.file?.source === 'local'" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" :icon="currentFavorite ? 'i-mdi-star' : 'i-lucide-star'" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
+      <UTooltip v-if="documentState.file?.source === 'local'" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" icon="i-lucide-star" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
       <UTooltip text="文件库" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" @click="libraryOpen = true" /></UTooltip>
       <UTooltip text="设置" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" /></UTooltip>
     </template>
@@ -1091,17 +958,22 @@ onBeforeUnmount(() => {
         <ViewerFooter :file-size="documentState.file?.size"><template #status>{{ (documentState.file?.extension || "未知格式").toUpperCase() }} · 打开失败</template></ViewerFooter>
       </div>
       <div v-else-if="documentState.file && documentState.status === 'ready' && hasViewer" class="flex min-h-0 flex-1 flex-col">
-        <KeepAlive :max="12">
-          <ViewerHost
-            :key="activeTab?.id === spaceOpenTabId ? `space-open:${activeViewerKey}` : activeTabId"
-            class="min-h-0 flex-1"
-            :file="documentState.file"
-            :content="documentState.buffer ?? ''"
-            :read-only="documentState.readOnly"
-            :large-text-session="documentState.largeTextSession"
-            @update:content="updateContent"
-            @open-hex="openCurrentAsHex"
-          />
+        <KeepAlive :exclude="viewerCacheExclusions" :max="12">
+          <component
+            :is="activeViewerShell"
+            :key="activeTabId"
+          >
+            <ViewerHost
+              :key="activeTab?.id === spaceOpenTabId ? `space-open:${activeViewerKey}` : activeTabId"
+              class="min-h-0 flex-1"
+              :file="documentState.file"
+              :content="documentState.content"
+              :read-only="documentState.readOnly"
+              :large-text-session="documentState.largeTextSession"
+              @update:content="updateContent"
+              @open-hex="openCurrentAsHex"
+            />
+          </component>
         </KeepAlive>
       </div>
       <div v-else-if="documentState.status === 'loading'" class="flex min-h-0 flex-1 flex-col">

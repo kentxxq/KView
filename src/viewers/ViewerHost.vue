@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, type Component } from "vue";
-import type { LargeTextSessionInfo, OpenedFile } from "../types/document";
+import type { DocumentContent, LargeTextSessionInfo, OpenedFile } from "../types/document";
 import { resolveViewer, resolveViewerKey } from "./registry";
 
 const props = defineProps<{
   file: OpenedFile;
-  content: string;
+  content: DocumentContent;
   readOnly: boolean;
   largeTextSession: LargeTextSessionInfo | null;
 }>();
@@ -17,6 +17,17 @@ defineEmits<{
 
 const viewerComponents = new Map<string, Component>();
 const LargeTextViewer = defineAsyncComponent(() => import("./LargeTextViewer.vue"));
+
+const textContent = computed(() => {
+  if (["text", "data-url"].includes(props.content.type)) {
+    return (props.content as { value: string }).value;
+  }
+  if (props.content.type !== "structured") return "";
+  return typeof props.content.value === "string"
+    ? props.content.value
+    : JSON.stringify(props.content.value);
+});
+const binaryContent = computed(() => props.content.type === "bytes" ? props.content.value : undefined);
 
 const viewer = computed(() => {
   const definition = resolveViewer(props.file);
@@ -44,7 +55,8 @@ const viewer = computed(() => {
       v-else-if="viewer"
       class="min-h-0 flex-1"
       :file="file"
-      :content="content"
+      :content="textContent"
+      :binary-content="binaryContent"
       :read-only="readOnly"
       @update:content="$emit('update:content', $event)"
       @open-hex="$emit('open-hex')"

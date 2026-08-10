@@ -9,7 +9,7 @@ import {
   reactive,
   ref,
 } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { desktopInvoke as invoke } from "../services/desktop-api";
 import type {
   LargeTextIndexStatus,
   LargeTextLinesResult,

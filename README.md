@@ -83,25 +83,29 @@ KView 使用一个 Tauri/Rust 进程负责单实例协调、托盘、文件打�
                     ↓
              归一化打开请求
                     ↓
-       Rust 读取元数据并检测文件类型
+     共享能力清单判定平台与文件类型
                     ↓
-          Viewer 注册表选择并懒加载
+       Rust 文档命令读取类型化内容
                     ↓
-           Vue 工作区展示或编辑内容
+       Pinia 工作区提交加载事务
+                    ↓
+          Viewer 注册表按需懒加载
 ```
 
 ### 核心模型
 
 - `OpenedFile`：归一化后的路径、文件名、扩展名、大小、修改时间、类型、编码、换行符和只读状态。
 - `ViewerKind`：空白、图片、动态照片、文本、Markdown、JSON、YAML、PDF、DOCX、XLSX、电子书、安装包、压缩包、视频、十六进制或不支持。
-- `ViewerDefinition`：Viewer 支持的扩展名/文件名、只读属性、编辑大小限制和懒加载入口。
-- `DocumentState`：当前文件、加载/错误状态、Viewer 状态、编辑缓冲区、脏状态和源文件修改时间。
+- `FormatCapability`：格式、扩展名、支持平台、文件关联和 Viewer 类型的唯一声明来源。
+- `ViewerDefinition`：Viewer 类型与懒加载入口，不再重复维护格式支持范围。
+- `DocumentState`：标签内文件、加载/错误状态、类型化内容、脏状态和源文件修改时间。
+- `DocumentContent`：文本、原始二进制、Data URL、结构化结果或会话内容的判别联合。
 
 ### 职责边界
 
-Rust Core 负责路径归一化与安全校验、元数据和类型检测、文本编码探测、完整或分块读取、原子保存、外部修改冲突检测，以及单实例、托盘、自启动和窗口生命周期。
+Rust Core 负责路径归一化与安全校验、元数据和类型检测、文本编码探测、完整或分块读取、原始二进制 IPC、原子保存、外部修改冲突检测，以及单实例、托盘、自启动和窗口生命周期。
 
-Vue 前端负责应用外壳、多标签和交互状态、Viewer 选择与懒加载、内容渲染和编辑缓冲区，以及搜索、缩放、树形展示、保存和错误提示。前端不具备任意文件系统访问权限，所有文件操作均通过范围明确的 Rust 命令完成。
+Vue 前端使用 Pinia 保存标签、设置和文件库状态；文档加载器以原子事务提交结果，并统一释放加载阶段创建的 Object URL 与 Rust 会话；Viewer 卸载时释放其媒体 URL、Worker 和解析任务。前端不具备任意文件系统访问权限，所有文件操作均经过类型化桌面 API 调用范围明确的 Rust 命令。
 
 文件类型首先按扩展名初筛，再使用文件头或内容特征校验；文本还会执行编码探测和二进制排除。检测结果冲突时选择更安全、保守的 Viewer。
 
@@ -143,7 +147,7 @@ Vue 前端负责应用外壳、多标签和交互状态、Viewer 选择与懒加
 
 ## 技术栈
 
-- Vue 3、TypeScript、Vite
+- Vue 3、Pinia、TypeScript、Vite
 - Tailwind CSS、Nuxt UI
 - Tauri 2、Rust
 - Monaco Editor、markdown-it、PDF.js、Mammoth.js、SheetJS、rbook EPUB Parser、Lingo Reader MOBI Parser

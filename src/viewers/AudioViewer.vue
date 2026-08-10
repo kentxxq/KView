@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { OpenedFile } from "../types/document";
-import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
 const audio = ref<HTMLAudioElement>();
 const url = ref("");
 const error = ref("");
@@ -30,15 +29,27 @@ function formatDuration(seconds: number) {
     : `${minutes}:${remainingSeconds}`;
 }
 
-onMounted(() => {
+function loadAudio() {
+  audio.value?.pause();
+  if (url.value) URL.revokeObjectURL(url.value);
+  url.value = "";
+  error.value = "";
+  duration.value = 0;
   const probe = document.createElement("audio");
   if (!probe.canPlayType(mimeType.value)) {
     error.value = `${props.file.extension.toUpperCase()} 不受当前系统 WebView 支持。`;
     return;
   }
-  const bytes = decodeBase64(props.content);
+  const bytes = props.binaryContent;
+  if (!bytes) {
+    error.value = "音频二进制内容不可用";
+    return;
+  }
   url.value = URL.createObjectURL(new Blob([bytes], { type: mimeType.value }));
-});
+}
+
+onMounted(loadAudio);
+watch(() => [props.file.path, props.file.modifiedAt], loadAudio);
 
 onBeforeUnmount(() => {
   audio.value?.pause();

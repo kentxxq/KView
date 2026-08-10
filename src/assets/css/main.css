@@ -68,6 +68,10 @@ button,
   color: #eab308;
 }
 
+.titlebar-favorite-active svg {
+  fill: currentColor;
+}
+
 .titlebar-close:hover {
   background: #c42b1c;
   color: white;

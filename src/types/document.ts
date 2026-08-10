@@ -60,7 +60,7 @@ export interface DocumentState {
   file: OpenedFile | null;
   status: "empty" | "loading" | "ready" | "error";
   viewerKind: ViewerKind;
-  buffer: string | null;
+  content: DocumentContent;
   dirty: boolean;
   sourceModifiedAt: number | null;
   encoding: TextEncoding | null;
@@ -68,10 +68,15 @@ export interface DocumentState {
   bom: boolean;
   readOnly: boolean;
   largeTextSession: LargeTextSessionInfo | null;
-  ebookSessionId: string | null;
-  objectUrls: string[];
   error: DocumentError | null;
 }
+
+export type DocumentContent =
+  | { type: "empty" }
+  | { type: "text"; value: string }
+  | { type: "bytes"; value: Uint8Array<ArrayBuffer> }
+  | { type: "data-url"; value: string }
+  | { type: "structured"; value: unknown };
 
 export interface TextDocument {
   content: string;
@@ -105,10 +110,6 @@ export interface LivePhotoBinaryHeader {
   imageMimeType: string;
   videoMimeType: string;
   sourceKind: LivePhotoDocument["sourceKind"];
-}
-
-export interface BinaryDocument {
-  base64: string;
 }
 
 export interface EpubSpineItem {

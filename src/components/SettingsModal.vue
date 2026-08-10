@@ -1,16 +1,29 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { useToast } from "@nuxt/ui/composables";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { appSettings, saveSettings, type AppSettings } from "../state/settings";
+import { isTauri } from "@tauri-apps/api/core";
+import { desktopInvoke as invoke } from "../services/desktop-api";
+import { useSettingsStore, type AppSettings } from "../state/settings";
+import { associationGroupsForPlatform } from "../domain/formats";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const toast = useToast();
+const appSettings = useSettingsStore();
 const saving = ref(false);
 const openingFileAssociations = ref(false);
 const openingLogDirectory = ref(false);
-const form = reactive<AppSettings>({ ...appSettings });
+function settingsSnapshot(settings: AppSettings): AppSettings {
+  return {
+    theme: settings.theme,
+    residencyMode: settings.residencyMode,
+    closeBehavior: settings.closeBehavior,
+    autostart: settings.autostart,
+    largeFileThresholdMb: settings.largeFileThresholdMb,
+  };
+}
+
+const form = reactive<AppSettings>(settingsSnapshot(appSettings));
 const largeFileThresholdError = computed(() => (
   Number.isInteger(form.largeFileThresholdMb)
   && form.largeFileThresholdMb >= 1
@@ -52,27 +65,13 @@ const closeBehaviorOptions = computed(() => [
   },
 ]);
 
-const associationGroups = [
-  { label: "图片与动态照片", extensions: ["jpg", "jpeg", "heic", "heif", "livp", "png", "webp", "gif", "svg"] },
-  {
-    label: "文本与数据",
-    extensions: ["txt", "log", "json", "yaml", "yml", "xml", "toml", "ini", "env", "conf", "config", "properties", "sql", "csv", "tsv", "md", "markdown"],
-  },
-  {
-    label: "代码",
-    extensions: ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "html", "htm", "css", "scss", "sass", "less", "py", "java", "kt", "kts", "c", "h", "cc", "cpp", "cxx", "hpp", "cs", "go", "rs", "php", "rb", "swift", "dart", "lua", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "graphql", "gql", "proto", "gitignore", "gitattributes", "editorconfig"],
-  },
-  { label: "文档", extensions: ["pdf", "doc", "docx", "xls", "xlsx"] },
-  { label: "电子书", extensions: ["epub", "mobi"] },
-  { label: "压缩包", extensions: ["zip", "tar", "tgz", "gz"] },
-  { label: "音频", extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"] },
-  { label: "视频", extensions: ["mp4", "webm"] },
-];
+const associationGroups = associationGroupsForPlatform("windows");
+const isWindows = /windows/i.test(navigator.userAgent);
 
 watch(
   () => props.open,
   (open) => {
-    if (open) Object.assign(form, appSettings);
+    if (open) Object.assign(form, settingsSnapshot(appSettings));
   },
 );
 
@@ -87,7 +86,7 @@ async function submit() {
   if (largeFileThresholdError.value) return;
   saving.value = true;
   try {
-    await saveSettings({ ...form });
+    await appSettings.save({ ...form });
     toast.add({ title: "设置已保存", color: "success", icon: "i-lucide-check" });
     emit("update:open", false);
   } catch (error) {
@@ -188,7 +187,7 @@ async function openLogDirectory() {
           </UFormField>
         </div>
 
-        <div class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4">
+        <div v-if="isWindows" class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4">
           <div class="min-w-0">
             <p class="text-sm font-medium text-highlighted">文件关联</p>
             <p class="mt-1 text-xs leading-5 text-muted">

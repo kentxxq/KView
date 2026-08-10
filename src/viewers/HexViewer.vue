@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { desktopInvoke as invoke } from "../services/desktop-api";
 import type { BinaryChunk, OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";

@@ -1,0 +1,158 @@
+[
+  {
+    "id": "image",
+    "label": "图片与动态照片",
+    "viewerKind": "image",
+    "extensions": ["jpg", "jpeg", "heic", "heif", "png", "webp", "gif", "svg"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "live-photo",
+    "label": "图片与动态照片",
+    "viewerKind": "live-photo",
+    "extensions": ["livp"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "markdown",
+    "label": "文本与数据",
+    "viewerKind": "markdown",
+    "extensions": ["md", "markdown"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": true,
+    "associable": true,
+    "hexFallback": true
+  },
+  {
+    "id": "json",
+    "label": "文本与数据",
+    "viewerKind": "json",
+    "extensions": ["json"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": true,
+    "associable": true,
+    "hexFallback": true
+  },
+  {
+    "id": "yaml",
+    "label": "文本与数据",
+    "viewerKind": "yaml",
+    "extensions": ["yaml", "yml"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": true,
+    "associable": true,
+    "hexFallback": true
+  },
+  {
+    "id": "text",
+    "label": "文本与代码",
+    "viewerKind": "text",
+    "extensions": ["txt", "log", "xml", "toml", "ini", "env", "conf", "config", "properties", "sql", "csv", "tsv", "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "html", "htm", "css", "scss", "sass", "less", "py", "java", "kt", "kts", "c", "h", "cc", "cpp", "cxx", "hpp", "cs", "go", "rs", "php", "rb", "swift", "dart", "lua", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "graphql", "gql", "proto", "gitignore", "gitattributes", "editorconfig"],
+    "fileNames": ["Dockerfile", "Makefile", "CMakeLists.txt"],
+    "platforms": ["windows", "macos"],
+    "editable": true,
+    "associable": true,
+    "hexFallback": true
+  },
+  {
+    "id": "pdf",
+    "label": "文档",
+    "viewerKind": "pdf",
+    "extensions": ["pdf"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "word",
+    "label": "文档",
+    "viewerKind": "docx",
+    "extensions": ["doc", "docx"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "spreadsheet",
+    "label": "文档",
+    "viewerKind": "xlsx",
+    "extensions": ["xls", "xlsx"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "ebook",
+    "label": "电子书",
+    "viewerKind": "ebook",
+    "extensions": ["epub", "mobi"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": true
+  },
+  {
+    "id": "archive",
+    "label": "压缩包",
+    "viewerKind": "archive",
+    "extensions": ["zip", "tar", "tgz"],
+    "fileSuffixes": [".tar.gz"],
+    "associationExtensions": ["gz"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "audio",
+    "label": "音频",
+    "viewerKind": "audio",
+    "extensions": ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "video",
+    "label": "视频",
+    "viewerKind": "video",
+    "extensions": ["mp4", "webm", "mov"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "installer",
+    "label": "安装包",
+    "viewerKind": "installer",
+    "extensions": ["exe", "msi", "msixbundle"],
+    "fileNames": [],
+    "platforms": ["windows"],
+    "editable": false,
+    "associable": false,
+    "hexFallback": false
+  }
+]

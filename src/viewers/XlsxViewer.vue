@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import * as XLSX from "xlsx";
 import type { OpenedFile } from "../types/document";
-import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
 const workbook = ref<XLSX.WorkBook>();
 const sheetName = ref("");
 const rows = ref<unknown[][]>([]);
@@ -49,15 +48,21 @@ function handleSheetChange(value: unknown) {
   if (typeof value === "string") selectSheet(value);
 }
 
-onMounted(() => {
+function loadWorkbook() {
+  workbook.value = undefined;
+  error.value = "";
   try {
-    workbook.value = XLSX.read(decodeBase64(props.content), { type: "array", cellFormula: true });
+    if (!props.binaryContent) throw new Error("表格二进制内容不可用");
+    workbook.value = XLSX.read(props.binaryContent, { type: "array", cellFormula: true });
     if (!workbook.value.SheetNames.length) throw new Error("工作簿中没有工作表");
     selectSheet(workbook.value.SheetNames[0]);
   } catch (cause) {
     error.value = `无法解析 ${props.file.extension.toUpperCase()}。文件可能已损坏、加密或并非有效工作簿。${cause instanceof Error ? ` ${cause.message}` : ""}`;
   }
-});
+}
+
+onMounted(loadWorkbook);
+watch(() => [props.file.path, props.file.modifiedAt], loadWorkbook);
 </script>
 
 <template>

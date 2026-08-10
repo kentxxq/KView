@@ -1,20 +1,25 @@
 mod installer;
 mod live_photo;
 mod epub_reader;
+mod formats;
+mod command_error;
+mod diagnostics;
+mod settings;
+mod archive;
 #[cfg(target_os = "windows")]
 mod windows_space_open;
 
 use std::{
     cmp::Ordering as CompareOrdering,
     collections::HashMap,
-    fs::{File, OpenOptions},
+    fs::File,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, UNIX_EPOCH},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -26,47 +31,15 @@ use tauri::{
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
+use command_error::CommandResult;
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AppSettings {
-    theme: String,
-    residency_mode: String,
-    #[serde(default = "default_close_behavior")]
-    close_behavior: String,
-    autostart: bool,
-    #[serde(default = "default_large_file_threshold_mb")]
-    large_file_threshold_mb: u64,
-}
-
-fn default_close_behavior() -> String {
-    "keep-tabs".into()
-}
-
-fn default_large_file_threshold_mb() -> u64 {
-    100
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            theme: "system".into(),
-            residency_mode: "fast".into(),
-            close_behavior: default_close_behavior(),
-            autostart: true,
-            large_file_threshold_mb: default_large_file_threshold_mb(),
-        }
-    }
-}
 
 #[derive(Default)]
 struct DesktopState {
     pending_paths: Mutex<Vec<String>>,
     pending_space_open: Mutex<Option<SpaceOpenRequest>>,
     exiting: AtomicBool,
-    settings: Mutex<AppSettings>,
     large_text_sessions: Mutex<HashMap<String, Arc<LargeTextSession>>>,
     next_large_text_session_id: AtomicU64,
 }
@@ -93,7 +66,7 @@ struct OpenedFile {
     extension: String,
     size: u64,
     modified_at: u64,
-    kind: &'static str,
+    kind: String,
     encoding: Option<&'static str>,
     line_ending: Option<&'static str>,
     read_only: bool,
@@ -140,31 +113,8 @@ struct ImageDocument {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BinaryDocument {
-    base64: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct HtmlDocument {
     html: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ArchiveEntry {
-    path: String,
-    size: u64,
-    compressed_size: Option<u64>,
-    is_directory: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ArchiveDocument {
-    format: String,
-    entries: Vec<ArchiveEntry>,
-    truncated: bool,
 }
 
 #[derive(Serialize)]
@@ -248,217 +198,6 @@ struct SaveResult {
     path: String,
     name: String,
     modified_at: u64,
-}
-
-fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map(|path| path.join("settings.json"))
-        .map_err(|error| format!("无法定位设置目录：{error}"))
-}
-
-fn read_settings(app: &AppHandle) -> Result<AppSettings, String> {
-    let path = settings_path(app)?;
-    if !path.exists() {
-        return Ok(AppSettings::default());
-    }
-    let content = std::fs::read_to_string(path).map_err(|error| format!("无法读取设置：{error}"))?;
-    let value: serde_json::Value =
-        serde_json::from_str(&content).map_err(|error| format!("设置文件已损坏：{error}"))?;
-    let mut needs_migration =
-        value.get("closeBehavior").is_none() || value.get("largeFileThresholdMb").is_none();
-    let mut settings: AppSettings =
-        serde_json::from_value(value).map_err(|error| format!("设置文件已损坏：{error}"))?;
-    if settings.residency_mode == "low-memory" && settings.close_behavior == "keep-tabs" {
-        settings.close_behavior = "close-tabs".into();
-        needs_migration = true;
-    }
-    validate_settings(&settings)?;
-    if needs_migration {
-        write_settings(app, &settings)?;
-    }
-    Ok(settings)
-}
-
-fn validate_settings(settings: &AppSettings) -> Result<(), String> {
-    if !matches!(settings.theme.as_str(), "system" | "light" | "dark") {
-        return Err("主题设置无效".into());
-    }
-    if !matches!(settings.residency_mode.as_str(), "fast" | "low-memory") {
-        return Err("驻留模式设置无效".into());
-    }
-    if !matches!(settings.close_behavior.as_str(), "keep-tabs" | "close-tabs") {
-        return Err("窗口关闭行为设置无效".into());
-    }
-    if settings.residency_mode == "low-memory" && settings.close_behavior == "keep-tabs" {
-        return Err("低内存模式不能保留标签页".into());
-    }
-    if !(1..=1024).contains(&settings.large_file_threshold_mb) {
-        return Err("大文件阈值必须是 1–1024 之间的整数 MiB".into());
-    }
-    Ok(())
-}
-
-fn write_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
-    validate_settings(settings)?;
-    let path = settings_path(app)?;
-    let parent = path.parent().ok_or_else(|| "设置路径无效".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| format!("无法创建设置目录：{error}"))?;
-    let bytes = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("无法创建设置临时文件：{error}"))?;
-    temporary
-        .write_all(&bytes)
-        .and_then(|_| temporary.as_file().sync_all())
-        .map_err(|error| format!("无法写入设置：{error}"))?;
-    temporary
-        .persist(path)
-        .map_err(|error| format!("无法保存设置：{}", error.error))?;
-    Ok(())
-}
-
-fn diagnostic_path(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_log_dir()
-        .map(|path| path.join("diagnostics.jsonl"))
-        .map_err(|error| format!("无法定位日志目录：{error}"))
-}
-
-fn append_diagnostic(app: &AppHandle, category: &str, code: &str, duration_ms: Option<f64>) {
-    let valid = |value: &str| {
-        !value.is_empty()
-            && value.len() <= 64
-            && value.chars().all(|character| {
-                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
-            })
-    };
-    if !valid(category) || !valid(code) {
-        return;
-    }
-    let Ok(path) = diagnostic_path(app) else { return };
-    let Some(parent) = path.parent() else { return };
-    if std::fs::create_dir_all(parent).is_err() {
-        return;
-    }
-    if path.metadata().map(|value| value.len() > 256 * 1024).unwrap_or(false) {
-        let previous = path.with_extension("jsonl.1");
-        let _ = std::fs::remove_file(&previous);
-        let _ = std::fs::rename(&path, previous);
-    }
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_millis())
-        .unwrap_or_default();
-    let entry = serde_json::json!({
-        "timestamp": timestamp,
-        "category": category,
-        "code": code,
-        "durationMs": duration_ms.map(|value| (value * 10.0).round() / 10.0),
-    });
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{entry}");
-    }
-}
-
-#[tauri::command]
-fn get_settings(state: tauri::State<'_, DesktopState>) -> AppSettings {
-    state.settings.lock().map(|value| value.clone()).unwrap_or_default()
-}
-
-#[tauri::command]
-fn update_settings(
-    app: AppHandle,
-    state: tauri::State<'_, DesktopState>,
-    settings: AppSettings,
-) -> Result<AppSettings, String> {
-    validate_settings(&settings)?;
-    let previous_mode = state
-        .settings
-        .lock()
-        .map_err(|_| "设置状态不可用")?
-        .residency_mode
-        .clone();
-    #[cfg(desktop)]
-    {
-        let manager = app.autolaunch();
-        let enabled = manager.is_enabled().map_err(|error| error.to_string())?;
-        if settings.autostart != enabled {
-            if settings.autostart {
-                manager.enable()
-            } else {
-                manager.disable()
-            }
-            .map_err(|error| error.to_string())?;
-        }
-    }
-    write_settings(&app, &settings)?;
-    *state.settings.lock().map_err(|_| "设置状态不可用")? = settings.clone();
-    append_diagnostic(&app, "settings", "updated", None);
-    if previous_mode != settings.residency_mode && settings.residency_mode == "fast" {
-        let handle = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            let _ = ensure_main_window(&handle, false);
-        });
-    }
-    Ok(settings)
-}
-
-#[tauri::command]
-fn record_diagnostic(app: AppHandle, category: String, code: String, duration_ms: Option<f64>) {
-    append_diagnostic(&app, &category, &code, duration_ms);
-}
-
-#[tauri::command]
-fn open_log_directory(app: AppHandle) -> Result<(), String> {
-    let log_file = diagnostic_path(&app)?;
-    let directory = log_file
-        .parent()
-        .ok_or_else(|| "日志目录无效".to_string())?;
-    std::fs::create_dir_all(directory).map_err(|error| format!("无法创建日志目录：{error}"))?;
-
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = std::process::Command::new("explorer.exe");
-        command.arg(directory);
-        command
-    };
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut command = std::process::Command::new("open");
-        command.arg(directory);
-        command
-    };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = {
-        let mut command = std::process::Command::new("xdg-open");
-        command.arg(directory);
-        command
-    };
-
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("无法打开日志目录：{error}"))
-}
-
-fn viewer_kind(extension: &str, file_name: &str) -> &'static str {
-    match extension {
-        "livp" => "live-photo",
-        "jpg" | "jpeg" | "heic" | "heif" | "png" | "webp" | "gif" | "svg" => "image",
-        "md" | "markdown" => "markdown",
-        "json" => "json",
-        "yaml" | "yml" => "yaml",
-        "pdf" => "pdf",
-        "doc" | "docx" => "docx",
-        "xls" | "xlsx" => "xlsx",
-        "epub" | "mobi" => "ebook",
-        "zip" | "tar" | "tgz" => "archive",
-        "gz" if file_name.to_ascii_lowercase().ends_with(".tar.gz") => "archive",
-        "mp3" | "wav" | "m4a" | "aac" | "flac" | "ogg" | "opus" => "audio",
-        "mp4" | "webm" | "mov" => "video",
-        "exe" | "msi" | "msixbundle" => "installer",
-        _ => "text",
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -557,7 +296,7 @@ fn remote_file_name(header_name: Option<String>, final_url: &reqwest::Url, exten
 }
 
 #[tauri::command]
-async fn fetch_remote_document(url: String) -> Result<RemoteDocument, String> {
+async fn fetch_remote_document(url: String) -> CommandResult<RemoteDocument> {
     let mut source_url = reqwest::Url::parse(url.trim()).map_err(|_| "URL 格式无效".to_string())?;
     if !matches!(source_url.scheme(), "http" | "https") {
         return Err("仅支持 HTTP 或 HTTPS URL".into());
@@ -583,7 +322,7 @@ async fn fetch_remote_document(url: String) -> Result<RemoteDocument, String> {
         .await
         .map_err(|error| format!("网络请求失败：{error}"))?;
     if !response.status().is_success() {
-        return Err(format!("服务器返回 HTTP {}", response.status().as_u16()));
+        return Err(format!("服务器返回 HTTP {}", response.status().as_u16()).into());
     }
     if !matches!(response.url().scheme(), "http" | "https") {
         return Err("重定向后的 URL 协议不受支持".into());
@@ -622,7 +361,7 @@ async fn fetch_remote_document(url: String) -> Result<RemoteDocument, String> {
         MAX_REMOTE_BYTES
     };
     if response.content_length().is_some_and(|length| length > declared_limit) {
-        return Err(format!("远程内容超过 {} MiB 安全限制", declared_limit / 1024 / 1024));
+        return Err(format!("远程内容超过 {} MiB 安全限制", declared_limit / 1024 / 1024).into());
     }
 
     let mut bytes = Vec::with_capacity(
@@ -659,7 +398,7 @@ async fn fetch_remote_document(url: String) -> Result<RemoteDocument, String> {
             extension: format.extension.into(),
             size: bytes.len() as u64,
             modified_at: 0,
-            kind: format.kind,
+            kind: format.kind.into(),
             encoding: None,
             line_ending: None,
             read_only: true,
@@ -1201,8 +940,9 @@ fn get_large_text_session(
 #[tauri::command]
 fn read_text(
     state: tauri::State<'_, DesktopState>,
+    settings: tauri::State<'_, settings::SettingsState>,
     path: String,
-) -> Result<TextReadResult, String> {
+) -> CommandResult<TextReadResult> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -1212,8 +952,8 @@ fn read_text(
     if !metadata.is_file() {
         return Err("所选路径不是文件".into());
     }
-    let threshold_bytes = state
-        .settings
+    let threshold_bytes = settings
+        .0
         .lock()
         .map_err(|_| "设置状态不可用")?
         .large_file_threshold_mb
@@ -1229,7 +969,7 @@ fn read_text(
                     message: "文件可能是文本，但其编码暂不受支持。",
                 })
             }
-            Err(OpenLargeTextError::Message(message)) => Err(message),
+            Err(OpenLargeTextError::Message(message)) => Err(message.into()),
         };
     }
 
@@ -1267,7 +1007,7 @@ fn read_text(
 fn open_large_text_session(
     state: tauri::State<'_, DesktopState>,
     path: String,
-) -> Result<LargeTextSessionInfo, String> {
+) -> CommandResult<LargeTextSessionInfo> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -1277,18 +1017,18 @@ fn open_large_text_session(
     if !metadata.is_file() {
         return Err("所选路径不是文件".into());
     }
-    create_large_text_session(&state, canonical, metadata).map_err(|error| match error {
+    Ok(create_large_text_session(&state, canonical, metadata).map_err(|error| match error {
         OpenLargeTextError::BinaryContent => "文件包含二进制内容，不能作为文本打开。".into(),
         OpenLargeTextError::UnsupportedEncoding => "文件可能是文本，但其编码暂不受支持。".into(),
         OpenLargeTextError::Message(message) => message,
-    })
+    })?)
 }
 
 #[tauri::command]
 fn get_large_text_index_status(
     state: tauri::State<'_, DesktopState>,
     session_id: String,
-) -> Result<LargeTextIndexStatus, String> {
+) -> CommandResult<LargeTextIndexStatus> {
     let session = get_large_text_session(&state, &session_id)?;
     validate_large_text_file(&session)?;
     let index = session.index.lock().map_err(|_| "大文件索引状态不可用")?;
@@ -1308,16 +1048,16 @@ fn read_text_lines(
     session_id: String,
     start_line: u64,
     line_count: u64,
-) -> Result<LargeTextLinesResult, String> {
+) -> CommandResult<LargeTextLinesResult> {
     let session = get_large_text_session(&state, &session_id)?;
-    read_large_text_lines_internal(&session, start_line, line_count)
+    Ok(read_large_text_lines_internal(&session, start_line, line_count)?)
 }
 
 #[tauri::command]
 fn close_large_text_session(
     state: tauri::State<'_, DesktopState>,
     session_id: String,
-) -> Result<(), String> {
+) -> CommandResult<()> {
     let session = state
         .large_text_sessions
         .lock()
@@ -1330,7 +1070,7 @@ fn close_large_text_session(
 }
 
 #[tauri::command]
-fn read_image(path: String) -> Result<ImageDocument, String> {
+fn read_image(path: String) -> CommandResult<ImageDocument> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -1364,23 +1104,23 @@ fn read_image(path: String) -> Result<ImageDocument, String> {
 }
 
 #[tauri::command]
-fn read_heic_preview(path: String) -> Result<tauri::ipc::Response, String> {
+fn read_heic_preview(path: String) -> CommandResult<tauri::ipc::Response> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
-    live_photo::read_heic_preview(&canonical).map(tauri::ipc::Response::new)
+    Ok(tauri::ipc::Response::new(live_photo::read_heic_preview(&canonical)?))
 }
 
 #[tauri::command]
-fn read_live_photo(path: String) -> Result<tauri::ipc::Response, String> {
+fn read_live_photo(path: String) -> CommandResult<tauri::ipc::Response> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
-    live_photo::read_live_photo(&canonical).map(tauri::ipc::Response::new)
+    Ok(tauri::ipc::Response::new(live_photo::read_live_photo(&canonical)?))
 }
 
 #[tauri::command]
-fn read_binary(path: String) -> Result<BinaryDocument, String> {
+fn read_binary(path: String) -> CommandResult<tauri::ipc::Response> {
     const MAX_DOCUMENT_BYTES: u64 = 200 * 1024 * 1024;
     let canonical = Path::new(&path)
         .canonicalize()
@@ -1395,11 +1135,11 @@ fn read_binary(path: String) -> Result<BinaryDocument, String> {
         return Err("文档超过 200 MiB 安全限制".into());
     }
     let bytes = std::fs::read(&canonical).map_err(|error| format!("无法读取文档：{error}"))?;
-    Ok(BinaryDocument { base64: BASE64.encode(bytes) })
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
-fn read_mobi(path: String) -> Result<BinaryDocument, String> {
+fn read_mobi(path: String) -> CommandResult<tauri::ipc::Response> {
     const MAX_EBOOK_BYTES: u64 = 100 * 1024 * 1024;
 
     let canonical = Path::new(&path)
@@ -1429,11 +1169,11 @@ fn read_mobi(path: String) -> Result<BinaryDocument, String> {
         return Err("文件不是有效的 MOBI 电子书".into());
     }
 
-    Ok(BinaryDocument { base64: BASE64.encode(bytes) })
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
-fn read_legacy_doc(path: String) -> Result<HtmlDocument, String> {
+fn read_legacy_doc(path: String) -> CommandResult<HtmlDocument> {
     const MAX_DOCUMENT_BYTES: u64 = 200 * 1024 * 1024;
     let canonical = Path::new(&path)
         .canonicalize()
@@ -1461,108 +1201,8 @@ fn read_legacy_doc(path: String) -> Result<HtmlDocument, String> {
     Ok(HtmlDocument { html })
 }
 
-fn archive_path(path: &str) -> Result<PathBuf, String> {
-    const MAX_ARCHIVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-    let canonical = Path::new(path)
-        .canonicalize()
-        .map_err(|error| format!("无法访问压缩包：{error}"))?;
-    let metadata = canonical
-        .metadata()
-        .map_err(|error| format!("无法读取压缩包信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
-    if metadata.len() > MAX_ARCHIVE_BYTES {
-        return Err("压缩包超过 2 GiB 安全限制".into());
-    }
-    Ok(canonical)
-}
-
-fn read_tar_entries<R: Read>(reader: R) -> Result<(Vec<ArchiveEntry>, bool), String> {
-    const MAX_ARCHIVE_ENTRIES: usize = 5_000;
-    let mut archive = tar::Archive::new(reader);
-    let mut entries = Vec::new();
-    let mut truncated = false;
-    let archive_entries = archive
-        .entries()
-        .map_err(|error| format!("无法读取 TAR 目录：{error}"))?;
-
-    for entry_result in archive_entries {
-        if entries.len() >= MAX_ARCHIVE_ENTRIES {
-            truncated = true;
-            break;
-        }
-        let entry = entry_result.map_err(|error| format!("无法读取 TAR 条目：{error}"))?;
-        let path = entry
-            .path()
-            .map_err(|error| format!("无法读取 TAR 条目路径：{error}"))?
-            .to_string_lossy()
-            .into_owned();
-        entries.push(ArchiveEntry {
-            path,
-            size: entry.size(),
-            compressed_size: None,
-            is_directory: entry.header().entry_type().is_dir(),
-        });
-    }
-    Ok((entries, truncated))
-}
-
 #[tauri::command]
-fn read_archive(path: String) -> Result<ArchiveDocument, String> {
-    const MAX_ARCHIVE_ENTRIES: usize = 5_000;
-    let canonical = archive_path(&path)?;
-    let name = canonical
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-
-    if name.ends_with(".zip") {
-        let file = File::open(&canonical).map_err(|error| format!("无法打开 ZIP：{error}"))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|error| format!("无法读取 ZIP 目录：{error}"))?;
-        let mut entries = Vec::new();
-        let truncated = archive.len() > MAX_ARCHIVE_ENTRIES;
-        for index in 0..archive.len().min(MAX_ARCHIVE_ENTRIES) {
-            let entry = archive
-                .by_index(index)
-                .map_err(|error| format!("无法读取 ZIP 条目：{error}"))?;
-            entries.push(ArchiveEntry {
-                path: entry.name().to_string(),
-                size: entry.size(),
-                compressed_size: Some(entry.compressed_size()),
-                is_directory: entry.is_dir(),
-            });
-        }
-        return Ok(ArchiveDocument {
-            format: "ZIP".into(),
-            entries,
-            truncated,
-        });
-    }
-
-    let file = File::open(&canonical).map_err(|error| format!("无法打开 TAR：{error}"))?;
-    let (format, entries, truncated) = if name.ends_with(".tar") {
-        let (entries, truncated) = read_tar_entries(file)?;
-        ("TAR", entries, truncated)
-    } else if name.ends_with(".tgz") || name.ends_with(".tar.gz") {
-        let decoder = flate2::read::GzDecoder::new(file);
-        let (entries, truncated) = read_tar_entries(decoder)?;
-        ("TAR.GZ", entries, truncated)
-    } else {
-        return Err("暂不支持此压缩包格式".into());
-    };
-
-    Ok(ArchiveDocument {
-        format: format.into(),
-        entries,
-        truncated,
-    })
-}
-
-#[tauri::command]
-fn reveal_file(path: String) -> Result<(), String> {
+fn reveal_file(path: String) -> CommandResult<()> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -1589,11 +1229,11 @@ fn reveal_file(path: String) -> Result<(), String> {
     command
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("无法打开文件位置：{error}"))
+        .map_err(|error| format!("无法打开文件位置：{error}").into())
 }
 
 #[tauri::command]
-fn open_file_with(path: String) -> Result<(), String> {
+fn open_file_with(path: String) -> CommandResult<()> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -1614,7 +1254,7 @@ fn open_file_with(path: String) -> Result<(), String> {
         };
         let result = unsafe { SHOpenWithDialog(std::ptr::null_mut(), &open_as) };
         if result < 0 {
-            return Err(format!("系统打开方式选择器启动失败，HRESULT：0x{:08X}", result as u32));
+            return Err(format!("系统打开方式选择器启动失败，HRESULT：0x{:08X}", result as u32).into());
         }
         return Ok(());
     }
@@ -1626,7 +1266,7 @@ fn open_file_with(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_file_association_settings() -> Result<(), String> {
+fn open_file_association_settings() -> CommandResult<()> {
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::{
@@ -1649,7 +1289,7 @@ fn open_file_association_settings() -> Result<(), String> {
             )
         };
         if result as isize <= 32 {
-            return Err(format!("无法打开 Windows 默认应用设置，ShellExecuteW 返回：{}", result as isize));
+            return Err(format!("无法打开 Windows 默认应用设置，ShellExecuteW 返回：{}", result as isize).into());
         }
         Ok(())
     }
@@ -1665,7 +1305,7 @@ fn read_binary_chunk(
     offset: u64,
     length: u64,
     expected_modified_at: u64,
-) -> Result<BinaryChunk, String> {
+) -> CommandResult<BinaryChunk> {
     const MAX_CHUNK_BYTES: u64 = 64 * 1024;
     if length == 0 || length > MAX_CHUNK_BYTES {
         return Err("二进制分块长度必须在 1 到 64 KiB 之间".into());
@@ -1748,7 +1388,7 @@ fn save_text(
     line_ending: String,
     bom: bool,
     expected_modified_at: Option<u64>,
-) -> Result<SaveResult, String> {
+) -> CommandResult<SaveResult> {
     let target = PathBuf::from(&path);
     let parent = target.parent().ok_or_else(|| "保存路径无效".to_string())?;
 
@@ -1797,7 +1437,7 @@ fn save_text(
 }
 
 #[tauri::command]
-fn inspect_file(path: String) -> Result<OpenedFile, String> {
+fn inspect_file(path: String) -> CommandResult<OpenedFile> {
     let canonical = Path::new(&path)
         .canonicalize()
         .map_err(|error| format!("无法访问文件：{error}"))?;
@@ -1823,11 +1463,11 @@ fn inspect_file(path: String) -> Result<OpenedFile, String> {
         extension = name.trim_start_matches('.').to_lowercase();
     }
     let modified_at = modified_millis(&metadata);
-    let mut kind = viewer_kind(&extension, &name);
+    let mut kind = formats::viewer_kind(&extension, &name);
     if matches!(extension.as_str(), "livp" | "jpg" | "jpeg" | "heic" | "heif")
         && live_photo::is_live_photo(&canonical)
     {
-        kind = "live-photo";
+        kind = "live-photo".into();
     }
 
     Ok(OpenedFile {
@@ -1935,10 +1575,10 @@ fn collect_sibling_files(path: &str) -> Result<SiblingFileList, String> {
 }
 
 #[tauri::command]
-async fn list_sibling_files(path: String) -> Result<SiblingFileList, String> {
-    tauri::async_runtime::spawn_blocking(move || collect_sibling_files(&path))
+async fn list_sibling_files(path: String) -> CommandResult<SiblingFileList> {
+    Ok(tauri::async_runtime::spawn_blocking(move || collect_sibling_files(&path))
         .await
-        .map_err(|error| format!("无法读取文件所在文件夹：{error}"))?
+        .map_err(|error| format!("无法读取文件所在文件夹：{error}"))??)
 }
 
 #[tauri::command]
@@ -1958,19 +1598,22 @@ fn cancel_space_open(app: AppHandle) {
 }
 
 #[tauri::command]
-fn close_main_window(app: AppHandle, state: tauri::State<'_, DesktopState>) -> Result<(), String> {
-    let residency_mode = state
-        .settings
+fn close_main_window(
+    app: AppHandle,
+    settings: tauri::State<'_, settings::SettingsState>,
+) -> CommandResult<()> {
+    let residency_mode = settings
+        .0
         .lock()
         .map(|settings| settings.residency_mode.clone())
         .unwrap_or_else(|_| "fast".into());
     if let Some(window) = app.get_webview_window("main") {
         if residency_mode == "low-memory" {
             window.destroy().map_err(|error| error.to_string())?;
-            append_diagnostic(&app, "residency", "window-destroyed", None);
+            diagnostics::append(&app, "residency", "window-destroyed", None);
         } else {
             window.hide().map_err(|error| error.to_string())?;
-            append_diagnostic(&app, "residency", "window-hidden", None);
+            diagnostics::append(&app, "residency", "window-hidden", None);
         }
     }
     Ok(())
@@ -2005,7 +1648,7 @@ fn queue_paths(app: &AppHandle, paths: Vec<String>) {
         .extend(paths);
 }
 
-fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Result<WebviewWindow> {
+pub(crate) fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Result<WebviewWindow> {
     if let Some(window) = app.get_webview_window("main") {
         if activate {
             let _ = window.unminimize();
@@ -2088,10 +1731,10 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
                     };
                     if result.is_ok() {
                         let _ = autostart_for_menu.set_checked(!enabled);
-                        let state = app.state::<DesktopState>();
-                        if let Ok(mut settings) = state.settings.lock() {
+                        let state = app.state::<settings::SettingsState>();
+                        if let Ok(mut settings) = state.0.lock() {
                             settings.autostart = !enabled;
-                            let _ = write_settings(app, &settings);
+                            let _ = settings::write(app, &settings);
                         };
                     }
                 }
@@ -2136,6 +1779,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .manage(DesktopState::default())
+        .manage(settings::SettingsState::default())
         .manage(epub_reader::EpubSessions::default())
         .invoke_handler(tauri::generate_handler![
             inspect_file,
@@ -2157,27 +1801,27 @@ pub fn run() {
             epub_reader::read_epub_resource,
             epub_reader::close_epub,
             read_legacy_doc,
-            read_archive,
+            archive::read_archive,
             read_binary_chunk,
             reveal_file,
             open_file_with,
             open_file_association_settings,
             existing_paths,
             save_text,
-            get_settings,
-            update_settings,
-            record_diagnostic,
-            open_log_directory,
+            settings::get_settings,
+            settings::update_settings,
+            diagnostics::record_diagnostic,
+            diagnostics::open_log_directory,
             take_pending_paths,
             take_pending_space_open,
             cancel_space_open,
             close_main_window
         ])
         .setup(|app| {
-            let settings_file_exists = settings_path(app.handle())
+            let settings_file_exists = settings::path(app.handle())
                 .map(|path| path.exists())
                 .unwrap_or(false);
-            let settings = read_settings(app.handle()).unwrap_or_else(|_| AppSettings::default());
+            let settings = settings::read(app.handle()).unwrap_or_default();
             #[cfg(desktop)] {
                 let manager = app.autolaunch();
                 let enabled = manager.is_enabled().unwrap_or(false);
@@ -2185,15 +1829,15 @@ pub fn run() {
                     let _ = if settings.autostart { manager.enable() } else { manager.disable() };
                 }
             }
-            if let Ok(mut current) = app.state::<DesktopState>().settings.lock() {
+            if let Ok(mut current) = app.state::<settings::SettingsState>().0.lock() {
                 *current = settings.clone();
             }
             if !settings_file_exists {
-                let _ = write_settings(app.handle(), &settings);
+                let _ = settings::write(app.handle(), &settings);
             }
 
             create_tray(app)?;
-            append_diagnostic(app.handle(), "lifecycle", "started", None);
+            diagnostics::append(app.handle(), "lifecycle", "started", None);
 
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir()
@@ -2212,7 +1856,7 @@ pub fn run() {
 
             #[cfg(target_os = "windows")]
             if windows_space_open::install(app.handle().clone()).is_err() {
-                append_diagnostic(app.handle(), "space-open", "hook-install-failed", None);
+                diagnostics::append(app.handle(), "space-open", "hook-install-failed", None);
             }
 
             Ok(())

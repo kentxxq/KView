@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { libraryState } from "../state/library";
+import { useLibraryStore } from "../state/library";
 
 defineProps<{ open: boolean }>();
 const emit = defineEmits<{
@@ -8,6 +8,7 @@ const emit = defineEmits<{
   favorite: [path: string, name: string];
   removeRecent: [path: string];
 }>();
+const libraryState = useLibraryStore();
 
 function openPath(path: string) {
   emit("open", path);

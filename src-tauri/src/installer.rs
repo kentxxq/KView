@@ -3,6 +3,7 @@ use std::{collections::HashMap, fs::File, io::{Read, Seek, SeekFrom}, path::Path
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use pelite::PeFile;
 use serde::Serialize;
+use crate::command_error::CommandResult;
 
 const MAX_LOGO_BYTES: usize = 10 * 1024 * 1024;
 
@@ -37,6 +38,76 @@ fn data_url(bytes: &[u8], name: &str) -> Option<String> {
     Some(format!("data:{mime};base64,{}", BASE64.encode(bytes)))
 }
 
+fn icon_dimension(value: u8) -> u32 {
+    if value == 0 { 256 } else { value as u32 }
+}
+
+fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") || &bytes[12..16] != b"IHDR" {
+        return None;
+    }
+    Some((
+        u32::from_be_bytes(bytes[16..20].try_into().ok()?),
+        u32::from_be_bytes(bytes[20..24].try_into().ok()?),
+    ))
+}
+
+fn single_icon_data_url(
+    width: u8,
+    height: u8,
+    color_count: u8,
+    planes: u16,
+    bit_count: u16,
+    image: &[u8],
+) -> Option<String> {
+    let image_size = u32::try_from(image.len()).ok()?;
+    let mut ico = Vec::with_capacity(22usize.checked_add(image.len())?);
+    ico.extend_from_slice(&0u16.to_le_bytes());
+    ico.extend_from_slice(&1u16.to_le_bytes());
+    ico.extend_from_slice(&1u16.to_le_bytes());
+    ico.extend_from_slice(&[width, height, color_count, 0]);
+    ico.extend_from_slice(&planes.to_le_bytes());
+    ico.extend_from_slice(&bit_count.to_le_bytes());
+    ico.extend_from_slice(&image_size.to_le_bytes());
+    ico.extend_from_slice(&22u32.to_le_bytes());
+    ico.extend_from_slice(image);
+    data_url(&ico, "app.ico")
+}
+
+fn best_icon_data_url(resources: pelite::resources::Resources<'_>) -> Option<String> {
+    for (_, group) in resources.icons().filter_map(Result::ok) {
+        let candidate = group.entries().iter().filter_map(|entry| {
+            let image = group.image(entry.nId).ok()?;
+            if image.len() != entry.bytes_in_resource() as usize || image.len() > MAX_LOGO_BYTES {
+                return None;
+            }
+            let width = icon_dimension(entry.bWidth);
+            let height = icon_dimension(entry.bHeight);
+            let is_png = image.starts_with(b"\x89PNG");
+            if is_png && png_dimensions(image) != Some((width, height)) {
+                return None;
+            }
+            Some(((width * height, entry.wBitCount, is_png), entry, image, is_png))
+        }).max_by_key(|(quality, _, _, _)| *quality);
+
+        if let Some((_, entry, image, is_png)) = candidate {
+            return if is_png {
+                data_url(image, "app.png")
+            } else {
+                single_icon_data_url(
+                    entry.bWidth,
+                    entry.bHeight,
+                    entry.bColorCount,
+                    entry.wPlanes,
+                    entry.wBitCount,
+                    image,
+                )
+            };
+        }
+    }
+    None
+}
+
 fn exe_info(path: &Path) -> Result<InstallerDocument, String> {
     let file_map = pelite::FileMap::open(path).map_err(|error| format!("无法读取 EXE：{error}"))?;
     let pe = PeFile::from_bytes(&file_map).map_err(|error| format!("无法解析 PE 文件：{error}"))?;
@@ -59,18 +130,7 @@ fn exe_info(path: &Path) -> Result<InstallerDocument, String> {
     let version = string_value("ProductVersion")
         .or_else(|| string_value("FileVersion"))
         .or_else(|| file_info.as_ref().and_then(|info| info.fixed.map(|fixed| fixed.dwProductVersion.to_string())));
-    let logo_data_url = resources.and_then(|value| {
-        let group = value.icons().filter_map(Result::ok).next()?.1;
-        let total_bytes = group.entries().iter().try_fold(0usize, |total, entry| {
-            total.checked_add(entry.bytes_in_resource() as usize)
-        })?;
-        if total_bytes > MAX_LOGO_BYTES {
-            return None;
-        }
-        let mut ico = Vec::new();
-        group.write(&mut ico).ok()?;
-        data_url(&ico, "app.ico")
-    });
+    let logo_data_url = resources.and_then(best_icon_data_url);
 
     Ok(InstallerDocument {
         format: "EXE",
@@ -234,13 +294,13 @@ fn msix_bundle_info(path: &Path) -> Result<InstallerDocument, String> {
 }
 
 #[tauri::command]
-pub fn read_installer(path: String) -> Result<InstallerDocument, String> {
+pub fn read_installer(path: String) -> CommandResult<InstallerDocument> {
     let canonical = Path::new(&path).canonicalize().map_err(|error| format!("无法访问文件：{error}"))?;
     let extension = canonical.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
-    match extension.as_str() {
+    Ok(match extension.as_str() {
         "exe" => exe_info(&canonical),
         "msi" => msi_info(&canonical),
         "msixbundle" => msix_bundle_info(&canonical),
         _ => Err("不支持的安装包格式".into()),
-    }
+    }?)
 }

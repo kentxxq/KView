@@ -1,4 +1,5 @@
 import type { OpenedFile, ViewerDefinition } from "../types/document";
+import { capabilitiesForPlatform, currentDesktopPlatform, formatCapabilities } from "../domain/formats";
 
 const definitions = new Map<string, ViewerDefinition>();
 const definitionsByFileName = new Map<string, ViewerDefinition>();
@@ -19,94 +20,41 @@ export function initializeViewerRegistry() {
   if (initialized) return;
   initialized = true;
 
-  registerViewer({
-    kind: "image",
-    extensions: ["jpg", "jpeg", "heic", "heif", "png", "webp", "gif", "svg"],
-    readOnly: true,
-    load: () => import("./ImageViewer.vue"),
-  });
-  registerViewer({
-    kind: "live-photo",
-    componentKey: "image",
-    extensions: ["livp"],
-    readOnly: true,
-    load: () => import("./ImageViewer.vue"),
-  });
-  registerViewer({
-    kind: "pdf",
-    extensions: ["pdf"],
-    readOnly: true,
-    load: () => import("./PdfViewer.vue"),
-  });
-  registerViewer({
-    kind: "docx",
-    extensions: ["doc", "docx"],
-    readOnly: true,
-    load: () => import("./DocxViewer.vue"),
-  });
-  registerViewer({
-    kind: "xlsx",
-    extensions: ["xls", "xlsx"],
-    readOnly: true,
-    load: () => import("./XlsxViewer.vue"),
-  });
-  registerViewer({
-    kind: "ebook",
-    extensions: ["epub", "mobi"],
-    readOnly: true,
-    load: () => import("./EbookViewer.vue"),
-  });
-  registerViewer({
-    kind: "archive",
-    extensions: ["zip", "tar", "tgz", "gz"],
-    readOnly: true,
-    load: () => import("./ArchiveViewer.vue"),
-  });
-  registerViewer({
-    kind: "video",
-    extensions: ["mp4", "webm", "mov"],
-    readOnly: true,
-    load: () => import("./VideoViewer.vue"),
-  });
-  registerViewer({
-    kind: "audio",
-    extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"],
-    readOnly: true,
-    load: () => import("./AudioViewer.vue"),
-  });
-  registerViewer({
-    kind: "installer",
-    extensions: ["exe", "msi", "msixbundle"],
-    readOnly: true,
-    load: () => import("./InstallerViewer.vue"),
-  });
-  registerViewer({
-    kind: "markdown",
-    extensions: ["md", "markdown"],
-    readOnly: false,
-    load: () => import("./MarkdownViewer.vue"),
-  });
-  registerViewer({
-    kind: "json",
-    componentKey: "structured",
-    extensions: ["json"],
-    readOnly: false,
-    load: () => import("./StructuredViewer.vue"),
-  });
-  registerViewer({
-    kind: "yaml",
-    componentKey: "structured",
-    extensions: ["yaml", "yml"],
-    readOnly: false,
-    load: () => import("./StructuredViewer.vue"),
-  });
-  registerViewer({
-    kind: "text",
-    extensions: [],
-    fileNames: ["Dockerfile", "Makefile", "CMakeLists.txt"],
-    readOnly: false,
-    load: () => import("./TextViewer.vue"),
-  });
+  const loaders = {
+    image: () => import("./ImageViewer.vue"),
+    "live-photo": () => import("./ImageViewer.vue"),
+    pdf: () => import("./PdfViewer.vue"),
+    docx: () => import("./DocxViewer.vue"),
+    xlsx: () => import("./XlsxViewer.vue"),
+    ebook: () => import("./EbookViewer.vue"),
+    archive: () => import("./ArchiveViewer.vue"),
+    video: () => import("./VideoViewer.vue"),
+    audio: () => import("./AudioViewer.vue"),
+    installer: () => import("./InstallerViewer.vue"),
+    markdown: () => import("./MarkdownViewer.vue"),
+    json: () => import("./StructuredViewer.vue"),
+    yaml: () => import("./StructuredViewer.vue"),
+    text: () => import("./TextViewer.vue"),
+  } satisfies Partial<Record<OpenedFile["kind"], ViewerDefinition["load"]>>;
+
+  const platform = currentDesktopPlatform();
+  const capabilities = platform ? capabilitiesForPlatform(platform) : formatCapabilities;
+  for (const capability of capabilities) {
+    const load = loaders[capability.viewerKind as keyof typeof loaders];
+    if (!load) continue;
+    registerViewer({
+      kind: capability.viewerKind,
+      componentKey: capability.viewerKind === "live-photo"
+        ? "image"
+        : ["json", "yaml"].includes(capability.viewerKind)
+          ? "structured"
+          : undefined,
+      extensions: capability.extensions,
+      fileNames: capability.fileNames,
+      readOnly: !capability.editable,
+      load,
+    });
+  }
   registerViewer({
     kind: "hex",
     extensions: [],
