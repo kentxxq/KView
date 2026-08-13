@@ -17,8 +17,8 @@ use windows::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         System::{
             Com::{
-                CoCreateInstance, CoInitializeEx, CoTaskMemFree, IDataObject, IServiceProvider,
-                CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+                CoCreateInstance, CoInitializeEx, CoTaskMemFree, IDataObject, IDispatch,
+                IServiceProvider, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
             },
             Variant::{VARIANT, VT_I4},
         },
@@ -42,7 +42,7 @@ use windows::{
 use super::{ensure_main_window, DesktopState, SpaceOpenRequest};
 
 enum SpaceOpenCommand {
-    Open(isize),
+    Open { source: isize, focused: isize },
     RequestWindowClose,
 }
 
@@ -64,8 +64,8 @@ pub fn install(app: AppHandle) -> Result<(), String> {
         }
         while let Ok(command) = receiver.recv() {
             match command {
-                SpaceOpenCommand::Open(source) => {
-                    if let Some(path) = selected_file(source) {
+                SpaceOpenCommand::Open { source, focused } => {
+                    if let Some(path) = selected_file(source, focused) {
                         open_with_space(&app, path);
                     }
                 }
@@ -108,7 +108,13 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                 }
             } else if space_open_context {
                 SPACE_HANDLED.store(true, Ordering::SeqCst);
-                send(SpaceOpenCommand::Open(foreground));
+                let focused = explorer_focused_window(foreground_window)
+                    .map(|window| window.0 as isize)
+                    .unwrap_or_default();
+                send(SpaceOpenCommand::Open {
+                    source: foreground,
+                    focused,
+                });
                 return LRESULT(1);
             }
         } else if is_up {
@@ -182,12 +188,12 @@ fn queue_space_open(app: &AppHandle, path: Option<String>) {
     let _ = app.emit("space-open-path-changed", ());
 }
 
-fn selected_file(source: isize) -> Option<String> {
-    let path = selected_path(source)?;
+fn selected_file(source: isize, focused: isize) -> Option<String> {
+    let path = selected_path(source, focused)?;
     Path::new(&path).is_file().then_some(path)
 }
 
-fn selected_path(source: isize) -> Option<String> {
+fn selected_path(source: isize, focused: isize) -> Option<String> {
     unsafe {
         let shell_windows: IShellWindows =
             CoCreateInstance(&ShellWindows, None, CLSCTX_ALL).ok()?;
@@ -195,30 +201,58 @@ fn selected_path(source: isize) -> Option<String> {
         if is_desktop_window(source_window) {
             return desktop_selected_path(&shell_windows);
         }
-        let focused_window = explorer_focused_window(source_window);
+        let focused_window = HWND(focused as *mut _);
+        let mut fallback_path = None;
+        let mut candidate_count = 0;
         for index in 0..shell_windows.Count().ok()? {
             let variant = index_variant(index);
             let Ok(dispatch) = shell_windows.Item(&variant) else { continue };
             let Ok(browser): Result<IWebBrowserApp, _> = dispatch.cast() else { continue };
             let Ok(browser_window) = browser.HWND() else { continue };
             let browser_window = HWND(browser_window.0 as *mut _);
-            let matches_tab = focused_window
-                .map(|focused| {
-                    IsChild(source_window, browser_window).as_bool()
-                        && (browser_window == focused
-                            || IsChild(browser_window, focused).as_bool())
-                })
-                .unwrap_or(false);
-            if browser_window != source_window && !matches_tab {
+            if browser_window != source_window
+                && !IsChild(source_window, browser_window).as_bool()
+            {
                 continue;
             }
             let Ok(document) = browser.Document() else { continue };
             let Ok(view): Result<IShellFolderViewDual, _> = document.cast() else { continue };
-            let Ok(items) = view.SelectedItems() else { return None };
-            return single_path(items);
+            let selected_path = view.SelectedItems().ok().and_then(|items| single_path(items));
+
+            candidate_count += 1;
+            fallback_path = if candidate_count == 1 {
+                selected_path.clone()
+            } else {
+                None
+            };
+
+            // Win11 同一窗口内的标签共享顶层 HWND，必须用各自的 Shell View 匹配焦点。
+            let matches_focused_view = shell_view_window(&dispatch)
+                .map(|view_window| {
+                    view_window == focused_window
+                        || IsChild(view_window, focused_window).as_bool()
+                })
+                .unwrap_or(false);
+            if matches_focused_view {
+                return selected_path;
+            }
+        }
+        // 旧版资源管理器只有一个候选视图时，保留原有兼容行为。
+        if candidate_count == 1 {
+            return fallback_path;
         }
     }
     None
+}
+
+fn shell_view_window(dispatch: &IDispatch) -> Option<HWND> {
+    unsafe {
+        let service_provider: IServiceProvider = dispatch.cast().ok()?;
+        let browser: IShellBrowser = service_provider
+            .QueryService(&SID_STopLevelBrowser)
+            .ok()?;
+        browser.QueryActiveShellView().ok()?.GetWindow().ok()
+    }
 }
 
 fn desktop_selected_path(shell_windows: &IShellWindows) -> Option<String> {
