@@ -11,8 +11,16 @@ const emit = defineEmits<{ "update:content": [value: string] }>();
 const mode = ref<"text" | "preview">("preview");
 const wordWrap = ref(true);
 const unicodeHighlight = ref(false);
+const viewModes = [
+  { label: "文本", value: "text", icon: "i-lucide-file-text" },
+  { label: "预览", value: "preview", icon: "i-lucide-eye" },
+];
 const markdown = new MarkdownIt({ html: false, linkify: true, typographer: true });
 const rendered = computed(() => DOMPurify.sanitize(markdown.render(props.content)));
+
+function updateMode(value: string | number) {
+  if (value === "text" || value === "preview") mode.value = value;
+}
 
 function preventEmbeddedNavigation(event: MouseEvent) {
   const link = (event.target as HTMLElement).closest("a");
@@ -46,12 +54,23 @@ function preventEmbeddedNavigation(event: MouseEvent) {
         <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
       </template>
       <template #actions>
-        <UButton class="viewer-footer-button transition-colors hover:bg-accented hover:text-highlighted" color="neutral" size="xs" icon="i-lucide-file-text" label="文本" :variant="mode === 'text' ? 'soft' : 'ghost'" @click="mode = 'text'" />
-        <UButton class="viewer-footer-button transition-colors hover:bg-accented hover:text-highlighted" color="neutral" size="xs" icon="i-lucide-eye" label="预览" :variant="mode === 'preview' ? 'soft' : 'ghost'" @click="mode = 'preview'" />
-        <div v-if="mode === 'text'" class="ml-1 flex items-center gap-3 border-l border-muted/70 pl-2">
+        <div v-if="mode === 'text'" class="flex items-center gap-3">
           <USwitch v-model="wordWrap" size="xs" label="自动换行" />
           <USwitch v-model="unicodeHighlight" size="xs" label="字符高亮" />
         </div>
+      </template>
+      <template #viewSwitch>
+        <UTabs
+          :model-value="mode"
+          :items="viewModes"
+          :content="false"
+          activation-mode="automatic"
+          color="neutral"
+          variant="pill"
+          size="xs"
+          :ui="{ root: 'w-auto gap-0', list: 'w-auto p-0.5', trigger: 'py-0.5' }"
+          @update:model-value="updateMode"
+        />
       </template>
     </ViewerFooter>
   </div>

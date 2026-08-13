@@ -9,12 +9,15 @@ interface EbookTocItem {
   children?: EbookTocItem[];
 }
 
-const props = withDefaults(defineProps<{
-  item: EbookTocItem;
-  depth?: number;
-}>(), {
-  depth: 0,
-});
+const props = withDefaults(
+  defineProps<{
+    item: EbookTocItem;
+    depth?: number;
+  }>(),
+  {
+    depth: 0,
+  },
+);
 
 const emit = defineEmits<{ navigate: [href: string] }>();
 const expanded = ref(props.depth < 1);
@@ -22,7 +25,10 @@ const expanded = ref(props.depth < 1);
 
 <template>
   <div>
-    <div class="flex min-w-0 items-center rounded hover:bg-elevated" :style="{ paddingLeft: `${depth * 12}px` }">
+    <div
+      class="flex min-w-0 items-center rounded hover:bg-elevated"
+      :style="{ paddingLeft: `${depth * 12}px` }"
+    >
       <button
         v-if="item.children?.length"
         type="button"
@@ -30,7 +36,11 @@ const expanded = ref(props.depth < 1);
         :aria-label="expanded ? '收起目录' : '展开目录'"
         @click="expanded = !expanded"
       >
-        <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform" :class="expanded && 'rotate-90'" />
+        <UIcon
+          name="i-lucide-chevron-right"
+          class="size-3.5 transition-transform"
+          :class="expanded && 'rotate-90'"
+        />
       </button>
       <span v-else class="inline-block size-7 shrink-0" />
       <button

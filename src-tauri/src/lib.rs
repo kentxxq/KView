@@ -32,8 +32,6 @@ use tauri::{
 };
 
 use command_error::CommandResult;
-#[cfg(desktop)]
-use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Default)]
 struct DesktopState {
@@ -1694,17 +1692,15 @@ fn schedule_main_window(app: &AppHandle) {
 }
 
 fn create_tray(app: &tauri::App) -> tauri::Result<()> {
-    #[cfg(desktop)]
-    let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
-    #[cfg(not(desktop))]
-    let autostart_enabled = false;
+    let autostart_available = settings::autostart_available();
+    let autostart_enabled = settings::autostart_enabled(app.handle()).unwrap_or(false);
 
     let open_item = MenuItem::with_id(app, "open", "打开 KView", true, None::<&str>)?;
     let autostart_item = CheckMenuItem::with_id(
         app,
         "autostart",
         "开机启动",
-        true,
+        autostart_available,
         autostart_enabled,
         None::<&str>,
     )?;
@@ -1720,20 +1716,14 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => schedule_main_window(app),
             "autostart" => {
-                #[cfg(desktop)]
-                {
-                    let manager = app.autolaunch();
-                    let enabled = manager.is_enabled().unwrap_or(false);
-                    let result = if enabled {
-                        manager.disable()
-                    } else {
-                        manager.enable()
-                    };
-                    if result.is_ok() {
-                        let _ = autostart_for_menu.set_checked(!enabled);
+                if settings::autostart_available() {
+                    let enabled = settings::autostart_enabled(app).unwrap_or(false);
+                    let next_enabled = !enabled;
+                    if settings::sync_autostart(app, next_enabled).is_ok() {
+                        let _ = autostart_for_menu.set_checked(next_enabled);
                         let state = app.state::<settings::SettingsState>();
                         if let Ok(mut settings) = state.0.lock() {
-                            settings.autostart = !enabled;
+                            settings.autostart = next_enabled;
                             let _ = settings::write(app, &settings);
                         };
                     }
@@ -1822,13 +1812,7 @@ pub fn run() {
                 .map(|path| path.exists())
                 .unwrap_or(false);
             let settings = settings::read(app.handle()).unwrap_or_default();
-            #[cfg(desktop)] {
-                let manager = app.autolaunch();
-                let enabled = manager.is_enabled().unwrap_or(false);
-                if settings.autostart != enabled || !settings_file_exists {
-                    let _ = if settings.autostart { manager.enable() } else { manager.disable() };
-                }
-            }
+            let _ = settings::sync_autostart(app.handle(), settings.autostart);
             if let Ok(mut current) = app.state::<settings::SettingsState>().0.lock() {
                 *current = settings.clone();
             }

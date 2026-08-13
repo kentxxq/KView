@@ -3,7 +3,7 @@ use std::{io::Write, sync::Mutex};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
-#[cfg(desktop)]
+#[cfg(all(desktop, not(debug_assertions)))]
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::{command_error::CommandResult, diagnostics};
@@ -100,6 +100,38 @@ pub(crate) fn write(app: &AppHandle, settings: &AppSettings) -> Result<(), Strin
     Ok(())
 }
 
+pub(crate) const fn autostart_available() -> bool {
+    cfg!(all(desktop, not(debug_assertions)))
+}
+
+#[cfg(all(desktop, not(debug_assertions)))]
+pub(crate) fn autostart_enabled(app: &AppHandle) -> Result<bool, String> {
+    app.autolaunch().is_enabled().map_err(|error| error.to_string())
+}
+
+#[cfg(not(all(desktop, not(debug_assertions))))]
+pub(crate) fn autostart_enabled(_app: &AppHandle) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[cfg(all(desktop, not(debug_assertions)))]
+pub(crate) fn sync_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let manager = app.autolaunch();
+    if enabled {
+        // 始终刷新启动命令，修复升级或开发版遗留的过期可执行文件路径。
+        manager.enable().map_err(|error| error.to_string())?;
+    } else if manager.is_enabled().map_err(|error| error.to_string())? {
+        manager.disable().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(not(all(desktop, not(debug_assertions))))]
+pub(crate) fn sync_autostart(_app: &AppHandle, _enabled: bool) -> Result<(), String> {
+    // 开发构建不接触用户的系统开机启动配置。
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn get_settings(state: State<'_, SettingsState>) -> AppSettings {
     state.0.lock().map(|value| value.clone()).unwrap_or_default()
@@ -113,14 +145,7 @@ pub(crate) fn update_settings(
 ) -> CommandResult<AppSettings> {
     validate(&settings)?;
     let previous_mode = state.0.lock().map_err(|_| "设置状态不可用")?.residency_mode.clone();
-    #[cfg(desktop)] {
-        let manager = app.autolaunch();
-        let enabled = manager.is_enabled().map_err(|error| error.to_string())?;
-        if settings.autostart != enabled {
-            if settings.autostart { manager.enable() } else { manager.disable() }
-                .map_err(|error| error.to_string())?;
-        }
-    }
+    sync_autostart(&app, settings.autostart)?;
     write(&app, &settings)?;
     *state.0.lock().map_err(|_| "设置状态不可用")? = settings.clone();
     diagnostics::append(&app, "settings", "updated", None);

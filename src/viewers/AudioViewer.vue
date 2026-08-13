@@ -3,27 +3,37 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
+const props = defineProps<{
+  file: OpenedFile;
+  content: string;
+  binaryContent?: Uint8Array<ArrayBuffer>;
+  readOnly: boolean;
+}>();
 const audio = ref<HTMLAudioElement>();
 const url = ref("");
 const error = ref("");
 const duration = ref(0);
 
-const mimeType = computed(() => ({
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  m4a: "audio/mp4",
-  aac: "audio/aac",
-  flac: "audio/flac",
-  ogg: "audio/ogg",
-  opus: "audio/ogg; codecs=opus",
-}[props.file.extension] ?? "application/octet-stream"));
+const mimeType = computed(
+  () =>
+    ({
+      mp3: "audio/mpeg",
+      wav: "audio/wav",
+      m4a: "audio/mp4",
+      aac: "audio/aac",
+      flac: "audio/flac",
+      ogg: "audio/ogg",
+      opus: "audio/ogg; codecs=opus",
+    })[props.file.extension] ?? "application/octet-stream",
+);
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds)) return "未知时长";
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  const remainingSeconds = Math.floor(seconds % 60).toString().padStart(2, "0");
+  const remainingSeconds = Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, "0");
   return hours
     ? `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds}`
     : `${minutes}:${remainingSeconds}`;

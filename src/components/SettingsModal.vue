@@ -21,6 +21,7 @@ type SettingsSection = "general" | "text" | "associations" | "diagnostics" | "ab
 const activeSection = ref<SettingsSection>("general");
 const appVersion = ref(packageJson.version);
 const isWindows = /windows/i.test(navigator.userAgent);
+const autostartAvailable = !import.meta.env.DEV;
 
 const settingsSections = computed(() => [
   { label: "常规", value: "general" as const, icon: "i-lucide-settings-2" },
@@ -42,13 +43,13 @@ function settingsSnapshot(settings: AppSettings): AppSettings {
 }
 
 const form = reactive<AppSettings>(settingsSnapshot(appSettings));
-const largeFileThresholdError = computed(() => (
-  Number.isInteger(form.largeFileThresholdMb)
-  && form.largeFileThresholdMb >= 1
-  && form.largeFileThresholdMb <= 1024
+const largeFileThresholdError = computed(() =>
+  Number.isInteger(form.largeFileThresholdMb) &&
+  form.largeFileThresholdMb >= 1 &&
+  form.largeFileThresholdMb <= 1024
     ? undefined
-    : "请输入 1–1024 之间的整数。"
-));
+    : "请输入 1–1024 之间的整数。",
+);
 
 const themeOptions = [
   { label: "跟随系统", value: "system" },
@@ -92,7 +93,11 @@ watch(
     Object.assign(form, settingsSnapshot(appSettings));
     activeSection.value = "general";
     if (isTauri()) {
-      void getVersion().then((version) => { appVersion.value = version; }).catch(() => undefined);
+      void getVersion()
+        .then((version) => {
+          appVersion.value = version;
+        })
+        .catch(() => undefined);
     }
   },
 );
@@ -176,9 +181,11 @@ async function openLogDirectory() {
             :key="section.value"
             type="button"
             class="mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors"
-            :class="activeSection === section.value
-              ? 'bg-primary/10 font-medium text-primary'
-              : 'text-muted hover:bg-elevated hover:text-highlighted'"
+            :class="
+              activeSection === section.value
+                ? 'bg-primary/10 font-medium text-primary'
+                : 'text-muted hover:bg-elevated hover:text-highlighted'
+            "
             :aria-current="activeSection === section.value ? 'page' : undefined"
             @click="activeSection = section.value"
           >
@@ -190,102 +197,127 @@ async function openLogDirectory() {
         <div class="flex min-w-0 flex-1 flex-col">
           <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
             <section v-if="activeSection === 'general'" class="space-y-6">
-            <div>
-              <h2 class="text-base font-semibold text-highlighted">常规</h2>
-              <p class="mt-1 text-sm text-muted">调整应用外观和窗口行为。</p>
-            </div>
-            <UFormField name="theme" label="外观主题">
-              <USelect v-model="form.theme" class="w-full" :items="themeOptions" value-key="value" />
-            </UFormField>
-            <div class="space-y-5 rounded-xl border border-muted p-4">
-              <UFormField name="residencyMode" label="驻留模式">
-                <URadioGroup v-model="form.residencyMode" :items="residencyOptions" />
+              <div>
+                <h2 class="text-base font-semibold text-highlighted">常规</h2>
+                <p class="mt-1 text-sm text-muted">调整应用外观和窗口行为。</p>
+              </div>
+              <UFormField name="theme" label="外观主题">
+                <USelect
+                  v-model="form.theme"
+                  class="w-full"
+                  :items="themeOptions"
+                  value-key="value"
+                />
               </UFormField>
-              <UFormField name="closeBehavior" label="关闭窗口时">
-                <URadioGroup v-model="form.closeBehavior" :items="closeBehaviorOptions" />
-                <p v-if="form.residencyMode === 'low-memory'" class="mt-2 text-xs leading-5 text-muted">
-                  低内存模式会销毁窗口，因此必须关闭所有标签页。
-                </p>
-              </UFormField>
-              <UFormField name="autostart" label="开机启动">
-                <div class="flex items-start justify-between gap-6">
-                  <p class="mt-1 text-xs leading-5 text-muted">登录系统后静默启动到托盘，不主动显示窗口。</p>
-                  <USwitch v-model="form.autostart" />
-                </div>
-              </UFormField>
-            </div>
+              <div class="space-y-5 rounded-xl border border-muted p-4">
+                <UFormField name="residencyMode" label="驻留模式">
+                  <URadioGroup v-model="form.residencyMode" :items="residencyOptions" />
+                </UFormField>
+                <UFormField name="closeBehavior" label="关闭窗口时">
+                  <URadioGroup v-model="form.closeBehavior" :items="closeBehaviorOptions" />
+                  <p
+                    v-if="form.residencyMode === 'low-memory'"
+                    class="mt-2 text-xs leading-5 text-muted"
+                  >
+                    低内存模式会销毁窗口，因此必须关闭所有标签页。
+                  </p>
+                </UFormField>
+                <UFormField name="autostart" label="开机启动">
+                  <div class="flex items-start justify-between gap-6">
+                    <p class="mt-1 text-xs leading-5 text-muted">
+                      {{
+                        autostartAvailable
+                          ? "登录系统后静默启动到托盘，不主动显示窗口。"
+                          : "开发模式不管理系统开机启动。"
+                      }}
+                    </p>
+                    <USwitch v-model="form.autostart" :disabled="!autostartAvailable" />
+                  </div>
+                </UFormField>
+              </div>
             </section>
 
             <section v-else-if="activeSection === 'text'" class="space-y-6">
-            <div>
-              <h2 class="text-base font-semibold text-highlighted">文本查看</h2>
-              <p class="mt-1 text-sm text-muted">配置本地文本文件的载入方式。</p>
-            </div>
-            <UFormField
-              name="largeFileThresholdMb"
-              label="大文件阈值（MiB）"
-              :error="largeFileThresholdError"
-            >
-              <UInputNumber
-                v-model="form.largeFileThresholdMb"
-                class="w-full"
-                :min="1"
-                :max="1024"
-                :step="1"
-              />
-              <p class="mt-2 text-xs leading-5 text-muted">
-                阈值以内的本地文本会完整载入内存并使用 Monaco 编辑器；设置过高可能显著增加内存占用。
-              </p>
-            </UFormField>
+              <div>
+                <h2 class="text-base font-semibold text-highlighted">文本查看</h2>
+                <p class="mt-1 text-sm text-muted">配置本地文本文件的载入方式。</p>
+              </div>
+              <UFormField
+                name="largeFileThresholdMb"
+                label="大文件阈值（MiB）"
+                :error="largeFileThresholdError"
+              >
+                <UInputNumber
+                  v-model="form.largeFileThresholdMb"
+                  class="w-full"
+                  :min="1"
+                  :max="1024"
+                  :step="1"
+                />
+                <p class="mt-2 text-xs leading-5 text-muted">
+                  阈值以内的本地文本会完整载入内存并使用 Monaco
+                  编辑器；设置过高可能显著增加内存占用。
+                </p>
+              </UFormField>
             </section>
 
             <section v-else-if="activeSection === 'associations'" class="space-y-6">
-            <div>
-              <h2 class="text-base font-semibold text-highlighted">文件关联</h2>
-              <p class="mt-1 text-sm text-muted">选择默认使用 KView 打开的文件格式。</p>
-            </div>
-            <div class="flex items-start justify-between gap-6 rounded-xl border border-muted p-4">
-              <div class="min-w-0">
-                <p class="text-sm text-muted">前往 Windows 默认应用设置，按需选择由 KView 打开的文件格式。</p>
-                <details class="mt-3 text-xs text-muted">
-                  <summary class="cursor-pointer select-none text-primary">查看已注册格式</summary>
-                  <div class="mt-2 space-y-1.5 leading-5">
-                    <p v-for="group in associationGroups" :key="group.label">
-                      <span class="font-medium text-default">{{ group.label }}：</span>
-                      {{ group.extensions.map((extension) => `.${extension}`).join("、") }}
-                    </p>
-                  </div>
-                </details>
+              <div>
+                <h2 class="text-base font-semibold text-highlighted">文件关联</h2>
+                <p class="mt-1 text-sm text-muted">选择默认使用 KView 打开的文件格式。</p>
               </div>
-              <UButton
-                class="shrink-0"
-                color="neutral"
-                variant="soft"
-                icon="i-lucide-external-link"
-                label="前往设置"
-                :loading="openingFileAssociations"
-                @click="openFileAssociationSettings"
-              />
-            </div>
+              <div
+                class="flex items-start justify-between gap-6 rounded-xl border border-muted p-4"
+              >
+                <div class="min-w-0">
+                  <p class="text-sm text-muted">
+                    前往 Windows 默认应用设置，按需选择由 KView 打开的文件格式。
+                  </p>
+                  <details class="mt-3 text-xs text-muted">
+                    <summary class="cursor-pointer select-none text-primary">
+                      查看已注册格式
+                    </summary>
+                    <div class="mt-2 space-y-1.5 leading-5">
+                      <p v-for="group in associationGroups" :key="group.label">
+                        <span class="font-medium text-default">{{ group.label }}：</span>
+                        {{ group.extensions.map((extension) => `.${extension}`).join("、") }}
+                      </p>
+                    </div>
+                  </details>
+                </div>
+                <UButton
+                  class="shrink-0"
+                  color="neutral"
+                  variant="soft"
+                  icon="i-lucide-external-link"
+                  label="前往设置"
+                  :loading="openingFileAssociations"
+                  @click="openFileAssociationSettings"
+                />
+              </div>
             </section>
 
             <section v-else-if="activeSection === 'diagnostics'" class="space-y-6">
-            <div>
-              <h2 class="text-base font-semibold text-highlighted">诊断</h2>
-              <p class="mt-1 text-sm text-muted">查看用于排查问题的本地日志。</p>
-            </div>
-            <div class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4">
-              <p class="text-sm leading-6 text-muted">仅记录错误类别、错误代码和耗时，不记录文件路径或文件内容。</p>
-              <UButton
-                class="shrink-0"
-                color="neutral"
-                variant="soft"
-                icon="i-lucide-folder-open"
-                label="打开日志目录"
-                :loading="openingLogDirectory"
-                @click="openLogDirectory"
-              />
-            </div>
+              <div>
+                <h2 class="text-base font-semibold text-highlighted">诊断</h2>
+                <p class="mt-1 text-sm text-muted">查看用于排查问题的本地日志。</p>
+              </div>
+              <div
+                class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4"
+              >
+                <p class="text-sm leading-6 text-muted">
+                  仅记录错误类别、错误代码和耗时，不记录文件路径或文件内容。
+                </p>
+                <UButton
+                  class="shrink-0"
+                  color="neutral"
+                  variant="soft"
+                  icon="i-lucide-folder-open"
+                  label="打开日志目录"
+                  :loading="openingLogDirectory"
+                  @click="openLogDirectory"
+                />
+              </div>
             </section>
 
             <section v-else class="flex min-h-full items-center justify-center py-8 text-center">
@@ -301,8 +333,18 @@ async function openLogDirectory() {
             v-if="activeSection === 'general' || activeSection === 'text'"
             class="flex shrink-0 justify-end gap-2 border-t border-default px-6 py-3"
           >
-            <UButton color="neutral" variant="ghost" label="取消" @click="emit('update:open', false)" />
-            <UButton label="保存设置" :loading="saving" :disabled="!!largeFileThresholdError" @click="submit" />
+            <UButton
+              color="neutral"
+              variant="ghost"
+              label="取消"
+              @click="emit('update:open', false)"
+            />
+            <UButton
+              label="保存设置"
+              :loading="saving"
+              :disabled="!!largeFileThresholdError"
+              @click="submit"
+            />
           </div>
         </div>
       </div>

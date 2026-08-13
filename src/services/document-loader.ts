@@ -30,18 +30,31 @@ interface LoadDocumentOptions {
 async function loadLivePhoto(state: DocumentState, path: string): Promise<LivePhotoDocument> {
   const payload = await desktopInvokeBytes("read_live_photo", { path });
   if (payload.byteLength < 4) throw new Error("动态照片数据不完整");
-  const headerLength = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(0, true);
+  const headerLength = new DataView(
+    payload.buffer,
+    payload.byteOffset,
+    payload.byteLength,
+  ).getUint32(0, true);
   const contentStart = 4 + headerLength;
-  if (headerLength === 0 || contentStart > payload.byteLength) throw new Error("动态照片数据头无效");
+  if (headerLength === 0 || contentStart > payload.byteLength)
+    throw new Error("动态照片数据头无效");
   const header = JSON.parse(
     new TextDecoder().decode(payload.subarray(4, contentStart)),
   ) as LivePhotoBinaryHeader;
   const videoStart = contentStart + header.imageLength;
-  if (!Number.isSafeInteger(header.imageLength) || header.imageLength <= 0 || videoStart >= payload.byteLength) {
+  if (
+    !Number.isSafeInteger(header.imageLength) ||
+    header.imageLength <= 0 ||
+    videoStart >= payload.byteLength
+  ) {
     throw new Error("动态照片媒体长度无效");
   }
   return {
-    imageUrl: createDocumentObjectUrl(state, payload.subarray(contentStart, videoStart), header.imageMimeType),
+    imageUrl: createDocumentObjectUrl(
+      state,
+      payload.subarray(contentStart, videoStart),
+      header.imageMimeType,
+    ),
     imageMimeType: header.imageMimeType,
     videoUrl: createDocumentObjectUrl(state, payload.subarray(videoStart), header.videoMimeType),
     videoMimeType: header.videoMimeType,
@@ -58,7 +71,8 @@ export async function loadLocalDocument(
   const state = createDocumentState();
   state.status = "loading";
   try {
-    const file = options.inspectedFile ?? await desktopInvoke<OpenedFile>("inspect_file", { path });
+    const file =
+      options.inspectedFile ?? (await desktopInvoke<OpenedFile>("inspect_file", { path }));
     if (!resolveViewer(file)) throw new Error(`暂不支持 .${file.extension || "未知"} 文件`);
     state.file = file;
     state.viewerKind = file.kind;
@@ -67,7 +81,10 @@ export async function loadLocalDocument(
     if (file.kind === "image") {
       if (["heic", "heif"].includes(file.extension)) {
         const preview = await desktopInvokeBytes("read_heic_preview", { path: file.path });
-        state.content = { type: "data-url", value: createDocumentObjectUrl(state, preview, "image/bmp") };
+        state.content = {
+          type: "data-url",
+          value: createDocumentObjectUrl(state, preview, "image/bmp"),
+        };
       } else {
         const image = await desktopInvoke<ImageDocument>("read_image", { path: file.path });
         state.content = { type: "data-url", value: image.dataUrl };
@@ -75,20 +92,32 @@ export async function loadLocalDocument(
     } else if (file.kind === "live-photo") {
       state.content = { type: "structured", value: await loadLivePhoto(state, file.path) };
     } else if (file.kind === "installer") {
-      state.content = { type: "structured", value: await desktopInvoke<InstallerDocument>("read_installer", { path: file.path }) };
+      state.content = {
+        type: "structured",
+        value: await desktopInvoke<InstallerDocument>("read_installer", { path: file.path }),
+      };
     } else if (file.kind === "docx" && file.extension === "doc") {
       const document = await desktopInvoke<HtmlDocument>("read_legacy_doc", { path: file.path });
       state.content = { type: "structured", value: document.html };
     } else if (file.kind === "archive") {
-      state.content = { type: "structured", value: await desktopInvoke<ArchiveDocument>("read_archive", { path: file.path }) };
+      state.content = {
+        type: "structured",
+        value: await desktopInvoke<ArchiveDocument>("read_archive", { path: file.path }),
+      };
     } else if (file.kind === "ebook" && file.extension === "epub") {
       const document = await desktopInvoke<EpubDocument>("open_epub", { path: file.path });
       registerEbookSession(state, document.sessionId);
       state.content = { type: "structured", value: document };
     } else if (file.kind === "ebook") {
-      state.content = { type: "bytes", value: await desktopInvokeBytes("read_mobi", { path: file.path }) };
+      state.content = {
+        type: "bytes",
+        value: await desktopInvokeBytes("read_mobi", { path: file.path }),
+      };
     } else if (["pdf", "docx", "xlsx", "audio", "video"].includes(file.kind)) {
-      state.content = { type: "bytes", value: await desktopInvokeBytes("read_binary", { path: file.path }) };
+      state.content = {
+        type: "bytes",
+        value: await desktopInvokeBytes("read_binary", { path: file.path }),
+      };
     } else {
       const result = await desktopInvoke<TextReadResult>("read_text", { path: file.path });
       if (result.status === "large-text") {
@@ -125,7 +154,8 @@ export async function loadLocalDocument(
     }
     state.readOnly = file.readOnly;
     state.status = "ready";
-    if (await commitDocumentLoad(target, state, generation)) options.onRecent?.(file.path, file.name);
+    if (await commitDocumentLoad(target, state, generation))
+      options.onRecent?.(file.path, file.name);
   } catch (error) {
     await disposeDocumentResources(state);
     throw error;

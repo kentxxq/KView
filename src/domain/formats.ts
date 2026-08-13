@@ -35,10 +35,7 @@ export function associationGroupsForPlatform(platform: DesktopPlatform) {
   for (const capability of capabilitiesForPlatform(platform)) {
     if (!capability.associable) continue;
     const extensions = groups.get(capability.label) ?? [];
-    extensions.push(
-      ...capability.extensions,
-      ...(capability.associationExtensions ?? []),
-    );
+    extensions.push(...capability.extensions, ...(capability.associationExtensions ?? []));
     groups.set(capability.label, extensions);
   }
   return [...groups].map(([label, extensions]) => ({

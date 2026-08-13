@@ -26,12 +26,7 @@ import { resolveViewer, resolveViewerKey } from "../viewers/registry";
 import { createDocumentState } from "../state/document";
 import { useLibraryStore } from "../state/library";
 import { useWorkspaceStore, type WorkspaceTab } from "../state/workspace";
-import type {
-  DocumentState,
-  OpenedFile,
-  RemoteDocument,
-  SaveResult,
-} from "../types/document";
+import type { DocumentState, OpenedFile, RemoteDocument, SaveResult } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
 import { loadLocalDocument } from "../services/document-loader";
 import { initializeDesktopLifecycle } from "../services/desktop-lifecycle";
@@ -99,18 +94,22 @@ function viewerShellFor(tabId: string) {
   return shell;
 }
 
-const activeViewerShell = computed(() => (
-  activeTab.value ? viewerShellFor(activeTab.value.id) : null
-));
+const activeViewerShell = computed(() =>
+  activeTab.value ? viewerShellFor(activeTab.value.id) : null,
+);
 const documentState = computed(() => activeTab.value?.state ?? emptyDocumentState);
-const activeViewerKey = computed(() => documentState.value.file
-  ? resolveViewerKey(documentState.value.file) ?? documentState.value.viewerKind
-  : documentState.value.viewerKind);
+const activeViewerKey = computed(() =>
+  documentState.value.file
+    ? (resolveViewerKey(documentState.value.file) ?? documentState.value.viewerKind)
+    : documentState.value.viewerKind,
+);
 const guardedDirtyTabs = computed(() => {
   const targetIds = new Set(guardTargetIds.value);
   return tabs.filter((tab) => targetIds.has(tab.id) && tab.state.dirty);
 });
-const hasViewer = computed(() => !!documentState.value.file && !!resolveViewer(documentState.value.file));
+const hasViewer = computed(
+  () => !!documentState.value.file && !!resolveViewer(documentState.value.file),
+);
 const currentFavorite = computed(() => {
   const file = documentState.value.file;
   return file?.source === "local" && libraryState.isFavorite(file.path);
@@ -168,7 +167,8 @@ function handleTabWheel(event: WheelEvent) {
   const element = tabStrip.value;
   if (!element || element.scrollWidth <= element.clientWidth) return;
   event.preventDefault();
-  element.scrollLeft += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  element.scrollLeft +=
+    Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
   updateTabScrollState();
 }
 
@@ -219,7 +219,12 @@ async function revealFile(path: string) {
   try {
     await invoke("reveal_file", { path });
   } catch (error) {
-    toast.add({ title: "无法打开文件位置", description: errorMessage(error), color: "error", icon: "i-lucide-triangle-alert" });
+    toast.add({
+      title: "无法打开文件位置",
+      description: errorMessage(error),
+      color: "error",
+      icon: "i-lucide-triangle-alert",
+    });
   }
 }
 
@@ -228,7 +233,12 @@ async function copyFilePath(path: string) {
     await navigator.clipboard.writeText(path);
     toast.add({ title: "路径已复制", description: path, color: "success", icon: "i-lucide-copy" });
   } catch (error) {
-    toast.add({ title: "无法复制路径", description: errorMessage(error), color: "error", icon: "i-lucide-triangle-alert" });
+    toast.add({
+      title: "无法复制路径",
+      description: errorMessage(error),
+      color: "error",
+      icon: "i-lucide-triangle-alert",
+    });
   }
 }
 
@@ -236,7 +246,12 @@ async function openFileWith(path: string) {
   try {
     await invoke("open_file_with", { path });
   } catch (error) {
-    toast.add({ title: "无法选择打开方式", description: errorMessage(error), color: "error", icon: "i-lucide-triangle-alert" });
+    toast.add({
+      title: "无法选择打开方式",
+      description: errorMessage(error),
+      color: "error",
+      icon: "i-lucide-triangle-alert",
+    });
   }
 }
 
@@ -328,7 +343,11 @@ async function loadSpaceOpenDirectory(path: string, session: number) {
   try {
     const directory = await invoke<SiblingFileList>("list_sibling_files", { path });
     if (session !== spaceOpenSessionSequence || !spaceOpenTabId.value) return;
-    if (!directory.paths.length || directory.currentIndex < 0 || directory.currentIndex >= directory.paths.length) {
+    if (
+      !directory.paths.length ||
+      directory.currentIndex < 0 ||
+      directory.currentIndex >= directory.paths.length
+    ) {
       throw new Error("文件列表为空或当前文件索引无效");
     }
     spaceOpenPaths.value = directory.paths;
@@ -372,9 +391,8 @@ function switchSpaceOpenFile(direction: number) {
   }
 
   const length = spaceOpenPaths.value.length;
-  const currentIndex = spaceOpenIndex.value >= 0 && spaceOpenIndex.value < length
-    ? spaceOpenIndex.value
-    : 0;
+  const currentIndex =
+    spaceOpenIndex.value >= 0 && spaceOpenIndex.value < length ? spaceOpenIndex.value : 0;
   const nextIndex = (currentIndex + direction + length) % length;
   spaceOpenIndex.value = nextIndex;
   void loadSpaceOpenPath(spaceOpenPaths.value[nextIndex]);
@@ -396,12 +414,11 @@ async function cancelSpaceOpenLink() {
 
 async function openCurrentAsHex() {
   if (
-    !documentState.value.file
-    || (
-      documentState.value.file.kind !== "ebook"
-      && !["binary-content", "unsupported-encoding"].includes(documentState.value.error?.code ?? "")
-    )
-  ) return;
+    !documentState.value.file ||
+    (documentState.value.file.kind !== "ebook" &&
+      !["binary-content", "unsupported-encoding"].includes(documentState.value.error?.code ?? ""))
+  )
+    return;
   await closeDocumentResources(documentState.value);
   documentState.value.file.kind = "hex";
   documentState.value.viewerKind = "hex";
@@ -481,14 +498,19 @@ async function openRemoteAsTab(url: string) {
     state.file = remote.file;
     state.viewerKind = remote.file.kind;
     state.sourceModifiedAt = null;
-    state.content = remote.file.kind === "image"
-      ? { type: "data-url", value: remote.content }
-      : { type: "bytes", value: decodeBase64(remote.content) };
+    state.content =
+      remote.file.kind === "image"
+        ? { type: "data-url", value: remote.content }
+        : { type: "bytes", value: decodeBase64(remote.content) };
     state.readOnly = true;
     state.dirty = false;
     state.largeTextSession = null;
     state.status = "ready";
-    recordDiagnostic("performance", `open-remote-${state.viewerKind}`, performance.now() - startedAt);
+    recordDiagnostic(
+      "performance",
+      `open-remote-${state.viewerKind}`,
+      performance.now() - startedAt,
+    );
   } catch (error) {
     recordDiagnostic("viewer", "open-remote-failed", performance.now() - startedAt);
     state.status = "error";
@@ -505,28 +527,41 @@ async function openRemoteAsTab(url: string) {
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => typeof reader.result === "string"
-      ? resolve(reader.result)
-      : reject(new Error("无法读取剪贴板图片"));
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("无法读取剪贴板图片"));
     reader.onerror = () => reject(reader.error ?? new Error("无法读取剪贴板图片"));
     reader.readAsDataURL(file);
   });
 }
 
 async function openClipboardImage(file: File) {
-  const extension = ({
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
-    "image/svg+xml": "svg",
-  } as Record<string, string>)[file.type.toLowerCase()];
+  const extension = (
+    {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+      "image/svg+xml": "svg",
+    } as Record<string, string>
+  )[file.type.toLowerCase()];
   if (!extension) {
-    toast.add({ title: "不支持此剪贴板图片格式", description: file.type || "未知格式", color: "error", icon: "i-lucide-image-off" });
+    toast.add({
+      title: "不支持此剪贴板图片格式",
+      description: file.type || "未知格式",
+      color: "error",
+      icon: "i-lucide-image-off",
+    });
     return;
   }
   if (file.size > 100 * 1024 * 1024) {
-    toast.add({ title: "剪贴板图片过大", description: "图片超过 100 MiB 安全限制。", color: "error", icon: "i-lucide-image-off" });
+    toast.add({
+      title: "剪贴板图片过大",
+      description: "图片超过 100 MiB 安全限制。",
+      color: "error",
+      icon: "i-lucide-image-off",
+    });
     return;
   }
 
@@ -624,17 +659,19 @@ async function selectFile() {
 
 function updateContent(value: string) {
   if (
-    documentState.value.readOnly
-    || documentState.value.content.type !== "text"
-    || documentState.value.content.value === value
-  ) return;
+    documentState.value.readOnly ||
+    documentState.value.content.type !== "text" ||
+    documentState.value.content.value === value
+  )
+    return;
   documentState.value.content = { type: "text", value };
   documentState.value.dirty = true;
   syncActiveTab();
 }
 
 async function saveState(state: DocumentState, saveAs: boolean) {
-  if (!state.file || state.readOnly || state.content.type !== "text" || state.status !== "ready") return false;
+  if (!state.file || state.readOnly || state.content.type !== "text" || state.status !== "ready")
+    return false;
   const shouldSaveAs = saveAs || state.file.source === "clipboard";
   let targetPath = state.file.path;
   if (shouldSaveAs) {
@@ -646,7 +683,9 @@ async function saveState(state: DocumentState, saveAs: boolean) {
     targetPath = selected;
   }
 
-  const duplicate = tabs.find((tab) => tab.state !== state && tab.sourceKey === `local:${targetPath}`);
+  const duplicate = tabs.find(
+    (tab) => tab.state !== state && tab.sourceKey === `local:${targetPath}`,
+  );
   if (duplicate) {
     toast.add({
       title: "目标文件已在其他标签页打开",
@@ -679,11 +718,22 @@ async function saveState(state: DocumentState, saveAs: boolean) {
       owner.fallbackName = refreshed.name;
     }
     addRecent(refreshed.path, refreshed.name);
-    toast.add({ title: shouldSaveAs ? "文件已另存" : "文件已保存", description: result.name, color: "success", icon: "i-lucide-check" });
+    toast.add({
+      title: shouldSaveAs ? "文件已另存" : "文件已保存",
+      description: result.name,
+      color: "success",
+      icon: "i-lucide-check",
+    });
     return true;
   } catch (error) {
     recordDiagnostic("storage", "save-failed");
-    toast.add({ title: "保存失败", description: errorMessage(error).replace(/^external-modified:\s*/, ""), color: "error", icon: "i-lucide-triangle-alert", duration: 8000 });
+    toast.add({
+      title: "保存失败",
+      description: errorMessage(error).replace(/^external-modified:\s*/, ""),
+      color: "error",
+      icon: "i-lucide-triangle-alert",
+      duration: 8000,
+    });
     return false;
   }
 }
@@ -696,14 +746,14 @@ async function saveDocument(saveAs: boolean) {
 
 async function requestDirtyDecision(targetTabs: WorkspaceTab[]) {
   syncActiveTab();
-  const dirtyTargetIds = targetTabs
-    .filter((tab) => tab.state.dirty)
-    .map((tab) => tab.id);
+  const dirtyTargetIds = targetTabs.filter((tab) => tab.state.dirty).map((tab) => tab.id);
   if (!dirtyTargetIds.length) return true;
   if (resolveGuard) return false;
   guardTargetIds.value = dirtyTargetIds;
   guardOpen.value = true;
-  return new Promise<boolean>((resolve) => { resolveGuard = resolve; });
+  return new Promise<boolean>((resolve) => {
+    resolveGuard = resolve;
+  });
 }
 
 function finishGuard(result: boolean) {
@@ -826,28 +876,31 @@ function keepTabsOnWindowClose() {
   return appSettings.residencyMode === "fast" && appSettings.closeBehavior === "keep-tabs";
 }
 
-const canSwitchSpaceOpen = computed(() => (
-  activeTabId.value === spaceOpenTabId.value
-  && spaceOpenPaths.value.length > 1
-  && !guardOpen.value
-  && !settingsOpen.value
-  && !libraryOpen.value
-  && !openUrlModalOpen.value
-));
+const canSwitchSpaceOpen = computed(
+  () =>
+    activeTabId.value === spaceOpenTabId.value &&
+    spaceOpenPaths.value.length > 1 &&
+    !guardOpen.value &&
+    !settingsOpen.value &&
+    !libraryOpen.value &&
+    !openUrlModalOpen.value,
+);
 
-defineShortcuts(computed(() => ({
-  escape: { handler: closeWindow, usingInput: true },
-  meta_o: selectFile,
-  meta_s: () => saveDocument(false),
-  meta_shift_s: () => saveDocument(true),
-  meta_w: () => closeTab(),
-  meta_tab: () => cycleTab(1),
-  meta_shift_tab: () => cycleTab(-1),
-  arrowleft: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(-1) : false,
-  arrowup: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(-1) : false,
-  arrowright: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(1) : false,
-  arrowdown: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(1) : false,
-})));
+defineShortcuts(
+  computed(() => ({
+    escape: { handler: closeWindow, usingInput: true },
+    meta_o: selectFile,
+    meta_s: () => saveDocument(false),
+    meta_shift_s: () => saveDocument(true),
+    meta_w: () => closeTab(),
+    meta_tab: () => cycleTab(1),
+    meta_shift_tab: () => cycleTab(-1),
+    arrowleft: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(-1) : false,
+    arrowup: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(-1) : false,
+    arrowright: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(1) : false,
+    arrowdown: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(1) : false,
+  })),
+);
 
 onMounted(async () => {
   tabResizeObserver = new ResizeObserver(updateTabScrollState);
@@ -867,7 +920,9 @@ onMounted(async () => {
     onPaths: openPaths,
     onSpaceOpenPath: startSpaceOpen,
     onWindowCloseRequested: closeWindow,
-    onDragStateChange: (active) => { dragActive.value = active; },
+    onDragStateChange: (active) => {
+      dragActive.value = active;
+    },
     onOpenFile: selectFile,
     onCloseTab: () => closeTab(),
     onNextTab: () => cycleTab(1),
@@ -877,10 +932,11 @@ onMounted(async () => {
 
 watch(
   () => tabs.length,
-  () => void nextTick(() => {
-    updateTabScrollState();
-    scrollActiveTabIntoView();
-  }),
+  () =>
+    void nextTick(() => {
+      updateTabScrollState();
+      scrollActiveTabIntoView();
+    }),
 );
 
 watch(tabStrip, (element, previousElement) => {
@@ -899,7 +955,11 @@ onBeforeUnmount(() => {
 <template>
   <AppShell :immersive="tabs.length > 0" @request-close="closeWindow">
     <template #title-content>
-      <div v-if="tabs.length" class="workspace-tab-viewport relative h-full max-w-full" data-tauri-drag-region>
+      <div
+        v-if="tabs.length"
+        class="workspace-tab-viewport relative h-full max-w-full"
+        data-tauri-drag-region
+      >
         <div
           ref="tabStrip"
           class="workspace-tab-strip flex h-full items-center gap-1 overflow-x-auto"
@@ -908,14 +968,28 @@ onBeforeUnmount(() => {
           @scroll="updateTabScrollState"
           @wheel="handleTabWheel"
         >
-          <UContextMenu v-for="tab in tabs" :key="tab.id" :items="tabContextItems(tab)" :content="{ alignOffset: -4 }">
+          <UContextMenu
+            v-for="tab in tabs"
+            :key="tab.id"
+            :items="tabContextItems(tab)"
+            :content="{ alignOffset: -4 }"
+          >
             <div
               :data-tab-id="tab.id"
               class="workspace-tab group flex h-7 max-w-52 shrink-0 items-center rounded-md border px-1 transition-colors"
-              :class="tab.id === activeTabId ? 'border-primary/30 bg-primary/10 text-primary' : 'border-transparent text-muted hover:bg-accented hover:text-highlighted'"
+              :class="
+                tab.id === activeTabId
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-transparent text-muted hover:bg-accented hover:text-highlighted'
+              "
               @contextmenu="activateTab(tab.id)"
             >
-              <UTooltip :text="tab.state.file?.path ?? tab.fallbackName" :delay-duration="2000" :content="{ side: 'bottom', align: 'center', sideOffset: 6 }" :ui="{ content: 'max-w-md break-all font-mono' }">
+              <UTooltip
+                :text="tab.state.file?.path ?? tab.fallbackName"
+                :delay-duration="2000"
+                :content="{ side: 'bottom', align: 'center', sideOffset: 6 }"
+                :ui="{ content: 'max-w-md break-all font-mono' }"
+              >
                 <button
                   class="flex h-full min-w-0 items-center gap-2 px-2 text-xs"
                   role="tab"
@@ -923,26 +997,105 @@ onBeforeUnmount(() => {
                   :tabindex="tab.id === activeTabId ? 0 : -1"
                   @click="activateTab(tab.id)"
                 >
-                  <span v-if="tab.state.dirty" class="size-1.5 shrink-0 rounded-full bg-amber-500" />
+                  <span
+                    v-if="tab.state.dirty"
+                    class="size-1.5 shrink-0 rounded-full bg-amber-500"
+                  />
                   <span class="truncate">{{ tab.state.file?.name ?? tab.fallbackName }}</span>
                 </button>
               </UTooltip>
-              <UTooltip text="关闭标签页" :delay-duration="500"><UButton class="workspace-tab-close" color="neutral" variant="ghost" size="xs" icon="i-lucide-x" aria-label="关闭标签页" @click.stop="closeTab(tab.id)" /></UTooltip>
+              <UTooltip text="关闭标签页" :delay-duration="500"
+                ><UButton
+                  class="workspace-tab-close"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  icon="i-lucide-x"
+                  aria-label="关闭标签页"
+                  @click.stop="closeTab(tab.id)"
+              /></UTooltip>
             </div>
           </UContextMenu>
         </div>
-        <div v-if="canScrollTabsLeft" class="workspace-tab-fade workspace-tab-fade-left" aria-hidden="true" />
-        <div v-if="canScrollTabsRight" class="workspace-tab-fade workspace-tab-fade-right" aria-hidden="true" />
+        <div
+          v-if="canScrollTabsLeft"
+          class="workspace-tab-fade workspace-tab-fade-left"
+          aria-hidden="true"
+        />
+        <div
+          v-if="canScrollTabsRight"
+          class="workspace-tab-fade workspace-tab-fade-right"
+          aria-hidden="true"
+        />
       </div>
     </template>
 
     <template #actions>
-      <UTooltip text="回到首页" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-house" aria-label="回到首页" :disabled="!tabs.length" @click="returnHome" /></UTooltip>
-      <UTooltip text="打开文件" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-folder-open" aria-label="打开文件" @click="selectFile" /></UTooltip>
-      <UTooltip text="打开 URL" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-link" aria-label="打开 URL" @click="openUrlModalOpen = true" /></UTooltip>
-      <UTooltip v-if="documentState.file?.source === 'local'" :text="currentFavorite ? '取消收藏' : '收藏文件'" :delay-duration="500"><UButton class="titlebar-action" :class="{ 'titlebar-favorite-active': currentFavorite }" color="neutral" variant="ghost" size="xs" icon="i-lucide-star" :aria-label="currentFavorite ? '取消收藏' : '收藏文件'" @click="toggleCurrentFavorite" /></UTooltip>
-      <UTooltip text="文件库" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-library" aria-label="文件库" @click="libraryOpen = true" /></UTooltip>
-      <UTooltip text="设置" :delay-duration="500"><UButton class="titlebar-action" color="neutral" variant="ghost" size="xs" icon="i-lucide-settings" aria-label="设置" @click="settingsOpen = true" /></UTooltip>
+      <UTooltip text="回到首页" :delay-duration="500"
+        ><UButton
+          class="titlebar-action"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-lucide-house"
+          aria-label="回到首页"
+          :disabled="!tabs.length"
+          @click="returnHome"
+      /></UTooltip>
+      <UTooltip text="打开文件" :delay-duration="500"
+        ><UButton
+          class="titlebar-action"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-lucide-folder-open"
+          aria-label="打开文件"
+          @click="selectFile"
+      /></UTooltip>
+      <UTooltip text="打开 URL" :delay-duration="500"
+        ><UButton
+          class="titlebar-action"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-lucide-link"
+          aria-label="打开 URL"
+          @click="openUrlModalOpen = true"
+      /></UTooltip>
+      <UTooltip
+        v-if="documentState.file?.source === 'local'"
+        :text="currentFavorite ? '取消收藏' : '收藏文件'"
+        :delay-duration="500"
+        ><UButton
+          class="titlebar-action"
+          :class="{ 'titlebar-favorite-active': currentFavorite }"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-lucide-star"
+          :aria-label="currentFavorite ? '取消收藏' : '收藏文件'"
+          @click="toggleCurrentFavorite"
+      /></UTooltip>
+      <UTooltip text="文件库" :delay-duration="500"
+        ><UButton
+          class="titlebar-action"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-lucide-library"
+          aria-label="文件库"
+          @click="libraryOpen = true"
+      /></UTooltip>
+      <UTooltip text="设置" :delay-duration="500"
+        ><UButton
+          class="titlebar-action"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-lucide-settings"
+          aria-label="设置"
+          @click="settingsOpen = true"
+      /></UTooltip>
     </template>
 
     <div v-if="tabs.length" class="flex size-full min-h-0 flex-col">
@@ -950,21 +1103,30 @@ onBeforeUnmount(() => {
         <div class="grid min-h-0 flex-1 place-items-center p-6">
           <ErrorState
             :error="documentState.error"
-            :can-open-hex="['binary-content', 'unsupported-encoding'].includes(documentState.error.code) || documentState.file?.kind === 'ebook'"
+            :can-open-hex="
+              ['binary-content', 'unsupported-encoding'].includes(documentState.error.code) ||
+              documentState.file?.kind === 'ebook'
+            "
             @dismiss="closeTab()"
             @open-hex="openCurrentAsHex"
           />
         </div>
-        <ViewerFooter :file-size="documentState.file?.size"><template #status>{{ (documentState.file?.extension || "未知格式").toUpperCase() }} · 打开失败</template></ViewerFooter>
+        <ViewerFooter :file-size="documentState.file?.size"
+          ><template #status
+            >{{ (documentState.file?.extension || "未知格式").toUpperCase() }} · 打开失败</template
+          ></ViewerFooter
+        >
       </div>
-      <div v-else-if="documentState.file && documentState.status === 'ready' && hasViewer" class="flex min-h-0 flex-1 flex-col">
+      <div
+        v-else-if="documentState.file && documentState.status === 'ready' && hasViewer"
+        class="flex min-h-0 flex-1 flex-col"
+      >
         <KeepAlive :exclude="viewerCacheExclusions" :max="12">
-          <component
-            :is="activeViewerShell"
-            :key="activeTabId"
-          >
+          <component :is="activeViewerShell" :key="activeTabId">
             <ViewerHost
-              :key="activeTab?.id === spaceOpenTabId ? `space-open:${activeViewerKey}` : activeTabId"
+              :key="
+                activeTab?.id === spaceOpenTabId ? `space-open:${activeViewerKey}` : activeTabId
+              "
               class="min-h-0 flex-1"
               :file="documentState.file"
               :content="documentState.content"
@@ -978,9 +1140,14 @@ onBeforeUnmount(() => {
       </div>
       <div v-else-if="documentState.status === 'loading'" class="flex min-h-0 flex-1 flex-col">
         <div class="grid flex-1 place-items-center text-center">
-          <div><UIcon name="i-lucide-loader-circle" class="mx-auto size-8 animate-spin text-primary" /><p class="mt-3 text-sm text-muted">正在加载文件…</p></div>
+          <div>
+            <UIcon name="i-lucide-loader-circle" class="mx-auto size-8 animate-spin text-primary" />
+            <p class="mt-3 text-sm text-muted">正在加载文件…</p>
+          </div>
         </div>
-        <ViewerFooter :file-size="documentState.file?.size"><template #status>正在加载</template></ViewerFooter>
+        <ViewerFooter :file-size="documentState.file?.size"
+          ><template #status>正在加载</template></ViewerFooter
+        >
       </div>
     </div>
     <EmptyState
@@ -993,8 +1160,18 @@ onBeforeUnmount(() => {
       @paste-text="openClipboardText"
     />
 
-    <UModal :open="guardOpen" :dismissible="false" title="保存修改？" @update:open="handleGuardOpenChange">
-      <template #body><p class="text-sm leading-6 text-muted">本次操作涉及的标签页中，共有 {{ guardedDirtyTabs.length }} 个包含未保存修改。保存后继续，或放弃这些修改。</p></template>
+    <UModal
+      :open="guardOpen"
+      :dismissible="false"
+      title="保存修改？"
+      @update:open="handleGuardOpenChange"
+    >
+      <template #body
+        ><p class="text-sm leading-6 text-muted">
+          本次操作涉及的标签页中，共有
+          {{ guardedDirtyTabs.length }} 个包含未保存修改。保存后继续，或放弃这些修改。
+        </p></template
+      >
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" label="取消" @click="finishGuard(false)" />
@@ -1003,7 +1180,12 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </UModal>
-    <FileLibraryModal v-model:open="libraryOpen" @open="openPathAsTab" @favorite="toggleFavorite" @remove-recent="removeRecent" />
+    <FileLibraryModal
+      v-model:open="libraryOpen"
+      @open="openPathAsTab"
+      @favorite="toggleFavorite"
+      @remove-recent="removeRecent"
+    />
     <OpenUrlModal v-model:open="openUrlModalOpen" @open-url="openRemoteAsTab" />
     <SettingsModal v-model:open="settingsOpen" />
   </AppShell>

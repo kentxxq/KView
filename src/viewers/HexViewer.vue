@@ -26,7 +26,9 @@ let resizeObserver: ResizeObserver | undefined;
 const rowCount = computed(() => Math.ceil(props.file.size / BYTES_PER_ROW));
 const naturalTrackHeight = computed(() => rowCount.value * ROW_HEIGHT);
 const normalizedScrolling = computed(() => naturalTrackHeight.value > MAX_TRACK_HEIGHT);
-const trackHeight = computed(() => Math.max(1, Math.min(naturalTrackHeight.value, MAX_TRACK_HEIGHT)));
+const trackHeight = computed(() =>
+  Math.max(1, Math.min(naturalTrackHeight.value, MAX_TRACK_HEIGHT)),
+);
 const viewportRows = computed(() => Math.max(1, Math.ceil(viewportHeight.value / ROW_HEIGHT)));
 const contentScrollTop = computed(() => Math.max(0, scrollTop.value - HEADER_HEIGHT));
 
@@ -37,21 +39,31 @@ const firstVisibleRow = computed(() => {
   }
   const scrollRange = Math.max(1, trackHeight.value - viewportHeight.value);
   const maxFirstRow = Math.max(0, rowCount.value - viewportRows.value);
-  return Math.max(0, Math.floor((contentScrollTop.value / scrollRange) * maxFirstRow) - OVERSCAN_ROWS);
+  return Math.max(
+    0,
+    Math.floor((contentScrollTop.value / scrollRange) * maxFirstRow) - OVERSCAN_ROWS,
+  );
 });
 
-const lastVisibleRow = computed(() => Math.min(
-  rowCount.value,
-  firstVisibleRow.value + viewportRows.value + OVERSCAN_ROWS * 2,
-));
+const lastVisibleRow = computed(() =>
+  Math.min(rowCount.value, firstVisibleRow.value + viewportRows.value + OVERSCAN_ROWS * 2),
+);
 
 const renderedTop = computed(() => {
   if (!normalizedScrolling.value) return firstVisibleRow.value * ROW_HEIGHT;
   const renderedHeight = (lastVisibleRow.value - firstVisibleRow.value) * ROW_HEIGHT;
-  return Math.max(0, Math.min(contentScrollTop.value - OVERSCAN_ROWS * ROW_HEIGHT, trackHeight.value - renderedHeight));
+  return Math.max(
+    0,
+    Math.min(
+      contentScrollTop.value - OVERSCAN_ROWS * ROW_HEIGHT,
+      trackHeight.value - renderedHeight,
+    ),
+  );
 });
 
-const offsetDigits = computed(() => Math.max(8, Math.max(0, props.file.size - 1).toString(16).length));
+const offsetDigits = computed(() =>
+  Math.max(8, Math.max(0, props.file.size - 1).toString(16).length),
+);
 
 function chunkOffsetFor(byteOffset: number) {
   return Math.floor(byteOffset / CHUNK_BYTES) * CHUNK_BYTES;
@@ -63,21 +75,27 @@ function byteAt(byteOffset: number) {
   return chunks.get(chunkOffset)?.[byteOffset - chunkOffset];
 }
 
-const rows = computed(() => Array.from(
-  { length: Math.max(0, lastVisibleRow.value - firstVisibleRow.value) },
-  (_, index) => {
+const rows = computed(() =>
+  Array.from({ length: Math.max(0, lastVisibleRow.value - firstVisibleRow.value) }, (_, index) => {
     const rowIndex = firstVisibleRow.value + index;
     const offset = rowIndex * BYTES_PER_ROW;
-    const bytes = Array.from({ length: Math.min(BYTES_PER_ROW, props.file.size - offset) }, (_, byteIndex) => byteAt(offset + byteIndex));
+    const bytes = Array.from(
+      { length: Math.min(BYTES_PER_ROW, props.file.size - offset) },
+      (_, byteIndex) => byteAt(offset + byteIndex),
+    );
     return {
       rowIndex,
       offset,
       offsetLabel: offset.toString(16).toUpperCase().padStart(offsetDigits.value, "0"),
       bytes,
-      ascii: bytes.map((byte) => byte === undefined ? " " : byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : ".").join(""),
+      ascii: bytes
+        .map((byte) =>
+          byte === undefined ? " " : byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : ".",
+        )
+        .join(""),
     };
-  },
-));
+  }),
+);
 
 async function loadChunk(offset: number) {
   if (chunks.has(offset) || loadingChunks.has(offset) || error.value) return;
@@ -127,7 +145,9 @@ function handleScroll() {
 
 watch(
   [firstVisibleRow, lastVisibleRow],
-  ([firstRow, lastRow]) => { void loadVisibleChunks(firstRow, lastRow); },
+  ([firstRow, lastRow]) => {
+    void loadVisibleChunks(firstRow, lastRow);
+  },
   { immediate: true },
 );
 
@@ -154,29 +174,46 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
       title="无法继续读取文件"
       :description="error"
     />
-    <div ref="scrollElement" class="min-h-0 flex-1 overflow-auto font-mono text-xs" @scroll="handleScroll">
-      <div class="sticky top-0 z-10 flex h-8 min-w-max items-center border-b border-white/10 bg-inverted px-4 text-white/45">
+    <div
+      ref="scrollElement"
+      class="min-h-0 flex-1 overflow-auto font-mono text-xs"
+      @scroll="handleScroll"
+    >
+      <div
+        class="sticky top-0 z-10 flex h-8 min-w-max items-center border-b border-white/10 bg-inverted px-4 text-white/45"
+      >
         <span class="mr-6" :style="{ width: `${offsetDigits}ch` }">OFFSET</span>
         <span class="grid gap-x-2" style="grid-template-columns: repeat(16, 1rem)">
-          <span v-for="index in 16" :key="index" class="w-4 text-center">{{ (index - 1).toString(16).toUpperCase() }}</span>
+          <span v-for="index in 16" :key="index" class="w-4 text-center">{{
+            (index - 1).toString(16).toUpperCase()
+          }}</span>
         </span>
         <span class="ml-6" style="width: 16ch">ASCII</span>
       </div>
       <div class="relative min-w-max" :style="{ height: `${trackHeight}px` }">
-        <div class="absolute left-0 top-0 px-4" :style="{ transform: `translateY(${renderedTop}px)` }">
+        <div
+          class="absolute left-0 top-0 px-4"
+          :style="{ transform: `translateY(${renderedTop}px)` }"
+        >
           <div
             v-for="row in rows"
             :key="row.rowIndex"
             class="flex items-center text-white/85"
             :style="{ height: `${ROW_HEIGHT}px` }"
           >
-            <span class="mr-6 shrink-0 text-right text-sky-300/75" :style="{ width: `${offsetDigits}ch` }">{{ row.offsetLabel }}</span>
+            <span
+              class="mr-6 shrink-0 text-right text-sky-300/75"
+              :style="{ width: `${offsetDigits}ch` }"
+              >{{ row.offsetLabel }}</span
+            >
             <span class="grid gap-x-2" style="grid-template-columns: repeat(16, 1rem)">
               <span v-for="index in 16" :key="index" class="w-4 text-center">
                 {{ row.bytes[index - 1]?.toString(16).toUpperCase().padStart(2, "0") ?? "" }}
               </span>
             </span>
-            <span class="ml-6 whitespace-pre text-emerald-200/80" style="width: 16ch">{{ row.ascii }}</span>
+            <span class="ml-6 whitespace-pre text-emerald-200/80" style="width: 16ch">{{
+              row.ascii
+            }}</span>
           </div>
           <div v-if="!rowCount" class="py-8 text-white/45">空文件</div>
         </div>

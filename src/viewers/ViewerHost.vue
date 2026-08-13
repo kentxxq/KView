@@ -27,7 +27,9 @@ const textContent = computed(() => {
     ? props.content.value
     : JSON.stringify(props.content.value);
 });
-const binaryContent = computed(() => props.content.type === "bytes" ? props.content.value : undefined);
+const binaryContent = computed(() =>
+  props.content.type === "bytes" ? props.content.value : undefined,
+);
 
 const viewer = computed(() => {
   const definition = resolveViewer(props.file);

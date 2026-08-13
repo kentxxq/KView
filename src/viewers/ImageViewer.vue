@@ -37,19 +37,15 @@ const fitScale = computed(() => {
   if (!width.value || !height.value) return 1;
   const naturalWidth = rotated.value ? height.value : width.value;
   const naturalHeight = rotated.value ? width.value : height.value;
-  return Math.min(
-    1,
-    availableWidth.value / naturalWidth,
-    availableHeight.value / naturalHeight,
-  );
+  return Math.min(1, availableWidth.value / naturalWidth, availableHeight.value / naturalHeight);
 });
 const displayedWidth = computed(() => width.value * fitScale.value * zoom.value);
 const displayedHeight = computed(() => height.value * fitScale.value * zoom.value);
-const frameWidth = computed(() => rotated.value ? displayedHeight.value : displayedWidth.value);
-const frameHeight = computed(() => rotated.value ? displayedWidth.value : displayedHeight.value);
-const canPan = computed(() => (
-  frameWidth.value > availableWidth.value || frameHeight.value > availableHeight.value
-));
+const frameWidth = computed(() => (rotated.value ? displayedHeight.value : displayedWidth.value));
+const frameHeight = computed(() => (rotated.value ? displayedWidth.value : displayedHeight.value));
+const canPan = computed(
+  () => frameWidth.value > availableWidth.value || frameHeight.value > availableHeight.value,
+);
 const contentStyle = computed(() => ({
   width: `${Math.max(availableWidth.value, frameWidth.value)}px`,
   height: `${Math.max(availableHeight.value, frameHeight.value)}px`,
@@ -88,12 +84,8 @@ async function handleWheel(event: WheelEvent) {
   if (!element || !frame) return;
 
   const frameBounds = frame.getBoundingClientRect();
-  const focalX = frameBounds.width
-    ? (event.clientX - frameBounds.left) / frameBounds.width
-    : 0.5;
-  const focalY = frameBounds.height
-    ? (event.clientY - frameBounds.top) / frameBounds.height
-    : 0.5;
+  const focalX = frameBounds.width ? (event.clientX - frameBounds.left) / frameBounds.width : 0.5;
+  const focalY = frameBounds.height ? (event.clientY - frameBounds.top) / frameBounds.height : 0.5;
   const requestId = ++zoomRequestId;
 
   clampZoom(zoom.value * Math.exp(-event.deltaY * 0.0015));
@@ -251,14 +243,16 @@ function updateAvailableSize() {
   const element = imageViewport.value;
   if (!element) return;
   const styles = window.getComputedStyle(element);
-  const horizontalInsets = (Number.parseFloat(styles.paddingLeft) || 0)
-    + (Number.parseFloat(styles.paddingRight) || 0)
-    + (Number.parseFloat(styles.borderLeftWidth) || 0)
-    + (Number.parseFloat(styles.borderRightWidth) || 0);
-  const verticalInsets = (Number.parseFloat(styles.paddingTop) || 0)
-    + (Number.parseFloat(styles.paddingBottom) || 0)
-    + (Number.parseFloat(styles.borderTopWidth) || 0)
-    + (Number.parseFloat(styles.borderBottomWidth) || 0);
+  const horizontalInsets =
+    (Number.parseFloat(styles.paddingLeft) || 0) +
+    (Number.parseFloat(styles.paddingRight) || 0) +
+    (Number.parseFloat(styles.borderLeftWidth) || 0) +
+    (Number.parseFloat(styles.borderRightWidth) || 0);
+  const verticalInsets =
+    (Number.parseFloat(styles.paddingTop) || 0) +
+    (Number.parseFloat(styles.paddingBottom) || 0) +
+    (Number.parseFloat(styles.borderTopWidth) || 0) +
+    (Number.parseFloat(styles.borderBottomWidth) || 0);
   const bounds = element.getBoundingClientRect();
 
   // clientWidth/clientHeight 会随滚动条出现或消失而改变，临界缩放比例下会导致适配尺寸反复震荡。
@@ -277,11 +271,9 @@ onBeforeUnmount(() => {
   revokeMediaUrls();
 });
 
-watch(
-  () => [props.file.path, props.file.modifiedAt, props.content] as const,
-  prepareMedia,
-  { immediate: true },
-);
+watch(() => [props.file.path, props.file.modifiedAt, props.content] as const, prepareMedia, {
+  immediate: true,
+});
 </script>
 
 <template>
@@ -295,8 +287,14 @@ watch(
       @pointerdown="startDragging"
       @pointerdown.left="startLivePhoto"
       @pointermove="dragImage"
-      @pointerup="stopDragging($event); stopLivePhoto($event)"
-      @pointercancel="stopDragging($event); stopLivePhoto($event)"
+      @pointerup="
+        stopDragging($event);
+        stopLivePhoto($event);
+      "
+      @pointercancel="
+        stopDragging($event);
+        stopLivePhoto($event);
+      "
       @pointerleave="stopLivePhoto"
       @keydown="handleLivePhotoKeyDown"
       @keyup="handleLivePhotoKeyUp"
@@ -352,18 +350,47 @@ watch(
         <template v-if="videoError"> · {{ videoError }}</template>
       </template>
       <template #actions>
-        <UTooltip text="缩小" :delay-duration="500"><UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-zoom-out" aria-label="缩小" @click="clampZoom(zoom - 0.1)" /></UTooltip>
+        <UTooltip text="缩小" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            icon="i-lucide-zoom-out"
+            aria-label="缩小"
+            @click="clampZoom(zoom - 0.1)"
+        /></UTooltip>
         <span class="w-12 text-center text-xs text-muted">{{ Math.round(zoom * 100) }}%</span>
-        <UTooltip text="放大" :delay-duration="500"><UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-zoom-in" aria-label="放大" @click="clampZoom(zoom + 0.1)" /></UTooltip>
-        <UTooltip text="全屏" :delay-duration="500"><UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-maximize" aria-label="全屏" @click="toggleFullscreen" /></UTooltip>
-      </template>
-      <template #more>
-        <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">
-          <div><UTooltip text="更多图片操作" :delay-duration="500"><UButton class="viewer-footer-button" color="neutral" variant="ghost" size="xs" icon="i-lucide-chevron-down" aria-label="更多图片操作" /></UTooltip></div>
-          <template #content>
-            <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-cw" label="顺时针旋转" @click="rotate" />
-          </template>
-        </UPopover>
+        <UTooltip text="放大" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            icon="i-lucide-zoom-in"
+            aria-label="放大"
+            @click="clampZoom(zoom + 0.1)"
+        /></UTooltip>
+        <UTooltip text="顺时针旋转" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            icon="i-lucide-rotate-cw"
+            aria-label="顺时针旋转"
+            @click="rotate"
+        /></UTooltip>
+        <UTooltip text="全屏" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            icon="i-lucide-maximize"
+            aria-label="全屏"
+            @click="toggleFullscreen"
+        /></UTooltip>
       </template>
     </ViewerFooter>
   </div>

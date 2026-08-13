@@ -59,23 +59,22 @@ let disposed = false;
 
 for (const line of props.session.initialLines) lineCache.set(line.lineNumber, line.content);
 
-const virtualLineCount = computed(() => Math.max(
-  1,
-  indexStatus.complete && indexStatus.totalLines !== null
-    ? indexStatus.totalLines
-    : indexStatus.indexedLineCount,
-));
-const virtualItems = computed(() => new Array(virtualLineCount.value));
-const reservedLineNumberDigits = Math.max(
-  8,
-  String(Math.floor(props.session.fileSize) + 1).length,
+const virtualLineCount = computed(() =>
+  Math.max(
+    1,
+    indexStatus.complete && indexStatus.totalLines !== null
+      ? indexStatus.totalLines
+      : indexStatus.indexedLineCount,
+  ),
 );
+const virtualItems = computed(() => new Array(virtualLineCount.value));
+const reservedLineNumberDigits = Math.max(8, String(Math.floor(props.session.fileSize) + 1).length);
 const lineNumberWidth = `calc(${reservedLineNumberDigits}ch + 1.5rem + 1px)`;
-const progress = computed(() => (
+const progress = computed(() =>
   indexStatus.fileSize > 0
-    ? Math.min(100, indexStatus.indexedBytes / indexStatus.fileSize * 100)
-    : 100
-));
+    ? Math.min(100, (indexStatus.indexedBytes / indexStatus.fileSize) * 100)
+    : 100,
+);
 const notice = computed(() => {
   const total = indexStatus.totalLines === null ? "索引中" : `${indexStatus.totalLines} 行`;
   return [
@@ -114,9 +113,9 @@ const virtualizeOptions = {
       return;
     }
     if (
-      start === scheduledStartLine
-      && end === scheduledEndLine
-      && [...pendingStarts.values()].some((generation) => generation === loadGeneration)
+      start === scheduledStartLine &&
+      end === scheduledEndLine &&
+      [...pendingStarts.values()].some((generation) => generation === loadGeneration)
     ) {
       return;
     }
@@ -140,9 +139,9 @@ function rebuildLineCache() {
 }
 
 function rememberBatch(batch: LargeTextLinesResult, focusLine: number) {
-  const remaining = batches.value.filter((item) => (
-    item.endLine < batch.startLine || item.startLine > batch.endLine
-  ));
+  const remaining = batches.value.filter(
+    (item) => item.endLine < batch.startLine || item.startLine > batch.endLine,
+  );
   remaining.push(batch);
   remaining.sort((left, right) => {
     const leftCenter = (left.startLine + left.endLine) / 2;
@@ -154,9 +153,9 @@ function rememberBatch(batch: LargeTextLinesResult, focusLine: number) {
 }
 
 function batchContaining(lineNumber: number) {
-  return batches.value.find((batch) => (
-    lineNumber >= batch.startLine && lineNumber <= batch.endLine
-  ));
+  return batches.value.find(
+    (batch) => lineNumber >= batch.startLine && lineNumber <= batch.endLine,
+  );
 }
 
 async function loadBatch(
@@ -233,7 +232,7 @@ async function pollIndexStatus() {
     });
     Object.assign(indexStatus, status, {
       indexedLineCount: status.complete
-        ? status.totalLines ?? status.indexedLineCount
+        ? (status.totalLines ?? status.indexedLineCount)
         : Math.max(status.indexedLineCount, initialEndLine),
     });
     if (status.error) {
@@ -304,7 +303,8 @@ onBeforeUnmount(() => {
           <span
             class="sticky left-0 z-10 shrink-0 select-none border-r border-white/10 bg-inverted px-3 text-right text-white/35"
             :style="{ width: lineNumberWidth, minWidth: lineNumberWidth }"
-          >{{ index + 1 }}</span>
+            >{{ index + 1 }}</span
+          >
           <span class="min-w-max px-3">{{ lineCache.get(index + 1) ?? "" }}</span>
         </div>
       </template>

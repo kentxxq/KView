@@ -73,7 +73,7 @@ function branchLabel(value: unknown, length: number) {
 
     <div v-if="isBranch && expanded" class="ml-4 border-l border-muted pl-2">
       <TreeNode
-        v-for="([key, child]) in entries"
+        v-for="[key, child] in entries"
         :key="key"
         :value="child"
         :name="key"

@@ -29,9 +29,11 @@ const LEGACY_STORAGE_KEY = "kview-library-v1";
 function validEntry(value: unknown): value is LibraryEntry {
   if (!value || typeof value !== "object") return false;
   const entry = value as Partial<LibraryEntry>;
-  return typeof entry.path === "string"
-    && typeof entry.name === "string"
-    && typeof entry.timestamp === "number";
+  return (
+    typeof entry.path === "string" &&
+    typeof entry.name === "string" &&
+    typeof entry.timestamp === "number"
+  );
 }
 
 function parseStored(value: string | null): StoredLibraryV2 | null {
@@ -71,11 +73,13 @@ export const useLibraryStore = defineStore("library", {
       if (stored) this.$patch(stored);
       if (isTauri()) {
         try {
-          const paths = [...new Set([
-            ...this.recent.map((entry) => entry.path),
-            ...this.favorites.map((entry) => entry.path),
-            ...this.sessionPaths,
-          ])];
+          const paths = [
+            ...new Set([
+              ...this.recent.map((entry) => entry.path),
+              ...this.favorites.map((entry) => entry.path),
+              ...this.sessionPaths,
+            ]),
+          ];
           const existing = new Set(await invoke<string[]>("existing_paths", { paths }));
           this.recent = this.recent.filter((entry) => existing.has(entry.path));
           this.favorites = this.favorites.filter((entry) => existing.has(entry.path));

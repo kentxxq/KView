@@ -29,7 +29,10 @@ function normalizeCommandError(cause: unknown): CommandErrorShape {
   return { code: "desktop-command-failed", message, recoverable: true };
 }
 
-export async function desktopInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export async function desktopInvoke<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
   try {
     return await invoke<T>(command, args);
   } catch (cause) {

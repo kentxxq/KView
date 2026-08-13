@@ -65,7 +65,7 @@ const languageByFileName: Record<string, string> = {
 export function resolveLanguage(file: { extension: string; name: string }) {
   const fileName = file.name.toLowerCase();
   if (fileName === ".env" || fileName.startsWith(".env.")) return "ini";
-  return languageByExtension[file.extension.toLowerCase()]
-    ?? languageByFileName[fileName]
-    ?? "plaintext";
+  return (
+    languageByExtension[file.extension.toLowerCase()] ?? languageByFileName[fileName] ?? "plaintext"
+  );
 }

@@ -4,7 +4,12 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vu
 import type { OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
+const props = defineProps<{
+  file: OpenedFile;
+  content: string;
+  binaryContent?: Uint8Array<ArrayBuffer>;
+  readOnly: boolean;
+}>();
 const container = ref<HTMLDivElement>();
 const player = shallowRef<Artplayer>();
 const url = ref("");
@@ -12,16 +17,21 @@ const error = ref("");
 const duration = ref(0);
 const dimensions = ref("");
 
-const mimeType = computed(() => ({
-  mp4: "video/mp4",
-  webm: "video/webm",
-  mov: "video/quicktime",
-}[props.file.extension] ?? "application/octet-stream"));
+const mimeType = computed(
+  () =>
+    ({
+      mp4: "video/mp4",
+      webm: "video/webm",
+      mov: "video/quicktime",
+    })[props.file.extension] ?? "application/octet-stream",
+);
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds)) return "未知时长";
   const minutes = Math.floor(seconds / 60);
-  return `${minutes}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
+  return `${minutes}:${Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 function updateMetadata() {

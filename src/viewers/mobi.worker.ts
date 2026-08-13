@@ -16,10 +16,16 @@ interface WorkerParser {
 
 let parser: WorkerParser | undefined;
 
-function flattenToc(items: Array<{ label: string; href: string; children?: unknown[] }>, result: Array<{ label: string; href: string }> = []) {
+function flattenToc(
+  items: Array<{ label: string; href: string; children?: unknown[] }>,
+  result: Array<{ label: string; href: string }> = [],
+) {
   for (const item of items) {
     result.push(item);
-    flattenToc((item.children ?? []) as Array<{ label: string; href: string; children?: unknown[] }>, result);
+    flattenToc(
+      (item.children ?? []) as Array<{ label: string; href: string; children?: unknown[] }>,
+      result,
+    );
   }
   return result;
 }
@@ -66,7 +72,10 @@ function injectMobiSectionMarkers(currentParser: WorkerParser) {
     if (!Number.isFinite(basePosition)) continue;
     const insertions = groupedSections
       .map(({ selector, sectionIndex: index }) => ({
-        index: stringIndexAtUtf8Offset(spineItem.text ?? "", Math.max(0, filePosition(selector) - basePosition)),
+        index: stringIndexAtUtf8Offset(
+          spineItem.text ?? "",
+          Math.max(0, filePosition(selector) - basePosition),
+        ),
         marker: `<span data-kview-ebook-section="${index}"></span>`,
       }))
       .sort((left, right) => right.index - left.index);
@@ -111,9 +120,11 @@ workerScope.onmessage = (event) => {
         if (!request.buffer) throw new Error("缺少 MOBI 初始化数据");
         const bytes = new Uint8Array(request.buffer);
         const { initMobiFile } = await import("@lingo-reader/mobi-parser");
-        parser = await initMobiFile(bytes) as unknown as WorkerParser;
+        parser = (await initMobiFile(bytes)) as unknown as WorkerParser;
         injectMobiSectionMarkers(parser);
-        const spine = parser.getSpine().map(({ id, linear, start, end }) => ({ id, linear, start, end }));
+        const spine = parser
+          .getSpine()
+          .map(({ id, linear, start, end }) => ({ id, linear, start, end }));
         workerScope.postMessage({
           id: request.id,
           result: { spine, toc: parser.getToc(), resolvedToc: resolvedTocEntries(parser) },
@@ -126,19 +137,27 @@ workerScope.onmessage = (event) => {
         const chapter = await parser.loadChapter(request.chapterId);
         workerScope.postMessage({
           id: request.id,
-          result: chapter ? { html: chapter.html, resolvedLinks: chapterLinks(parser, chapter.html) } : undefined,
+          result: chapter
+            ? { html: chapter.html, resolvedLinks: chapterLinks(parser, chapter.html) }
+            : undefined,
         });
         return;
       }
       if (request.type === "resolve-href") {
-        workerScope.postMessage({ id: request.id, result: request.href ? parser.resolveHref(request.href) : undefined });
+        workerScope.postMessage({
+          id: request.id,
+          result: request.href ? parser.resolveHref(request.href) : undefined,
+        });
         return;
       }
       parser.destroy();
       parser = undefined;
       workerScope.postMessage({ id: request.id, result: null });
     } catch (cause) {
-      workerScope.postMessage({ id: request.id, error: cause instanceof Error ? cause.message : String(cause) });
+      workerScope.postMessage({
+        id: request.id,
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
     }
   })();
 };

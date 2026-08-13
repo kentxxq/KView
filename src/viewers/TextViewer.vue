@@ -38,16 +38,19 @@ import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.
 import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js";
 
-const props = withDefaults(defineProps<{
-  file: OpenedFile;
-  content: string;
-  readOnly: boolean;
-  embedded?: boolean;
-  wordWrap?: boolean;
-  unicodeHighlight?: boolean;
-}>(), {
-  embedded: false,
-});
+const props = withDefaults(
+  defineProps<{
+    file: OpenedFile;
+    content: string;
+    readOnly: boolean;
+    embedded?: boolean;
+    wordWrap?: boolean;
+    unicodeHighlight?: boolean;
+  }>(),
+  {
+    embedded: false,
+  },
+);
 const emit = defineEmits<{
   "update:content": [value: string];
   "update:wordWrap": [value: boolean];
@@ -64,7 +67,7 @@ let applyingExternalValue = false;
 
 onMounted(async () => {
   self.MonacoEnvironment = {
-    getWorker: (_, label) => label === "json" ? new JsonWorker() : new EditorWorker(),
+    getWorker: (_, label) => (label === "json" ? new JsonWorker() : new EditorWorker()),
   };
   const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
   monacoApi = monaco;

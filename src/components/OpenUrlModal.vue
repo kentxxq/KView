@@ -60,7 +60,12 @@ watch(
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="ghost" label="取消" @click="emit('update:open', false)" />
-        <UButton icon="i-lucide-external-link" label="打开" :disabled="!value.trim()" @click="submit" />
+        <UButton
+          icon="i-lucide-external-link"
+          label="打开"
+          :disabled="!value.trim()"
+          @click="submit"
+        />
       </div>
     </template>
   </UModal>

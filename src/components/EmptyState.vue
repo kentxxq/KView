@@ -24,8 +24,9 @@ function handlePaste(event: ClipboardEvent) {
   const imageItem = Array.from(clipboard.items).find(
     (item) => item.kind === "file" && item.type.startsWith("image/"),
   );
-  const image = imageItem?.getAsFile()
-    ?? Array.from(clipboard.files).find((file) => file.type.startsWith("image/"));
+  const image =
+    imageItem?.getAsFile() ??
+    Array.from(clipboard.files).find((file) => file.type.startsWith("image/"));
   if (image) {
     event.preventDefault();
     emit("pasteImage", image);
@@ -78,12 +79,7 @@ onBeforeUnmount(() => window.removeEventListener("paste", handlePaste));
       </template>
       <template #actions>
         <div class="flex flex-wrap justify-center gap-3">
-          <UButton
-            icon="i-lucide-folder-open"
-            label="选择文件"
-            size="lg"
-            @click="emit('select')"
-          />
+          <UButton icon="i-lucide-folder-open" label="选择文件" size="lg" @click="emit('select')" />
           <UButton
             color="neutral"
             variant="soft"

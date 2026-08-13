@@ -6,4 +6,3 @@ export function decodeBase64(value: string) {
   }
   return bytes;
 }
-

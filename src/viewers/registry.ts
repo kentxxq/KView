@@ -1,5 +1,9 @@
 import type { OpenedFile, ViewerDefinition } from "../types/document";
-import { capabilitiesForPlatform, currentDesktopPlatform, formatCapabilities } from "../domain/formats";
+import {
+  capabilitiesForPlatform,
+  currentDesktopPlatform,
+  formatCapabilities,
+} from "../domain/formats";
 
 const definitions = new Map<string, ViewerDefinition>();
 const definitionsByFileName = new Map<string, ViewerDefinition>();
@@ -44,11 +48,12 @@ export function initializeViewerRegistry() {
     if (!load) continue;
     registerViewer({
       kind: capability.viewerKind,
-      componentKey: capability.viewerKind === "live-photo"
-        ? "image"
-        : ["json", "yaml"].includes(capability.viewerKind)
-          ? "structured"
-          : undefined,
+      componentKey:
+        capability.viewerKind === "live-photo"
+          ? "image"
+          : ["json", "yaml"].includes(capability.viewerKind)
+            ? "structured"
+            : undefined,
       extensions: capability.extensions,
       fileNames: capability.fileNames,
       readOnly: !capability.editable,
@@ -65,11 +70,14 @@ export function initializeViewerRegistry() {
 
 export function resolveViewer(file: Pick<OpenedFile, "extension" | "kind">) {
   initializeViewerRegistry();
-  const openedFile = file as Pick<OpenedFile, "extension" | "kind"> & Partial<Pick<OpenedFile, "name">>;
-  return definitionsByKind.get(file.kind)
-    ?? definitions.get(file.extension.toLowerCase())
-    ?? definitionsByFileName.get(openedFile.name?.toLowerCase() ?? "")
-    ?? null;
+  const openedFile = file as Pick<OpenedFile, "extension" | "kind"> &
+    Partial<Pick<OpenedFile, "name">>;
+  return (
+    definitionsByKind.get(file.kind) ??
+    definitions.get(file.extension.toLowerCase()) ??
+    definitionsByFileName.get(openedFile.name?.toLowerCase() ?? "") ??
+    null
+  );
 }
 
 export function resolveViewerKey(file: Pick<OpenedFile, "extension" | "kind">) {

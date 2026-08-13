@@ -33,7 +33,8 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
   if (handlers.onOpenFile) unlisteners.push(await listen("menu-open-file", handlers.onOpenFile));
   if (handlers.onCloseTab) unlisteners.push(await listen("menu-close-tab", handlers.onCloseTab));
   if (handlers.onNextTab) unlisteners.push(await listen("menu-next-tab", handlers.onNextTab));
-  if (handlers.onPreviousTab) unlisteners.push(await listen("menu-previous-tab", handlers.onPreviousTab));
+  if (handlers.onPreviousTab)
+    unlisteners.push(await listen("menu-previous-tab", handlers.onPreviousTab));
   unlisteners.push(
     await getCurrentWebview().onDragDropEvent(async (event) => {
       if (event.payload.type === "over") {

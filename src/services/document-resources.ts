@@ -57,12 +57,14 @@ async function releaseHandles(state: DocumentState) {
   state.largeTextSession = null;
   await Promise.all([
     largeTextSessionId
-      ? desktopInvoke("close_large_text_session", { sessionId: largeTextSessionId })
-          .catch(() => recordDiagnostic("viewer", "large-text-close-failed"))
+      ? desktopInvoke("close_large_text_session", { sessionId: largeTextSessionId }).catch(() =>
+          recordDiagnostic("viewer", "large-text-close-failed"),
+        )
       : Promise.resolve(),
     ebookSessionId
-      ? desktopInvoke("close_epub", { sessionId: ebookSessionId })
-          .catch(() => recordDiagnostic("viewer", "epub-close-failed"))
+      ? desktopInvoke("close_epub", { sessionId: ebookSessionId }).catch(() =>
+          recordDiagnostic("viewer", "epub-close-failed"),
+        )
       : Promise.resolve(),
   ]);
 }

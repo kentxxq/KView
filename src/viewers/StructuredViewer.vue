@@ -91,6 +91,65 @@ function updateMode(value: string | number) {
         <template v-if="file.lineEnding"> · {{ file.lineEnding.toUpperCase() }}</template>
       </template>
       <template #actions>
+        <template v-if="mode === 'source'">
+          <div>
+            <UButton
+              class="viewer-footer-button"
+              color="neutral"
+              size="xs"
+              variant="ghost"
+              icon="i-lucide-align-left"
+              label="格式化"
+              :disabled="readOnly || !!parsed.error"
+              @click="formatSource"
+            />
+          </div>
+          <div class="ml-1 flex items-center gap-3 border-l border-muted/70 pl-2">
+            <USwitch v-model="wordWrap" size="xs" label="自动换行" />
+            <USwitch v-model="unicodeHighlight" size="xs" label="字符高亮" />
+          </div>
+        </template>
+        <UPopover
+          v-else
+          :content="{ side: 'top', align: 'end', sideOffset: 8 }"
+          :ui="{ content: 'compatibility-popover' }"
+        >
+          <UButton
+            class="viewer-footer-button"
+            color="neutral"
+            size="xs"
+            variant="ghost"
+            icon="i-lucide-search"
+            label="查找"
+          />
+          <template #content>
+            <div class="w-80 space-y-2">
+              <UInput
+                v-model="search"
+                icon="i-lucide-search"
+                placeholder="搜索节点或路径"
+                autofocus
+              />
+              <div class="flex items-center gap-2">
+                <code
+                  class="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs text-toned"
+                  >{{ selectedPath }}</code
+                >
+                <UTooltip text="复制路径" :delay-duration="500"
+                  ><UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    icon="i-lucide-copy"
+                    aria-label="复制路径"
+                    @click="copySelectedPath"
+                /></UTooltip>
+              </div>
+            </div>
+          </template>
+        </UPopover>
+      </template>
+      <template #viewSwitch>
         <UTabs
           :model-value="mode"
           :items="viewModes"
@@ -102,29 +161,6 @@ function updateMode(value: string | number) {
           :ui="{ root: 'w-auto gap-0', list: 'w-auto p-0.5', trigger: 'py-0.5' }"
           @update:model-value="updateMode"
         />
-        <template v-if="mode === 'source'">
-          <div class="ml-1 border-l border-muted/70 pl-2">
-            <UButton class="viewer-footer-button" color="neutral" size="xs" variant="ghost" icon="i-lucide-align-left" label="格式化" :disabled="readOnly || !!parsed.error" @click="formatSource" />
-          </div>
-          <div class="ml-1 flex items-center gap-3 border-l border-muted/70 pl-2">
-            <USwitch v-model="wordWrap" size="xs" label="自动换行" />
-            <USwitch v-model="unicodeHighlight" size="xs" label="字符高亮" />
-          </div>
-        </template>
-      </template>
-      <template v-if="mode === 'tree'" #more>
-        <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">
-          <UButton class="viewer-footer-button" color="neutral" size="xs" variant="ghost" icon="i-lucide-search" label="查找" />
-          <template #content>
-            <div class="w-80 space-y-2">
-              <UInput v-model="search" icon="i-lucide-search" placeholder="搜索节点或路径" autofocus />
-              <div class="flex items-center gap-2">
-                <code class="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs text-toned">{{ selectedPath }}</code>
-                <UTooltip text="复制路径" :delay-duration="500"><UButton color="neutral" variant="ghost" size="xs" icon="i-lucide-copy" aria-label="复制路径" @click="copySelectedPath" /></UTooltip>
-              </div>
-            </div>
-          </template>
-        </UPopover>
       </template>
     </ViewerFooter>
   </div>

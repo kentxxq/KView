@@ -2,12 +2,7 @@
 import { nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { desktopInvoke as invoke } from "../services/desktop-api";
 import DOMPurify from "dompurify";
-import type {
-  EpubChapter,
-  EpubDocument,
-  EpubResource,
-  OpenedFile,
-} from "../types/document";
+import type { EpubChapter, EpubDocument, EpubResource, OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
 import EbookTocNode from "./EbookTocNode.vue";
@@ -61,7 +56,10 @@ interface EbookWorkerResponse {
 class WorkerMobiParser implements EbookParser {
   readonly format = "mobi" as const;
   private nextRequestId = 1;
-  private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (cause: Error) => void }>();
+  private readonly pending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (cause: Error) => void }
+  >();
   private spine: EbookSpineItem[] = [];
   private toc: EbookTocItem[] = [];
   private readonly resolvedLinks = new Map<string, EbookResolvedHref>();
@@ -100,7 +98,11 @@ class WorkerMobiParser implements EbookParser {
     }
   }
 
-  private request<T>(type: string, payload: Record<string, unknown> = {}, transfer: Transferable[] = []) {
+  private request<T>(
+    type: string,
+    payload: Record<string, unknown> = {},
+    transfer: Transferable[] = [],
+  ) {
     const id = this.nextRequestId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, {
@@ -121,7 +123,8 @@ class WorkerMobiParser implements EbookParser {
 
   async loadChapter(id: string) {
     const chapter = await this.request<EbookChapter | undefined>("load-chapter", { chapterId: id });
-    for (const [href, resolved] of chapter?.resolvedLinks ?? []) this.resolvedLinks.set(href, resolved);
+    for (const [href, resolved] of chapter?.resolvedLinks ?? [])
+      this.resolvedLinks.set(href, resolved);
     return chapter;
   }
 
@@ -247,7 +250,12 @@ class RustEpubParser implements EbookParser {
   destroy() {}
 }
 
-const props = defineProps<{ file: OpenedFile; content: string; binaryContent?: Uint8Array<ArrayBuffer>; readOnly: boolean }>();
+const props = defineProps<{
+  file: OpenedFile;
+  content: string;
+  binaryContent?: Uint8Array<ArrayBuffer>;
+  readOnly: boolean;
+}>();
 const emit = defineEmits<{ openHex: [] }>();
 const contentScroller = ref<HTMLElement>();
 const chapterElement = ref<HTMLElement>();
@@ -276,7 +284,11 @@ function flattenToc(items: EbookTocItem[], result: EbookTocItem[] = []) {
   return result;
 }
 
-function createSections(currentParser: EbookParser, spineItems: EbookSpineItem[], tocItems: EbookTocItem[]) {
+function createSections(
+  currentParser: EbookParser,
+  spineItems: EbookSpineItem[],
+  tocItems: EbookTocItem[],
+) {
   const seen = new Set<string>();
   const tocSections: EbookSection[] = [];
   for (const item of flattenToc(tocItems)) {
@@ -287,8 +299,9 @@ function createSections(currentParser: EbookParser, spineItems: EbookSpineItem[]
     seen.add(key);
     tocSections.push({ ...resolved, renderSelector: resolved.selector, label: item.label });
   }
-  const useTocSections = props.file.extension === "mobi"
-    || (tocSections.length > spineItems.length && tocSections.some((section) => section.selector));
+  const useTocSections =
+    props.file.extension === "mobi" ||
+    (tocSections.length > spineItems.length && tocSections.some((section) => section.selector));
   if (!useTocSections || !tocSections.length) {
     return spineItems.map((item) => ({ id: item.id, selector: "", renderSelector: "", label: "" }));
   }
@@ -325,10 +338,32 @@ function extractSectionHtml(value: string, startSelector: string, endSelector: s
 
 function sanitizeChapter(value: string) {
   const sanitized = DOMPurify.sanitize(value, {
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "input", "button", "textarea", "select", "style", "link", "meta", "base", "svg", "math", "video", "audio", "source", "track", "canvas"],
+    FORBID_TAGS: [
+      "script",
+      "iframe",
+      "object",
+      "embed",
+      "form",
+      "input",
+      "button",
+      "textarea",
+      "select",
+      "style",
+      "link",
+      "meta",
+      "base",
+      "svg",
+      "math",
+      "video",
+      "audio",
+      "source",
+      "track",
+      "canvas",
+    ],
     FORBID_ATTR: ["style", "srcset", "formaction", "ping"],
     ALLOW_DATA_ATTR: false,
-    ALLOWED_URI_REGEXP: /^(?:(?:blob|epub|filepos|kindle):|data:image\/(?:png|jpeg|gif|webp|bmp|avif);base64,|(?![a-z][a-z\d+.-]*:|\/\/).+)/i,
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:blob|epub|filepos|kindle):|data:image\/(?:png|jpeg|gif|webp|bmp|avif);base64,|(?![a-z][a-z\d+.-]*:|\/\/).+)/i,
   });
   const template = document.createElement("template");
   template.innerHTML = sanitized;
@@ -368,19 +403,24 @@ async function hydrateChapterImages(value: string, chapterId: string, currentPar
   const template = document.createElement("template");
   template.innerHTML = value;
   const images = [...template.content.querySelectorAll("img[src]")];
-  const sources = [...new Set(images.map((image) => image.getAttribute("src") ?? "").filter(Boolean))];
-  const loaded = await Promise.all(sources.map(async (source) => {
-    if (source.startsWith("data:") || source.startsWith("blob:")) return [source, source] as const;
-    try {
-      const resource = await currentParser.loadResource?.(chapterId, source);
-      if (!resource) return [source, ""] as const;
-      const bytes = decodeBase64(resource.base64);
-      const objectUrl = URL.createObjectURL(new Blob([bytes], { type: resource.mimeType }));
-      return [source, objectUrl] as const;
-    } catch {
-      return [source, ""] as const;
-    }
-  }));
+  const sources = [
+    ...new Set(images.map((image) => image.getAttribute("src") ?? "").filter(Boolean)),
+  ];
+  const loaded = await Promise.all(
+    sources.map(async (source) => {
+      if (source.startsWith("data:") || source.startsWith("blob:"))
+        return [source, source] as const;
+      try {
+        const resource = await currentParser.loadResource?.(chapterId, source);
+        if (!resource) return [source, ""] as const;
+        const bytes = decodeBase64(resource.base64);
+        const objectUrl = URL.createObjectURL(new Blob([bytes], { type: resource.mimeType }));
+        return [source, objectUrl] as const;
+      } catch {
+        return [source, ""] as const;
+      }
+    }),
+  );
   const replacements = new Map(loaded);
   for (const image of images) {
     const source = image.getAttribute("src") ?? "";
@@ -390,7 +430,7 @@ async function hydrateChapterImages(value: string, chapterId: string, currentPar
   }
   return {
     html: template.innerHTML,
-    objectUrls: loaded.flatMap(([, url]) => url.startsWith("blob:") ? [url] : []),
+    objectUrls: loaded.flatMap(([, url]) => (url.startsWith("blob:") ? [url] : [])),
   };
 }
 
@@ -407,9 +447,8 @@ async function showChapter(index: number, selector = "") {
     if (!chapter) throw new Error("章节内容不存在");
     const targetSelector = item.renderSelector || selector || item.selector;
     const nextItem = sections.value[index + 1];
-    const endSelector = item.renderSelector && nextItem?.id === item.id
-      ? nextItem.renderSelector
-      : "";
+    const endSelector =
+      item.renderSelector && nextItem?.id === item.id ? nextItem.renderSelector : "";
     const sectionHtml = item.renderSelector
       ? extractSectionHtml(chapter.html, targetSelector, endSelector)
       : chapter.html;
@@ -444,7 +483,9 @@ async function navigateHref(href: string) {
   if (!resolved) return;
   const sectionedNavigation = sections.value.some((item) => item.renderSelector);
   const index = sectionedNavigation
-    ? sections.value.findIndex((item) => item.id === resolved.id && item.selector === resolved.selector)
+    ? sections.value.findIndex(
+        (item) => item.id === resolved.id && item.selector === resolved.selector,
+      )
     : sections.value.findIndex((item) => item.id === resolved.id);
   if (index >= 0) await showChapter(index, resolved.selector);
 }
@@ -472,7 +513,10 @@ async function initialize() {
     const nextParser = await createParser(
       props.file.extension === "epub"
         ? new Uint8Array()
-        : props.binaryContent?.slice() ?? (() => { throw new Error("MOBI 二进制内容不可用"); })(),
+        : (props.binaryContent?.slice() ??
+            (() => {
+              throw new Error("MOBI 二进制内容不可用");
+            })()),
     );
     if (generation !== loadGeneration) {
       nextParser.destroy();
@@ -486,7 +530,12 @@ async function initialize() {
     sections.value = createSections(nextParser, readableSpineItems, toc.value);
     if (!sections.value.length) throw new Error("电子书不包含可阅读章节");
     const initialIndex = sections.value.some((section) => section.label)
-      ? Math.max(0, sections.value.findIndex((section) => !/^(?:目录|contents|table of contents)$/i.test(section.label.trim())))
+      ? Math.max(
+          0,
+          sections.value.findIndex(
+            (section) => !/^(?:目录|contents|table of contents)$/i.test(section.label.trim()),
+          ),
+        )
       : 0;
     await showChapter(initialIndex);
   } catch (cause) {
@@ -496,7 +545,11 @@ async function initialize() {
   }
 }
 
-watch(() => [props.file.path, props.file.modifiedAt], () => void initialize(), { immediate: true });
+watch(
+  () => [props.file.path, props.file.modifiedAt],
+  () => void initialize(),
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   loadGeneration += 1;
@@ -510,7 +563,9 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex size-full min-h-0 flex-col bg-muted/20">
     <div class="flex min-h-0 flex-1">
-      <aside class="hidden w-64 shrink-0 overflow-auto border-r border-muted bg-default p-3 lg:block">
+      <aside
+        class="hidden w-64 shrink-0 overflow-auto border-r border-muted bg-default p-3 lg:block"
+      >
         <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted">电子书目录</p>
         <EbookTocNode
           v-for="(item, index) in toc"
@@ -518,15 +573,27 @@ onBeforeUnmount(() => {
           :item="item"
           @navigate="navigateHref"
         />
-        <p v-if="!loading && !toc.length" class="px-2 text-xs leading-5 text-muted">此电子书未提供目录，可使用底部按钮切换章节。</p>
+        <p v-if="!loading && !toc.length" class="px-2 text-xs leading-5 text-muted">
+          此电子书未提供目录，可使用底部按钮切换章节。
+        </p>
       </aside>
 
       <section class="flex min-w-0 flex-1 flex-col">
-        <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">正在解析电子书…</div>
+        <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">
+          正在解析电子书…
+        </div>
         <div v-else-if="error" class="grid flex-1 place-items-center p-8 text-center">
           <div>
             <p class="text-sm text-error">{{ error }}</p>
-            <UButton class="mt-4" color="neutral" variant="soft" size="sm" icon="i-lucide-binary" label="以十六进制查看" @click="emit('openHex')" />
+            <UButton
+              class="mt-4"
+              color="neutral"
+              variant="soft"
+              size="sm"
+              icon="i-lucide-binary"
+              label="以十六进制查看"
+              @click="emit('openHex')"
+            />
           </div>
         </div>
         <div v-else ref="contentScroller" class="min-h-0 flex-1 overflow-auto p-4 sm:p-8">
@@ -541,14 +608,60 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <ViewerFooter :file-size="file.size" notice="仅提供安全的基础排版预览；电子书脚本、外部资源和自定义样式不会加载。">
-      <template #status>{{ file.extension.toUpperCase() }} · {{ chapterIndex + 1 }}/{{ sections.length || "-" }} 章 · 只读</template>
+    <ViewerFooter
+      :file-size="file.size"
+      notice="仅提供安全的基础排版预览；电子书脚本、外部资源和自定义样式不会加载。"
+    >
+      <template #status
+        >{{ file.extension.toUpperCase() }} · {{ chapterIndex + 1 }}/{{ sections.length || "-" }} 章
+        · 只读</template
+      >
       <template #actions>
-        <UTooltip text="上一章" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-chevron-left" color="neutral" variant="ghost" size="xs" aria-label="上一章" :disabled="chapterIndex <= 0 || loading" @click="showChapter(chapterIndex - 1)" /></UTooltip>
-        <UTooltip text="下一章" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-chevron-right" color="neutral" variant="ghost" size="xs" aria-label="下一章" :disabled="chapterIndex >= sections.length - 1 || loading" @click="showChapter(chapterIndex + 1)" /></UTooltip>
-        <UTooltip text="缩小字号" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-minus" color="neutral" variant="ghost" size="xs" aria-label="缩小字号" :disabled="fontSize <= 80" @click="fontSize = Math.max(80, fontSize - 10)" /></UTooltip>
+        <UTooltip text="上一章" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            icon="i-lucide-chevron-left"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            aria-label="上一章"
+            :disabled="chapterIndex <= 0 || loading"
+            @click="showChapter(chapterIndex - 1)"
+        /></UTooltip>
+        <UTooltip text="下一章" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            icon="i-lucide-chevron-right"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            aria-label="下一章"
+            :disabled="chapterIndex >= sections.length - 1 || loading"
+            @click="showChapter(chapterIndex + 1)"
+        /></UTooltip>
+        <UTooltip text="缩小字号" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            icon="i-lucide-minus"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            aria-label="缩小字号"
+            :disabled="fontSize <= 80"
+            @click="fontSize = Math.max(80, fontSize - 10)"
+        /></UTooltip>
         <span class="w-12 text-center text-xs text-muted">{{ fontSize }}%</span>
-        <UTooltip text="放大字号" :delay-duration="500"><UButton class="viewer-footer-button" icon="i-lucide-plus" color="neutral" variant="ghost" size="xs" aria-label="放大字号" :disabled="fontSize >= 180" @click="fontSize = Math.min(180, fontSize + 10)" /></UTooltip>
+        <UTooltip text="放大字号" :delay-duration="500"
+          ><UButton
+            class="viewer-footer-button"
+            icon="i-lucide-plus"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            aria-label="放大字号"
+            :disabled="fontSize >= 180"
+            @click="fontSize = Math.min(180, fontSize + 10)"
+        /></UTooltip>
       </template>
     </ViewerFooter>
   </div>
