@@ -11,6 +11,21 @@ struct FormatCapability {
     #[serde(default)]
     file_suffixes: Vec<String>,
     platforms: Vec<String>,
+    #[serde(default)]
+    associable: bool,
+    #[serde(default)]
+    association_extensions: Vec<String>,
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn association_extensions() -> Vec<String> {
+    let mut extensions = catalog().iter()
+        .filter(|item| item.associable && item.platforms.iter().any(|platform| platform == "windows"))
+        .flat_map(|item| item.extensions.iter().chain(&item.association_extensions))
+        .cloned().collect::<Vec<_>>();
+    extensions.sort();
+    extensions.dedup();
+    extensions
 }
 
 fn catalog() -> &'static Vec<FormatCapability> {

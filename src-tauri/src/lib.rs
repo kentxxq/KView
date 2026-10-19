@@ -8,6 +8,7 @@ mod settings;
 mod archive;
 #[cfg(target_os = "windows")]
 mod windows_space_open;
+mod file_associations;
 
 use std::{
     cmp::Ordering as CompareOrdering,
@@ -1273,7 +1274,11 @@ fn open_file_association_settings() -> CommandResult<()> {
         };
 
         let operation = "open\0".encode_utf16().collect::<Vec<_>>();
-        let uri = "ms-settings:defaultapps?registeredAppUser=KView\0"
+        let uri = if file_associations::is_registered()? {
+            "ms-settings:defaultapps?registeredAppUser=KView\0"
+        } else {
+            "ms-settings:defaultapps\0"
+        }
             .encode_utf16()
             .collect::<Vec<_>>();
         let result = unsafe {
@@ -1796,6 +1801,8 @@ pub fn run() {
             reveal_file,
             open_file_with,
             open_file_association_settings,
+            file_associations::register_file_associations,
+            file_associations::unregister_file_associations,
             existing_paths,
             save_text,
             settings::get_settings,

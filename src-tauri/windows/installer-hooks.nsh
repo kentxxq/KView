@@ -1,143 +1,142 @@
-!macro KVIEW_PRESERVE_ASSOCIATION EXT
-  ReadRegStr $R0 SHELL_CONTEXT "Software\Classes\.${EXT}" ""
+; 只清理 KView 自己的值，保留其他应用的关联以及 Windows UserChoice。
+!macro KVIEW_CLEAN_ASSOCIATION EXT
+  ReadRegStr $R0 HKCU "Software\Classes\.${EXT}" ""
   ${If} $R0 == "KView 支持的文件"
-    ReadRegStr $R1 SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_backup"
-    WriteRegStr SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_backup" "$R1"
-    WriteRegStr SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_marker" "1"
+    ReadRegStr $R1 HKCU "Software\Classes\.${EXT}" "KView 支持的文件_backup"
+    ${If} $R1 == ""
+      ReadRegStr $R1 HKCU "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_backup"
+    ${EndIf}
+    ${If} $R1 != ""
+    ${AndIf} $R1 != "KView 支持的文件"
+      WriteRegStr HKCU "Software\Classes\.${EXT}" "" "$R1"
+    ${Else}
+      DeleteRegValue HKCU "Software\Classes\.${EXT}" ""
+    ${EndIf}
   ${EndIf}
-!macroend
-
-!macro KVIEW_RESTORE_ASSOCIATION_BACKUP EXT
-  ReadRegStr $R0 SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_marker"
-  ${If} $R0 == "1"
-    ReadRegStr $R1 SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_backup"
-    WriteRegStr SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_backup" "$R1"
-    DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_backup"
-    DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_marker"
-  ${EndIf}
-!macroend
-
-!macro KVIEW_CLEAN_ASSOCIATION_BACKUP EXT
-  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_backup"
-  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_backup"
-  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_marker"
-!macroend
-
-!macro KVIEW_REGISTER_CAPABILITY EXT
-  WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities\FileAssociations" ".${EXT}" "KView 支持的文件"
-  WriteRegStr SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "KView 支持的文件" ""
-!macroend
-
-!macro KVIEW_UNREGISTER_CAPABILITY EXT
-  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "KView 支持的文件"
+  DeleteRegValue HKCU "Software\Classes\.${EXT}\OpenWithProgids" "KView 支持的文件"
+  DeleteRegValue HKCU "Software\Classes\.${EXT}" "KView 支持的文件_backup"
+  DeleteRegValue HKCU "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_backup"
+  DeleteRegValue HKCU "Software\Classes\.${EXT}" "KView 支持的文件_upgrade_marker"
 !macroend
 
 !macro KVIEW_FOR_EACH_ASSOCIATION ACTION
-  !insertmacro ${ACTION} "jpg"
-  !insertmacro ${ACTION} "jpeg"
-  !insertmacro ${ACTION} "png"
-  !insertmacro ${ACTION} "webp"
-  !insertmacro ${ACTION} "gif"
-  !insertmacro ${ACTION} "svg"
-  !insertmacro ${ACTION} "txt"
-  !insertmacro ${ACTION} "log"
-  !insertmacro ${ACTION} "json"
-  !insertmacro ${ACTION} "yaml"
-  !insertmacro ${ACTION} "yml"
-  !insertmacro ${ACTION} "xml"
-  !insertmacro ${ACTION} "toml"
-  !insertmacro ${ACTION} "ini"
-  !insertmacro ${ACTION} "env"
+  !insertmacro ${ACTION} "aac"
+  !insertmacro ${ACTION} "bash"
+  !insertmacro ${ACTION} "bat"
+  !insertmacro ${ACTION} "c"
+  !insertmacro ${ACTION} "cc"
+  !insertmacro ${ACTION} "cjs"
+  !insertmacro ${ACTION} "cmd"
   !insertmacro ${ACTION} "conf"
   !insertmacro ${ACTION} "config"
-  !insertmacro ${ACTION} "properties"
-  !insertmacro ${ACTION} "sql"
-  !insertmacro ${ACTION} "csv"
-  !insertmacro ${ACTION} "tsv"
-  !insertmacro ${ACTION} "md"
-  !insertmacro ${ACTION} "markdown"
-  !insertmacro ${ACTION} "js"
-  !insertmacro ${ACTION} "jsx"
-  !insertmacro ${ACTION} "mjs"
-  !insertmacro ${ACTION} "cjs"
-  !insertmacro ${ACTION} "ts"
-  !insertmacro ${ACTION} "tsx"
-  !insertmacro ${ACTION} "mts"
-  !insertmacro ${ACTION} "cts"
-  !insertmacro ${ACTION} "vue"
-  !insertmacro ${ACTION} "html"
-  !insertmacro ${ACTION} "htm"
-  !insertmacro ${ACTION} "css"
-  !insertmacro ${ACTION} "scss"
-  !insertmacro ${ACTION} "sass"
-  !insertmacro ${ACTION} "less"
-  !insertmacro ${ACTION} "py"
-  !insertmacro ${ACTION} "java"
-  !insertmacro ${ACTION} "kt"
-  !insertmacro ${ACTION} "kts"
-  !insertmacro ${ACTION} "c"
-  !insertmacro ${ACTION} "h"
-  !insertmacro ${ACTION} "cc"
   !insertmacro ${ACTION} "cpp"
-  !insertmacro ${ACTION} "cxx"
-  !insertmacro ${ACTION} "hpp"
   !insertmacro ${ACTION} "cs"
-  !insertmacro ${ACTION} "go"
-  !insertmacro ${ACTION} "rs"
-  !insertmacro ${ACTION} "php"
-  !insertmacro ${ACTION} "rb"
-  !insertmacro ${ACTION} "swift"
+  !insertmacro ${ACTION} "css"
+  !insertmacro ${ACTION} "csv"
+  !insertmacro ${ACTION} "cts"
+  !insertmacro ${ACTION} "cxx"
   !insertmacro ${ACTION} "dart"
-  !insertmacro ${ACTION} "lua"
-  !insertmacro ${ACTION} "sh"
-  !insertmacro ${ACTION} "bash"
-  !insertmacro ${ACTION} "zsh"
-  !insertmacro ${ACTION} "fish"
-  !insertmacro ${ACTION} "ps1"
-  !insertmacro ${ACTION} "bat"
-  !insertmacro ${ACTION} "cmd"
-  !insertmacro ${ACTION} "graphql"
-  !insertmacro ${ACTION} "gql"
-  !insertmacro ${ACTION} "proto"
-  !insertmacro ${ACTION} "gitignore"
-  !insertmacro ${ACTION} "gitattributes"
-  !insertmacro ${ACTION} "editorconfig"
-  !insertmacro ${ACTION} "pdf"
   !insertmacro ${ACTION} "doc"
   !insertmacro ${ACTION} "docx"
-  !insertmacro ${ACTION} "xls"
-  !insertmacro ${ACTION} "xlsx"
+  !insertmacro ${ACTION} "editorconfig"
+  !insertmacro ${ACTION} "env"
   !insertmacro ${ACTION} "epub"
+  !insertmacro ${ACTION} "fish"
+  !insertmacro ${ACTION} "flac"
+  !insertmacro ${ACTION} "gif"
+  !insertmacro ${ACTION} "gitattributes"
+  !insertmacro ${ACTION} "gitignore"
+  !insertmacro ${ACTION} "go"
+  !insertmacro ${ACTION} "gql"
+  !insertmacro ${ACTION} "graphql"
+  !insertmacro ${ACTION} "gz"
+  !insertmacro ${ACTION} "h"
+  !insertmacro ${ACTION} "heic"
+  !insertmacro ${ACTION} "heif"
+  !insertmacro ${ACTION} "hpp"
+  !insertmacro ${ACTION} "htm"
+  !insertmacro ${ACTION} "html"
+  !insertmacro ${ACTION} "ini"
+  !insertmacro ${ACTION} "java"
+  !insertmacro ${ACTION} "jpeg"
+  !insertmacro ${ACTION} "jpg"
+  !insertmacro ${ACTION} "js"
+  !insertmacro ${ACTION} "json"
+  !insertmacro ${ACTION} "jsx"
+  !insertmacro ${ACTION} "kt"
+  !insertmacro ${ACTION} "kts"
+  !insertmacro ${ACTION} "less"
+  !insertmacro ${ACTION} "livp"
+  !insertmacro ${ACTION} "log"
+  !insertmacro ${ACTION} "lua"
+  !insertmacro ${ACTION} "m4a"
+  !insertmacro ${ACTION} "markdown"
+  !insertmacro ${ACTION} "md"
+  !insertmacro ${ACTION} "mjs"
   !insertmacro ${ACTION} "mobi"
-  !insertmacro ${ACTION} "zip"
+  !insertmacro ${ACTION} "mov"
+  !insertmacro ${ACTION} "mp3"
+  !insertmacro ${ACTION} "mp4"
+  !insertmacro ${ACTION} "mts"
+  !insertmacro ${ACTION} "ogg"
+  !insertmacro ${ACTION} "opus"
+  !insertmacro ${ACTION} "pdf"
+  !insertmacro ${ACTION} "php"
+  !insertmacro ${ACTION} "png"
+  !insertmacro ${ACTION} "properties"
+  !insertmacro ${ACTION} "proto"
+  !insertmacro ${ACTION} "ps1"
+  !insertmacro ${ACTION} "py"
+  !insertmacro ${ACTION} "rb"
+  !insertmacro ${ACTION} "rs"
+  !insertmacro ${ACTION} "sass"
+  !insertmacro ${ACTION} "scss"
+  !insertmacro ${ACTION} "sh"
+  !insertmacro ${ACTION} "sql"
+  !insertmacro ${ACTION} "svg"
+  !insertmacro ${ACTION} "swift"
   !insertmacro ${ACTION} "tar"
   !insertmacro ${ACTION} "tgz"
-  !insertmacro ${ACTION} "gz"
-  !insertmacro ${ACTION} "mp4"
+  !insertmacro ${ACTION} "toml"
+  !insertmacro ${ACTION} "ts"
+  !insertmacro ${ACTION} "tsv"
+  !insertmacro ${ACTION} "tsx"
+  !insertmacro ${ACTION} "txt"
+  !insertmacro ${ACTION} "vue"
+  !insertmacro ${ACTION} "wav"
   !insertmacro ${ACTION} "webm"
-!macroend
-
-!macro NSIS_HOOK_PREINSTALL
-  !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_PRESERVE_ASSOCIATION
+  !insertmacro ${ACTION} "webp"
+  !insertmacro ${ACTION} "xls"
+  !insertmacro ${ACTION} "xlsx"
+  !insertmacro ${ACTION} "xml"
+  !insertmacro ${ACTION} "yaml"
+  !insertmacro ${ACTION} "yml"
+  !insertmacro ${ACTION} "zip"
+  !insertmacro ${ACTION} "zsh"
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_RESTORE_ASSOCIATION_BACKUP
-  ; KView 只查看文件，不执行其内容；允许安全打开带有网络来源标记的文件。
-  WriteRegDWORD SHELL_CONTEXT "Software\Classes\KView 支持的文件" "EditFlags" 0x00010000
-  WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities" "ApplicationName" "KView"
-  WriteRegStr SHELL_CONTEXT "Software\KView\Capabilities" "ApplicationDescription" "使用 KView 快速查看文件"
-  !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_REGISTER_CAPABILITY
-  WriteRegStr SHELL_CONTEXT "Software\RegisteredApplications" "KView" "Software\KView\Capabilities"
-  ; 确保资源管理器立即重新读取 ProgID、EditFlags 和打开方式列表。
-  !insertmacro UPDATEFILEASSOC
+  ; 覆盖安装只更新已有文件类的路径，不新增注册或支持格式。
+  ReadRegStr $R0 HKCU "Software\Classes\KView 支持的文件\shell\open\command" ""
+  ${If} $R0 != ""
+    WriteRegStr HKCU "Software\Classes\KView 支持的文件\shell\open\command" "" '$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\"'
+    WriteRegStr HKCU "Software\Classes\KView 支持的文件\DefaultIcon" "" '$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0'
+    ReadRegStr $R0 HKCU "Software\KView\Capabilities" "ApplicationName"
+    ${If} $R0 == "KView"
+      WriteRegStr HKCU "Software\KView\Capabilities" "ApplicationIcon" '$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0'
+    ${EndIf}
+    !insertmacro UPDATEFILEASSOC
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_UNREGISTER_CAPABILITY
-  !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_CLEAN_ASSOCIATION_BACKUP
-  DeleteRegValue SHELL_CONTEXT "Software\RegisteredApplications" "KView"
-  DeleteRegKey SHELL_CONTEXT "Software\KView"
-  DeleteRegValue SHELL_CONTEXT "Software\Microsoft\Windows\CurrentVersion\Run" "KView"
-  !insertmacro UPDATEFILEASSOC
+  ${If} $UpdateMode <> 1
+    !insertmacro KVIEW_FOR_EACH_ASSOCIATION KVIEW_CLEAN_ASSOCIATION
+    DeleteRegValue HKCU "Software\RegisteredApplications" "KView"
+    DeleteRegKey HKCU "Software\KView\Capabilities"
+    DeleteRegKey /ifempty HKCU "Software\KView"
+    DeleteRegKey HKCU "Software\Classes\KView 支持的文件"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "KView"
+    !insertmacro UPDATEFILEASSOC
+  ${EndIf}
 !macroend

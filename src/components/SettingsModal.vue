@@ -15,6 +15,8 @@ const toast = useToast();
 const appSettings = useSettingsStore();
 const saving = ref(false);
 const openingFileAssociations = ref(false);
+const associationAction = ref<"register" | "unregister" | null>(null);
+const associationBusy = computed(() => openingFileAssociations.value || associationAction.value !== null);
 const openingLogDirectory = ref(false);
 type SettingsSection = "general" | "text" | "associations" | "diagnostics" | "about";
 
@@ -128,6 +130,7 @@ async function submit() {
 }
 
 async function openFileAssociationSettings() {
+  if (associationBusy.value) return;
   if (!isTauri()) {
     toast.add({ title: "文件关联设置仅在 Windows 桌面版中可用", color: "warning" });
     return;
@@ -143,6 +146,33 @@ async function openFileAssociationSettings() {
     });
   } finally {
     openingFileAssociations.value = false;
+  }
+}
+
+async function changeFileAssociations(action: "register" | "unregister") {
+  if (associationBusy.value) return;
+  if (!isTauri()) {
+    toast.add({ title: "文件关联注册仅在 Windows 桌面版中可用", color: "warning" });
+    return;
+  }
+  associationAction.value = action;
+  try {
+    await invoke(action === "register" ? "register_file_associations" : "unregister_file_associations");
+    toast.add({
+      title: action === "register" ? "文件关联已注册" : "文件关联注册已取消",
+      description: action === "register"
+        ? "可前往 Windows 默认应用设置，选择由 KView 打开的格式。"
+        : "若此前已将 KView 设为默认应用，请前往 Windows 设置选择其他应用。",
+      color: "success",
+    });
+  } catch (error) {
+    toast.add({
+      title: action === "register" ? "文件关联注册失败，可重试" : "取消注册未完成，可重试",
+      description: error instanceof Error ? error.message : String(error),
+      color: "error",
+    });
+  } finally {
+    associationAction.value = null;
   }
 }
 
@@ -264,18 +294,21 @@ async function openLogDirectory() {
             <section v-else-if="activeSection === 'associations'" class="space-y-6">
               <div>
                 <h2 class="text-base font-semibold text-highlighted">文件关联</h2>
-                <p class="mt-1 text-sm text-muted">选择默认使用 KView 打开的文件格式。</p>
+                <p class="mt-1 text-sm text-muted">按需将 KView 添加到系统的文件打开方式中。</p>
               </div>
               <div
-                class="flex items-start justify-between gap-6 rounded-xl border border-muted p-4"
+                class="space-y-4 rounded-xl border border-muted p-4"
               >
                 <div class="min-w-0">
                   <p class="text-sm text-muted">
-                    前往 Windows 默认应用设置，按需选择由 KView 打开的文件格式。
+                    安装时不会自动注册。点击“注册文件关联”后，KView 会出现在支持格式的打开方式中，默认应用仍由你在 Windows 设置中选择。
+                  </p>
+                  <p class="mt-2 text-sm text-muted">
+                    “取消注册”会清理 KView 的注册记录；若此前已设为默认应用，请前往系统设置选择其他应用。这些操作立即生效。
                   </p>
                   <details class="mt-3 text-xs text-muted">
                     <summary class="cursor-pointer select-none text-primary">
-                      查看已注册格式
+                      查看支持注册的格式
                     </summary>
                     <div class="mt-2 space-y-1.5 leading-5">
                       <p v-for="group in associationGroups" :key="group.label">
@@ -285,15 +318,34 @@ async function openLogDirectory() {
                     </div>
                   </details>
                 </div>
-                <UButton
-                  class="shrink-0"
-                  color="neutral"
-                  variant="soft"
-                  icon="i-lucide-external-link"
-                  label="前往设置"
-                  :loading="openingFileAssociations"
-                  @click="openFileAssociationSettings"
-                />
+                <div class="flex flex-wrap gap-2">
+                  <UButton
+                    label="注册文件关联"
+                    icon="i-lucide-file-plus"
+                    :loading="associationAction === 'register'"
+                    :disabled="associationBusy"
+                    @click="changeFileAssociations('register')"
+                  />
+                  <UButton
+                    label="取消注册"
+                    color="neutral"
+                    variant="soft"
+                    icon="i-lucide-file-minus"
+                    :loading="associationAction === 'unregister'"
+                    :disabled="associationBusy"
+                    @click="changeFileAssociations('unregister')"
+                  />
+                  <UButton
+                    class="shrink-0"
+                    color="neutral"
+                    variant="soft"
+                    icon="i-lucide-external-link"
+                    label="前往系统设置"
+                    :loading="openingFileAssociations"
+                    :disabled="associationBusy"
+                    @click="openFileAssociationSettings"
+                  />
+                </div>
               </div>
             </section>
 
