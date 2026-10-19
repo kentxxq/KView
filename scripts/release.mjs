@@ -18,7 +18,7 @@ const platformFiles = {
 function run(command, args) {
   // 不转发可能含认证信息的子进程错误输出。
   try { return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch { throw new Error(`${command} ${args[0]} 执行失败`); }
+  catch (error) { throw new Error(`${command} ${args.slice(0, 2).join(" ")} 执行失败（退出码 ${error.status ?? "未知"}）`); }
 }
 
 function validateVersion() {
@@ -88,7 +88,9 @@ function stage() {
 }
 
 function verifyAssets(releaseTag, assets) {
-  const release = JSON.parse(run("gh", ["api", `repos/${repository}/releases/tags/${releaseTag}`]));
+  // 按标签查询的接口只返回已发布版本，草稿必须从具有写权限的列表中读取。
+  const release = listReleases().find((entry) => entry.tag_name === releaseTag);
+  if (!release) throw new Error(`未找到 ${releaseTag} 的版本或草稿`);
   if (release.assets.length !== assets.length) throw new Error(`${releaseTag} 发布附件数量不一致`);
   for (const path of assets) {
     const bytes = readFileSync(path);
@@ -177,7 +179,7 @@ function publish() {
     run("gh", ["release", "upload", tag, ...completeAssets, "--clobber"]);
   }
   verifyAssets(tag, completeAssets);
-  run("gh", ["release", "edit", tag, "--draft=false", "--prerelease=false", "--latest=false"]);
+  run("gh", ["release", "edit", tag, "--target", sha, "--draft=false", "--prerelease=false", "--latest=false"]);
   syncLatest(completeAssets, notes);
   console.log(`${tag} 和 latest 已发布，附件完全一致，latest 位于首位。`);
 }
