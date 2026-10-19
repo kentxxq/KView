@@ -173,11 +173,11 @@ function publish() {
   }
   const existing = listReleases().find((release) => release.tag_name === tag);
   if (!existing) {
-    const readme = readFileSync("README.md", "utf8");
-    const heading = `### ${tag} (`;
-    const start = readme.indexOf(heading);
+    const changelog = readFileSync("CHANGLOG.md", "utf8");
+    const heading = `## ${tag} (`;
+    const start = changelog.indexOf(heading);
     const notesFile = join(releaseDirectory, "release-notes.md");
-    const section = start < 0 ? "" : readme.slice(start).split(/\r?\n(?=#{1,3} )/)[0].trim();
+    const section = start < 0 ? "" : changelog.slice(start).split(/\r?\n(?=#{1,3} )/)[0].trim();
     const noteArgs = section ? ["--notes-file", notesFile] : ["--generate-notes"];
     if (section) writeFileSync(notesFile, section);
     run("gh", ["release", "create", tag, "--verify-tag", "--target", sha, "--draft", "--title", tag, ...noteArgs]);
