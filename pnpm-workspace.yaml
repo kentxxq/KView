@@ -1,3 +1,9 @@
 allowBuilds:
   esbuild: true
   vue-demi: true
+overrides:
+  # 修复间接依赖中的已知漏洞，Tiptap 核心与模型包保持同版本。
+  'monaco-editor>dompurify': '^3.4.17'
+  '@tiptap/core@<3.30.5': '3.32.0'
+  '@tiptap/pm@<3.32.0': '3.32.0'
+  'prosemirror-view@<1.42.3': '^1.42.3'
