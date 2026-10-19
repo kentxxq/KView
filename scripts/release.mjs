@@ -102,32 +102,49 @@ function verifyAssets(releaseTag, assets) {
   return release;
 }
 
-function syncLatest(assets, notes) {
-  const existing = listReleases().find((release) => release.tag_name === "latest");
-  // 同步失败时更新接口仍指向已经完整发布的版本，客户端继续使用不可变的版本附件。
-  run("gh", ["release", "edit", tag, "--latest"]);
+function markLatest(versionTag, versionSha) {
+  const releases = listReleases();
+  const versions = releases.filter((release) => !release.draft && !release.prerelease && stable.test(release.tag_name));
+  const version = versions.find((release) => release.tag_name === versionTag);
+  if (!version) throw new Error("未找到已公开的正式版本");
+  const duplicate = releases.find((release) => release.tag_name === "latest");
+  if (duplicate) {
+    // 仅清理已经有完整版本存档的重复 Release，不删除 latest 标签。
+    const archived = versions.some((entry) => entry.assets.length === duplicate.assets.length
+      && duplicate.assets.every((asset) => entry.assets.some((saved) => saved.name === asset.name
+        && saved.size === asset.size && saved.digest && saved.digest === asset.digest)));
+    if (!archived) throw new Error("latest 附件尚未完整存档，停止清理重复 Release");
+  }
+  for (const entry of versions) {
+    if (entry.tag_name !== versionTag && entry.name !== entry.tag_name) {
+      run("gh", ["release", "edit", entry.tag_name, "--title", entry.tag_name, "--latest=false"]);
+    }
+  }
+  run("gh", ["release", "edit", versionTag, "--title", `latest (${versionTag})`, "--latest"]);
   const ref = `repos/${repository}/git/refs/tags/latest`;
   const refs = JSON.parse(run("gh", ["api", `repos/${repository}/git/matching-refs/tags/latest`]));
-  if (refs.some((entry) => entry.ref === "refs/tags/latest")) {
-    run("gh", ["api", "--method", "PATCH", ref, "-f", `sha=${sha}`, "-F", "force=true", "--silent"]);
+  const currentRef = refs.find((entry) => entry.ref === "refs/tags/latest");
+  if (currentRef) {
+    if (currentRef.object.sha !== versionSha) {
+      run("gh", ["api", "--method", "PATCH", ref, "-f", `sha=${versionSha}`, "-F", "force=true", "--silent"]);
+    }
   } else {
-    run("gh", ["api", "--method", "POST", `repos/${repository}/git/refs`, "-f", "ref=refs/tags/latest", "-f", `sha=${sha}`, "--silent"]);
+    run("gh", ["api", "--method", "POST", `repos/${repository}/git/refs`, "-f", "ref=refs/tags/latest", "-f", `sha=${versionSha}`, "--silent"]);
   }
-  const notesFile = join(releaseDirectory, "release-notes.md");
-  writeFileSync(notesFile, notes);
-  if (!existing) {
-    run("gh", ["release", "create", "latest", "--verify-tag", "--target", sha, "--draft", "--title", "latest", "--notes-file", notesFile]);
-  } else {
-    run("gh", ["release", "edit", "latest", "--target", sha, "--title", "latest", "--notes-file", notesFile]);
-  }
-  run("gh", ["release", "upload", "latest", ...assets, "--clobber"]);
-  verifyAssets("latest", assets);
-  run("gh", ["release", "edit", "latest", "--draft=false", "--prerelease=false", "--latest"]);
+  if (duplicate) run("gh", ["release", "delete", "latest", "--yes"]);
   const latest = JSON.parse(run("gh", ["api", `repos/${repository}/releases/latest`]));
-  // GitHub 默认列表有自己的排序规则，不能把列表顺序当作 Latest 标记的判据。
-  if (latest.tag_name !== "latest" || latest.body !== notes) {
-    throw new Error("latest 的标记或说明不一致，请重试发布任务");
+  if (latest.tag_name !== versionTag || latest.name !== `latest (${versionTag})`) {
+    throw new Error("最新版本的标记或名称不一致，请重试发布任务");
   }
+}
+
+function normalize() {
+  const versions = listReleases().filter((release) => !release.draft && !release.prerelease && stable.test(release.tag_name));
+  const newest = versions.sort((left, right) => compare(right.tag_name, left.tag_name))[0];
+  if (!newest) throw new Error("没有已发布的正式版本");
+  const versionSha = run("git", ["rev-parse", `${newest.tag_name}^{commit}`]);
+  markLatest(newest.tag_name, versionSha);
+  console.log(`发布名称已整理：latest (${newest.tag_name})，版本资产及历史标签保留。`);
 }
 
 function publish() {
@@ -176,12 +193,12 @@ function publish() {
   }
   verifyAssets(tag, completeAssets);
   run("gh", ["release", "edit", tag, "--target", sha, "--draft=false", "--prerelease=false", "--latest=false"]);
-  syncLatest(completeAssets, notes);
-  console.log(`${tag} 和 latest 已发布，附件完全一致，latest 已标记为最新版本。`);
+  markLatest(tag, sha);
+  console.log(`${tag} 已发布并显示为 latest (${tag})，latest 标签指向同一提交。`);
 }
 
 try {
-  const action = { validate, stage, publish }[process.argv[2]];
+  const action = { validate, stage, publish, normalize }[process.argv[2]];
   if (!action) throw new Error("未知发布操作");
   action();
 } catch (error) {
