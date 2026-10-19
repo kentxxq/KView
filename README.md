@@ -209,6 +209,8 @@ vpr tauri signer generate -w REPLACE_ME
 
 ### 发布正式版本
 
+Actions 仅在推送 `v*` 标签或手动运行时触发，普通分支推送不触发工作流。
+
 1. 同步修改 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 的版本，并更新 Cargo 锁文件中的根包版本及 `CHANGLOG.md` 中的对应版本说明。
 2. 将经过验证的提交合入 `main`，由维护者创建并推送对应 `vX.Y.Z` 标签。首次正式发布为 `v1.0.0`；新标签必须高于其他正式版，已公开版本的附件不能覆盖。
 3. Actions 校验版本和提交来源，然后构建三个平台。Windows 生成安装包和签名；macOS 同时生成 DMG、应用更新压缩包及签名。

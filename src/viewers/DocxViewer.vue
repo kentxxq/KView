@@ -65,7 +65,7 @@ async function loadDocument() {
     // 传入独立的 slice 副本，避免 ArrayBuffer 偏移或只读视图引发的解析异常
     const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 
-    await renderAsync(buffer, containerRef.value, null, {
+    await renderAsync(buffer, containerRef.value, undefined, {
       className: "docx",
       inWrapper: true,
       ignoreWidth: false,
