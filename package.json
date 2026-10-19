@@ -1,6 +1,6 @@
 {
   "name": "kview",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,8 +22,9 @@
     "@tauri-apps/plugin-autostart": "~2.7.0",
     "@tauri-apps/plugin-dialog": "~2.8.3",
     "artplayer": "^5.4.0",
+    "docx-preview": "^0.4.1",
     "dompurify": "^3.4.17",
-    "mammoth": "^1.13.0",
+    "jszip": "^3.10.2",
     "markdown-it": "^14.3.3",
     "monaco-editor": "^0.57.0",
     "pdfjs-dist": "^6.4.299",
