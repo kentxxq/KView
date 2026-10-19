@@ -205,18 +205,21 @@ function scheduleVisibleLoad(startLine: number, endLine: number) {
 }
 
 function hasMissingLine(startLine: number, endLine: number) {
-  return Array.from(
-    { length: Math.max(0, endLine - startLine + 1) },
-    (_, index) => startLine + index,
-  ).some((lineNumber) => !lineCache.has(lineNumber));
+  for (let lineNumber = startLine; lineNumber <= endLine; lineNumber++) {
+    if (!lineCache.has(lineNumber)) return true;
+  }
+  return false;
 }
 
 async function ensureVisibleLines(startLine: number, endLine: number, generation: number) {
   if (error.value || generation !== loadGeneration) return;
-  const missing = Array.from(
-    { length: Math.max(0, endLine - startLine + 1) },
-    (_, index) => startLine + index,
-  ).find((lineNumber) => !lineCache.has(lineNumber));
+  let missing: number | undefined;
+  for (let lineNumber = startLine; lineNumber <= endLine; lineNumber++) {
+    if (!lineCache.has(lineNumber)) {
+      missing = lineNumber;
+      break;
+    }
+  }
   if (missing === undefined) {
     loading.value = false;
     return;

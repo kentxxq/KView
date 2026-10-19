@@ -113,11 +113,11 @@ watch(() => [props.file.path, props.file.modifiedAt], loadWorkbook);
           }"
         >
           <div
-            v-for="item in visibleRows"
+            v-for="(item, index) in visibleRows"
             :key="item.index"
             class="absolute left-0 grid w-full border-b border-muted text-sm"
             :style="{
-              top: `${filteredRows.indexOf(item) * rowHeight}px`,
+              top: `${(start + index) * rowHeight}px`,
               height: `${rowHeight}px`,
               gridTemplateColumns: `48px repeat(${columnCount}, minmax(140px, 1fr))`,
             }"

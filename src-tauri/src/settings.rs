@@ -22,9 +22,9 @@ pub(crate) struct AppSettings {
     pub(crate) large_file_threshold_mb: u64,
 }
 
-fn current_schema_version() -> u32 { 2 }
+fn current_schema_version() -> u32 { 3 }
 fn default_close_behavior() -> String { "keep-tabs".into() }
-fn default_large_file_threshold_mb() -> u64 { 100 }
+fn default_large_file_threshold_mb() -> u64 { 2 }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -63,7 +63,10 @@ pub(crate) fn read(app: &AppHandle) -> Result<AppSettings, String> {
         settings.close_behavior = "close-tabs".into();
         needs_migration = true;
     }
-    if settings.schema_version != current_schema_version() {
+    if settings.schema_version < 3 {
+        if settings.large_file_threshold_mb == 100 {
+            settings.large_file_threshold_mb = default_large_file_threshold_mb();
+        }
         settings.schema_version = current_schema_version();
         needs_migration = true;
     }

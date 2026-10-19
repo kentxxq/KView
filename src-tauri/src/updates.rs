@@ -49,7 +49,10 @@ impl UpdateState {
 
     fn change(&self, app: &AppHandle, change: impl FnOnce(&mut UpdateData)) -> UpdateStatus {
         let status = {
-            let mut data = self.data.lock().unwrap();
+            let mut data = match self.data.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
             change(&mut data);
             data.status.revision += 1;
             data.status.clone()
@@ -91,7 +94,10 @@ fn classify(error: &tauri_plugin_updater::Error, fallback: &'static str) -> &'st
 
 #[tauri::command]
 pub(crate) fn get_update_status(state: State<'_, UpdateState>) -> UpdateStatus {
-    state.data.lock().unwrap().status.clone()
+    match state.data.lock() {
+        Ok(guard) => guard.status.clone(),
+        Err(poisoned) => poisoned.into_inner().status.clone(),
+    }
 }
 
 #[tauri::command]
@@ -106,7 +112,7 @@ pub(crate) fn dismiss_update(app: AppHandle, state: State<'_, UpdateState>, vers
 async fn check(app: &AppHandle, state: &UpdateState) -> CommandResult<UpdateStatus> {
     let _operation = state.operation.try_lock().map_err(|_| "update-busy: 更新操作正在进行")?;
     {
-        let data = state.data.lock().unwrap();
+        let data = state.data.lock().map_err(|_| "update-failed: 更新状态不可用")?;
         // 已下载的包保留到用户决定安装，定时检查不覆盖它。
         if data.bytes.is_some() { return Ok(data.status.clone()); }
     }
@@ -139,7 +145,7 @@ pub(crate) async fn check_for_updates(app: AppHandle, state: State<'_, UpdateSta
 pub(crate) async fn download_update(app: AppHandle, state: State<'_, UpdateState>) -> CommandResult<UpdateStatus> {
     let _operation = state.operation.try_lock().map_err(|_| "update-busy: 更新操作正在进行")?;
     let mut update = {
-        let data = state.data.lock().unwrap();
+        let data = state.data.lock().map_err(|_| "update-failed: 更新状态不可用")?;
         if data.bytes.is_some() { return Ok(data.status.clone()); }
         data.pending.clone().ok_or("update-missing: 请先检查更新")?
     };
@@ -157,9 +163,10 @@ pub(crate) async fn download_update(app: AppHandle, state: State<'_, UpdateState
     let mut last_report = std::time::Instant::now();
     let result = update.download(|length, total| {
         {
-            let mut data = state.data.lock().unwrap();
-            data.status.downloaded_bytes += length as u64;
-            data.status.total_bytes = total;
+            if let Ok(mut data) = state.data.lock() {
+                data.status.downloaded_bytes += length as u64;
+                data.status.total_bytes = total;
+            }
         }
         if last_report.elapsed() >= Duration::from_millis(150) {
             state.change(&app, |_| {});
@@ -186,7 +193,7 @@ pub(crate) async fn download_update(app: AppHandle, state: State<'_, UpdateState
 pub(crate) async fn install_update(app: AppHandle, state: State<'_, UpdateState>) -> CommandResult<()> {
     let _operation = state.operation.try_lock().map_err(|_| "update-busy: 更新操作正在进行")?;
     let (update, bytes) = {
-        let mut data = state.data.lock().unwrap();
+        let mut data = state.data.lock().map_err(|_| "update-failed: 更新状态不可用")?;
         let update = data.pending.clone().ok_or("update-missing: 请先检查更新")?;
         let bytes = data.bytes.take().ok_or("update-missing: 请先下载更新")?;
         (update, bytes)
@@ -203,7 +210,9 @@ pub(crate) async fn install_update(app: AppHandle, state: State<'_, UpdateState>
         result => {
             app.state::<DesktopState>().exiting.store(false, Ordering::SeqCst);
             if let Ok((_, bytes)) = result {
-                state.data.lock().unwrap().bytes = Some(bytes);
+                if let Ok(mut data) = state.data.lock() {
+                    data.bytes = Some(bytes);
+                }
             }
             fail(&app, &state, "update-install", "安装更新失败，可重试或前往 Releases 手动下载安装包。");
             Err("update-install: 安装更新失败，可重试或手动下载安装包。".into())

@@ -130,7 +130,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
             if ESCAPE_HANDLED.load(Ordering::SeqCst) {
                 return LRESULT(1);
             }
-            if SPACE_OPEN_ACTIVE.load(Ordering::SeqCst) {
+            if space_open_context && SPACE_OPEN_ACTIVE.load(Ordering::SeqCst) {
                 ESCAPE_HANDLED.store(true, Ordering::SeqCst);
                 send(SpaceOpenCommand::RequestWindowClose);
                 return LRESULT(1);

@@ -23,10 +23,11 @@ const textContent = computed(() => {
     return (props.content as { value: string }).value;
   }
   if (props.content.type !== "structured") return "";
-  return typeof props.content.value === "string"
-    ? props.content.value
-    : JSON.stringify(props.content.value);
+  return typeof props.content.value === "string" ? props.content.value : "";
 });
+const structuredContent = computed(() =>
+  props.content.type === "structured" ? props.content.value : undefined,
+);
 const binaryContent = computed(() =>
   props.content.type === "bytes" ? props.content.value : undefined,
 );
@@ -58,6 +59,7 @@ const viewer = computed(() => {
       class="min-h-0 flex-1"
       :file="file"
       :content="textContent"
+      :structured-content="structuredContent"
       :binary-content="binaryContent"
       :read-only="readOnly"
       @update:content="$emit('update:content', $event)"

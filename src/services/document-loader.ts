@@ -113,7 +113,26 @@ export async function loadLocalDocument(
         type: "bytes",
         value: await desktopInvokeBytes("read_mobi", { path: file.path }),
       };
-    } else if (["pdf", "docx", "xlsx", "audio", "video"].includes(file.kind)) {
+    } else if (["audio", "video"].includes(file.kind)) {
+      const mediaMimes: Record<string, string> = {
+        mp3: "audio/mpeg",
+        wav: "audio/wav",
+        m4a: "audio/mp4",
+        aac: "audio/aac",
+        flac: "audio/flac",
+        ogg: "audio/ogg",
+        opus: "audio/ogg; codecs=opus",
+        mp4: "video/mp4",
+        webm: "video/webm",
+        mov: "video/quicktime",
+      };
+      const bytes = await desktopInvokeBytes("read_binary", { path: file.path });
+      const mimeType = mediaMimes[file.extension] ?? "application/octet-stream";
+      state.content = {
+        type: "data-url",
+        value: createDocumentObjectUrl(state, bytes, mimeType),
+      };
+    } else if (["pdf", "docx", "xlsx"].includes(file.kind)) {
       state.content = {
         type: "bytes",
         value: await desktopInvokeBytes("read_binary", { path: file.path }),

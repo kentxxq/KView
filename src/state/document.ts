@@ -1,4 +1,3 @@
-import { reactive } from "vue";
 import type { DocumentState } from "../types/document";
 
 export const createDocumentState = (): DocumentState => ({
@@ -15,9 +14,3 @@ export const createDocumentState = (): DocumentState => ({
   largeTextSession: null,
   error: null,
 });
-
-export const documentState = reactive<DocumentState>(createDocumentState());
-
-export function resetDocument() {
-  Object.assign(documentState, createDocumentState());
-}

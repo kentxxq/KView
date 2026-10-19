@@ -19,10 +19,11 @@ const defaults = (): AppSettings => ({
   residencyMode: "fast",
   closeBehavior: "keep-tabs",
   autostart: true,
-  largeFileThresholdMb: 100,
+  largeFileThresholdMb: 2,
 });
 
 let mediaQuery: MediaQueryList | undefined;
+let mediaQueryListener: (() => void) | undefined;
 
 export const useSettingsStore = defineStore("settings", {
   state: defaults,
@@ -37,8 +38,11 @@ export const useSettingsStore = defineStore("settings", {
       if (isTauri()) this.$patch(await invoke<AppSettings>("get_settings"));
       this.applyTheme();
       mediaQuery ??= window.matchMedia("(prefers-color-scheme: dark)");
-      mediaQuery.removeEventListener("change", this.applyTheme);
-      mediaQuery.addEventListener("change", this.applyTheme);
+      if (mediaQueryListener) {
+        mediaQuery.removeEventListener("change", mediaQueryListener);
+      }
+      mediaQueryListener = () => this.applyTheme();
+      mediaQuery.addEventListener("change", mediaQueryListener);
     },
     async save(settings: AppSettings) {
       const saved = isTauri()

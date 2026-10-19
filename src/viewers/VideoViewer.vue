@@ -46,10 +46,15 @@ function handlePlaybackError() {
   player.value?.pause();
 }
 
+let localUrl = "";
+
 function loadVideo() {
   player.value?.destroy(false);
   player.value = undefined;
-  if (url.value) URL.revokeObjectURL(url.value);
+  if (localUrl) {
+    URL.revokeObjectURL(localUrl);
+    localUrl = "";
+  }
   url.value = "";
   error.value = "";
   duration.value = 0;
@@ -60,12 +65,15 @@ function loadVideo() {
     return;
   }
 
-  const bytes = props.binaryContent;
-  if (!bytes) {
-    error.value = "视频二进制内容不可用";
+  if (props.content) {
+    url.value = props.content;
+  } else if (props.binaryContent) {
+    localUrl = URL.createObjectURL(new Blob([props.binaryContent], { type: mimeType.value }));
+    url.value = localUrl;
+  } else {
+    error.value = "视频内容不可用。";
     return;
   }
-  url.value = URL.createObjectURL(new Blob([bytes], { type: mimeType.value }));
   if (!container.value) return;
 
   const instance = new Artplayer({
@@ -100,12 +108,15 @@ function loadVideo() {
 }
 
 onMounted(loadVideo);
-watch(() => [props.file.path, props.file.modifiedAt], loadVideo);
+watch(() => [props.file.path, props.file.modifiedAt, props.content, props.binaryContent], loadVideo);
 
 onBeforeUnmount(() => {
   player.value?.destroy(false);
   player.value = undefined;
-  if (url.value) URL.revokeObjectURL(url.value);
+  if (localUrl) {
+    URL.revokeObjectURL(localUrl);
+    localUrl = "";
+  }
 });
 </script>
 

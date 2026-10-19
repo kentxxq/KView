@@ -39,9 +39,14 @@ function formatDuration(seconds: number) {
     : `${minutes}:${remainingSeconds}`;
 }
 
+let localUrl = "";
+
 function loadAudio() {
   audio.value?.pause();
-  if (url.value) URL.revokeObjectURL(url.value);
+  if (localUrl) {
+    URL.revokeObjectURL(localUrl);
+    localUrl = "";
+  }
   url.value = "";
   error.value = "";
   duration.value = 0;
@@ -50,20 +55,26 @@ function loadAudio() {
     error.value = `${props.file.extension.toUpperCase()} 不受当前系统 WebView 支持。`;
     return;
   }
-  const bytes = props.binaryContent;
-  if (!bytes) {
-    error.value = "音频二进制内容不可用";
+  if (props.content) {
+    url.value = props.content;
+  } else if (props.binaryContent) {
+    localUrl = URL.createObjectURL(new Blob([props.binaryContent], { type: mimeType.value }));
+    url.value = localUrl;
+  } else {
+    error.value = "音频内容不可用";
     return;
   }
-  url.value = URL.createObjectURL(new Blob([bytes], { type: mimeType.value }));
 }
 
 onMounted(loadAudio);
-watch(() => [props.file.path, props.file.modifiedAt], loadAudio);
+watch(() => [props.file.path, props.file.modifiedAt, props.content, props.binaryContent], loadAudio);
 
 onBeforeUnmount(() => {
   audio.value?.pause();
-  if (url.value) URL.revokeObjectURL(url.value);
+  if (localUrl) {
+    URL.revokeObjectURL(localUrl);
+    localUrl = "";
+  }
 });
 </script>
 

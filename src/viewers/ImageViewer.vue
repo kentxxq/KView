@@ -6,7 +6,12 @@ import type { LivePhotoDocument, OpenedFile } from "../types/document";
 import { recordDiagnostic } from "../services/diagnostics";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{
+  file: OpenedFile;
+  content: string;
+  structuredContent?: LivePhotoDocument;
+  readOnly: boolean;
+}>();
 
 const viewport = ref<HTMLElement>();
 const imageViewport = ref<HTMLElement>();
@@ -208,7 +213,10 @@ function prepareMedia() {
 
   if (props.file.kind === "live-photo") {
     try {
-      const document = JSON.parse(props.content) as LivePhotoDocument;
+      const document =
+        props.structuredContent ??
+        (props.content ? (JSON.parse(props.content) as LivePhotoDocument) : null);
+      if (!document) throw new Error("动态照片数据无效");
       livePhoto.value = document;
       safeSource.value = document.imageUrl;
       const probe = window.document.createElement("video");

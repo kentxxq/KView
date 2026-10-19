@@ -3,9 +3,21 @@ import { computed } from "vue";
 import type { InstallerDocument, OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string }>();
+const props = defineProps<{
+  file: OpenedFile;
+  content?: string;
+  structuredContent?: InstallerDocument;
+}>();
 
-const installer = computed(() => JSON.parse(props.content) as InstallerDocument);
+const installer = computed<InstallerDocument | null>(() => {
+  if (props.structuredContent) return props.structuredContent;
+  if (!props.content) return null;
+  try {
+    return JSON.parse(props.content) as InstallerDocument;
+  } catch {
+    return null;
+  }
+});
 
 const sizeLabel = computed(() => {
   const bytes = props.file.size;
@@ -22,18 +34,24 @@ const modifiedLabel = computed(() =>
   }).format(new Date(props.file.modifiedAt)),
 );
 
-const details = computed(() => [
-  { label: "文件类型", value: installer.value.format, icon: "i-lucide-package" },
-  { label: "版本", value: installer.value.version, icon: "i-lucide-tag" },
-  { label: "系统架构", value: installer.value.architecture, icon: "i-lucide-cpu" },
-  { label: "文件大小", value: sizeLabel.value, icon: "i-lucide-hard-drive" },
-  { label: "修改时间", value: modifiedLabel.value, icon: "i-lucide-clock-3" },
-  { label: "发布者", value: installer.value.publisher, icon: "i-lucide-building-2" },
-]);
+const details = computed(() => {
+  if (!installer.value) return [];
+  return [
+    { label: "文件类型", value: installer.value.format, icon: "i-lucide-package" },
+    { label: "版本", value: installer.value.version, icon: "i-lucide-tag" },
+    { label: "系统架构", value: installer.value.architecture, icon: "i-lucide-cpu" },
+    { label: "文件大小", value: sizeLabel.value, icon: "i-lucide-hard-drive" },
+    { label: "修改时间", value: modifiedLabel.value, icon: "i-lucide-clock-3" },
+    { label: "发布者", value: installer.value.publisher, icon: "i-lucide-building-2" },
+  ];
+});
 </script>
 
 <template>
-  <section class="flex size-full min-h-0 flex-col bg-muted">
+  <div v-if="!installer" class="grid size-full place-items-center bg-muted p-6 text-sm text-error">
+    安装包结构化内容缺失或格式无效。
+  </div>
+  <section v-else class="flex size-full min-h-0 flex-col bg-muted">
     <div class="min-h-0 flex-1 overflow-auto p-6 sm:p-10">
       <div
         class="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-muted bg-elevated shadow-sm"

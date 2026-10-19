@@ -253,7 +253,8 @@ class RustEpubParser implements EbookParser {
 
 const props = defineProps<{
   file: OpenedFile;
-  content: string;
+  content?: string;
+  structuredContent?: EpubDocument;
   binaryContent?: Uint8Array<ArrayBuffer>;
   readOnly: boolean;
 }>();
@@ -402,8 +403,10 @@ function sanitizeChapter(value: string) {
 
 async function createParser(bytes: Uint8Array): Promise<EbookParser> {
   if (props.file.extension === "epub") {
-    const document = JSON.parse(props.content) as EpubDocument;
-    if (!document.sessionId || !Array.isArray(document.spine) || !Array.isArray(document.toc)) {
+    const document =
+      props.structuredContent ??
+      (props.content ? (JSON.parse(props.content) as EpubDocument) : null);
+    if (!document || !document.sessionId || !Array.isArray(document.spine) || !Array.isArray(document.toc)) {
       throw new Error("EPUB 会话数据无效");
     }
     return new RustEpubParser(document);

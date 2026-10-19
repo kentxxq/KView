@@ -426,10 +426,25 @@ fn modified_millis(metadata: &std::fs::Metadata) -> u64 {
 }
 
 fn detect_line_ending(content: &str) -> &'static str {
-    let crlf = content.matches("\r\n").count();
-    let without_crlf = content.replace("\r\n", "");
-    let lf = without_crlf.matches('\n').count();
-    let cr = without_crlf.matches('\r').count();
+    let mut crlf = 0usize;
+    let mut lf = 0usize;
+    let mut cr = 0usize;
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\r' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                crlf += 1;
+                i += 2;
+                continue;
+            } else {
+                cr += 1;
+            }
+        } else if bytes[i] == b'\n' {
+            lf += 1;
+        }
+        i += 1;
+    }
 
     if crlf >= lf && crlf >= cr && crlf > 0 {
         "crlf"
@@ -1587,7 +1602,11 @@ async fn list_sibling_files(path: String) -> CommandResult<SiblingFileList> {
 
 #[tauri::command]
 fn take_pending_paths(state: tauri::State<'_, DesktopState>) -> Vec<String> {
-    std::mem::take(&mut *state.pending_paths.lock().unwrap())
+    state
+        .pending_paths
+        .lock()
+        .map(|mut paths| std::mem::take(&mut *paths))
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1649,11 +1668,9 @@ fn queue_paths(app: &AppHandle, paths: Vec<String>) {
         return;
     }
 
-    app.state::<DesktopState>()
-        .pending_paths
-        .lock()
-        .unwrap()
-        .extend(paths);
+    if let Ok(mut pending) = app.state::<DesktopState>().pending_paths.lock() {
+        pending.extend(paths);
+    }
 }
 
 pub(crate) fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Result<WebviewWindow> {
@@ -1719,11 +1736,16 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&open_item, &autostart_item, &quit_item])?;
     let autostart_for_menu = autostart_item.clone();
 
-    TrayIconBuilder::with_id("kview-tray")
-        .icon(app.default_window_icon().unwrap().clone())
+    let mut tray_builder = TrayIconBuilder::with_id("kview-tray")
         .tooltip("KView 快速文件查看器")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(false);
+
+    if let Some(icon) = app.default_window_icon() {
+        tray_builder = tray_builder.icon(icon.clone());
+    }
+
+    tray_builder
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => schedule_main_window(app),
             "autostart" => {

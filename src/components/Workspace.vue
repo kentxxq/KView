@@ -36,6 +36,7 @@ import { useSettingsStore } from "../state/settings";
 import { useUpdatesStore } from "../state/updates";
 import { desktopInvoke as invoke } from "../services/desktop-api";
 import {
+  createDocumentObjectUrl,
   disposeDocumentResources as closeDocumentResources,
   transferDocumentResources,
 } from "../services/document-resources";
@@ -129,8 +130,9 @@ const tabStrip = ref<HTMLElement>();
 const canScrollTabsLeft = ref(false);
 const canScrollTabsRight = ref(false);
 let tabSequence = 0;
-let spaceOpenSequence = 0;
 let spaceOpenSessionSequence = 0;
+let tabLoadSequence = 0;
+const tabLoadTokens = new Map<string, number>();
 let windowClosePending = false;
 let disposeLifecycle: (() => void) | undefined;
 let resolveGuard: ((result: boolean) => void) | undefined;
@@ -199,6 +201,9 @@ function persistTabs() {
 function activateTab(id: string) {
   if (updateLocked.value) return;
   if (id === activeTabId.value) return;
+  if (spaceOpenTabId.value && id !== spaceOpenTabId.value) {
+    void cancelSpaceOpenLink();
+  }
   syncActiveTab();
   const target = tabs.find((tab) => tab.id === id);
   if (!target) return;
@@ -333,7 +338,6 @@ async function loadSpaceOpenPath(path: string | null) {
 }
 
 async function loadSpaceOpenPathImpl(path: string | null) {
-  const sequence = ++spaceOpenSequence;
   let tab = tabs.find((item) => item.id === spaceOpenTabId.value);
   if (!tab) {
     syncActiveTab();
@@ -346,6 +350,8 @@ async function loadSpaceOpenPathImpl(path: string | null) {
     tabs.push(tab);
     spaceOpenTabId.value = tab.id;
   }
+  const loadToken = ++tabLoadSequence;
+  tabLoadTokens.set(tab.id, loadToken);
   tab.sourceKey = path ? `local:${path}` : "space-open:unavailable";
   tab.fallbackName = path?.split(/[\\/]/).pop() || "空格打开";
   if (activeTabId.value === tab.id) void nextTick(scrollActiveTabIntoView);
@@ -372,7 +378,7 @@ async function loadSpaceOpenPathImpl(path: string | null) {
     const file = await invoke<OpenedFile>("inspect_file", { path });
     const nextViewer = resolveViewer(file);
     if (!nextViewer) throw new Error(`暂不支持 .${file.extension || "未知"} 文件`);
-    if (sequence !== spaceOpenSequence || spaceOpenTabId.value !== tab.id) return;
+    if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) return;
 
     const currentViewerKey = tab.state.file ? resolveViewerKey(tab.state.file) : null;
     const nextViewerKey = nextViewer.componentKey ?? nextViewer.kind;
@@ -396,7 +402,7 @@ async function loadSpaceOpenPathImpl(path: string | null) {
       recoverable: true,
     };
   }
-  if (sequence === spaceOpenSequence && spaceOpenTabId.value === tab.id) {
+  if (tabLoadTokens.get(tab.id) === loadToken && tabs.some((item) => item.id === tab.id)) {
     await closeDocumentResources(tab.state);
     transferDocumentResources(nextState, tab.state);
     Object.assign(tab.state, nextState);
@@ -469,7 +475,6 @@ function switchSpaceOpenFile(direction: number) {
 }
 
 function resetSpaceOpenLink() {
-  spaceOpenSequence++;
   spaceOpenSessionSequence++;
   spaceOpenTabId.value = "";
   spaceOpenPaths.value = [];
@@ -568,19 +573,53 @@ async function openRemoteAsTab(url: string) {
     state,
     fallbackName: parsed.pathname.split("/").filter(Boolean).pop() || parsed.hostname,
   };
+  const loadToken = ++tabLoadSequence;
+  tabLoadTokens.set(tab.id, loadToken);
   tabs.push(tab);
   activateTab(tab.id);
   const startedAt = performance.now();
   try {
     const remote = await invoke<RemoteDocument>("fetch_remote_document", { url });
+    if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) {
+      await closeDocumentResources(state);
+      return;
+    }
     if (!resolveViewer(remote.file)) throw new Error("远程内容没有可用的查看器");
     state.file = remote.file;
     state.viewerKind = remote.file.kind;
     state.sourceModifiedAt = null;
-    state.content =
-      remote.file.kind === "image"
-        ? { type: "data-url", value: remote.content }
-        : { type: "bytes", value: decodeBase64(remote.content) };
+    if (remote.file.kind === "image") {
+      state.content = { type: "data-url", value: remote.content };
+    } else if (["video", "audio"].includes(remote.file.kind)) {
+      const mediaMimes: Record<string, string> = {
+        mp4: "video/mp4",
+        webm: "video/webm",
+        mov: "video/quicktime",
+        mp3: "audio/mpeg",
+        wav: "audio/wav",
+        m4a: "audio/mp4",
+        aac: "audio/aac",
+        flac: "audio/flac",
+        ogg: "audio/ogg",
+        opus: "audio/ogg; codecs=opus",
+      };
+      const bytes = decodeBase64(remote.content);
+      const mimeType = mediaMimes[remote.file.extension] ?? "application/octet-stream";
+      if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) {
+        await closeDocumentResources(state);
+        return;
+      }
+      state.content = {
+        type: "data-url",
+        value: createDocumentObjectUrl(state, bytes, mimeType),
+      };
+    } else {
+      state.content = { type: "bytes", value: decodeBase64(remote.content) };
+    }
+    if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) {
+      await closeDocumentResources(state);
+      return;
+    }
     state.readOnly = true;
     state.dirty = false;
     state.largeTextSession = null;
@@ -591,6 +630,10 @@ async function openRemoteAsTab(url: string) {
       performance.now() - startedAt,
     );
   } catch (error) {
+    if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) {
+      await closeDocumentResources(state);
+      return;
+    }
     recordDiagnostic("viewer", "open-remote-failed", performance.now() - startedAt);
     state.status = "error";
     state.error = {
@@ -892,7 +935,10 @@ async function closeTabsImpl(targetIds: string[]) {
   for (let index = tabs.length - 1; index >= 0; index--) {
     if (targetIdSet.has(tabs[index].id)) tabs.splice(index, 1);
   }
-  for (const tab of targetTabs) viewerShells.delete(tab.id);
+  for (const tab of targetTabs) {
+    tabLoadTokens.delete(tab.id);
+    viewerShells.delete(tab.id);
+  }
   viewerCacheExclusions.value = [];
   if (activeTabClosed) {
     activeTabId.value = "";
@@ -940,6 +986,7 @@ function toggleCurrentFavorite() {
 async function clearWorkspace() {
   await Promise.all(tabs.map((tab) => closeDocumentResources(tab.state)));
   tabs.splice(0);
+  tabLoadTokens.clear();
   activeTabId.value = "";
   Object.assign(emptyDocumentState, createDocumentState());
   persistTabs();
@@ -996,9 +1043,38 @@ const canSwitchSpaceOpen = computed(
     !openUrlModalOpen.value,
 );
 
+const canCloseWithSpace = computed(
+  () =>
+    Boolean(spaceOpenTabId.value) &&
+    activeTabId.value === spaceOpenTabId.value &&
+    !guardOpen.value &&
+    !settingsOpen.value &&
+    !libraryOpen.value &&
+    !openUrlModalOpen.value &&
+    activeTab.value?.state.file?.kind !== "live-photo",
+);
+
+function isInputFocused(): boolean {
+  const element = document.activeElement;
+  if (!element) return false;
+  const tag = element.tagName.toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  if ((element as HTMLElement).isContentEditable) return true;
+  if (element.closest(".monaco-editor") || element.closest(".inputarea")) return true;
+  return false;
+}
+
 defineShortcuts(
   computed(() => ({
     escape: { handler: closeWindow, usingInput: true },
+    " ": canCloseWithSpace.value
+      ? {
+          handler: () => {
+            if (isInputFocused()) return;
+            void closeWindow();
+          },
+        }
+      : false,
     meta_o: selectFile,
     meta_s: () => saveDocument(false),
     meta_shift_s: () => saveDocument(true),

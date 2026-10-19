@@ -3,11 +3,26 @@ import { computed, ref } from "vue";
 import type { ArchiveDocument, OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
+const props = defineProps<{
+  file: OpenedFile;
+  content?: string;
+  structuredContent?: ArchiveDocument;
+  readOnly: boolean;
+}>();
 const query = ref("");
 
-const archive = computed<ArchiveDocument>(() => JSON.parse(props.content));
+const archive = computed<ArchiveDocument | null>(() => {
+  if (props.structuredContent) return props.structuredContent;
+  if (!props.content) return null;
+  try {
+    return JSON.parse(props.content) as ArchiveDocument;
+  } catch {
+    return null;
+  }
+});
+
 const filteredEntries = computed(() => {
+  if (!archive.value) return [];
   const term = query.value.trim().toLocaleLowerCase();
   if (!term) return archive.value.entries;
   return archive.value.entries.filter((entry) => entry.path.toLocaleLowerCase().includes(term));
@@ -22,7 +37,10 @@ function formatBytes(bytes: number) {
 </script>
 
 <template>
-  <div class="flex size-full min-h-0 flex-col bg-default">
+  <div v-if="!archive" class="grid size-full place-items-center bg-default p-6 text-sm text-error">
+    压缩包结构化内容缺失或格式无效。
+  </div>
+  <div v-else class="flex size-full min-h-0 flex-col bg-default">
     <div
       class="grid shrink-0 grid-cols-[minmax(0,1fr)_8rem_8rem] border-b border-muted bg-muted/70 px-4 py-2 text-xs font-semibold text-muted"
     >

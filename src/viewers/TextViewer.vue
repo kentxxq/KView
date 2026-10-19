@@ -166,6 +166,7 @@ function updateUnicodeHighlight(enabled: boolean) {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
+  editor?.getModel()?.dispose();
   editor?.dispose();
 });
 </script>
