@@ -138,15 +138,6 @@ function markLatest(versionTag, versionSha) {
   }
 }
 
-function normalize() {
-  const versions = listReleases().filter((release) => !release.draft && !release.prerelease && stable.test(release.tag_name));
-  const newest = versions.sort((left, right) => compare(right.tag_name, left.tag_name))[0];
-  if (!newest) throw new Error("没有已发布的正式版本");
-  const versionSha = run("git", ["rev-parse", `${newest.tag_name}^{commit}`]);
-  markLatest(newest.tag_name, versionSha);
-  console.log(`发布名称已整理：latest (${newest.tag_name})，版本资产及历史标签保留。`);
-}
-
 function publish() {
   // 上传前再校验，防止构建期间已有更高版本发布。
   validate();
@@ -198,7 +189,7 @@ function publish() {
 }
 
 try {
-  const action = { validate, stage, publish, normalize }[process.argv[2]];
+  const action = { validate, stage, publish }[process.argv[2]];
   if (!action) throw new Error("未知发布操作");
   action();
 } catch (error) {
