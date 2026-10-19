@@ -106,10 +106,6 @@ function syncLatest(assets, notes) {
   const existing = listReleases().find((release) => release.tag_name === "latest");
   // 同步失败时更新接口仍指向已经完整发布的版本，客户端继续使用不可变的版本附件。
   run("gh", ["release", "edit", tag, "--latest"]);
-  if (existing && !existing.draft) {
-    // GitHub 没有修改发布时间的接口，重建滚动 Release 让它排在版本列表首位。
-    run("gh", ["release", "delete", "latest", "--yes"]);
-  }
   const ref = `repos/${repository}/git/refs/tags/latest`;
   const refs = JSON.parse(run("gh", ["api", `repos/${repository}/git/matching-refs/tags/latest`]));
   if (refs.some((entry) => entry.ref === "refs/tags/latest")) {
@@ -119,7 +115,7 @@ function syncLatest(assets, notes) {
   }
   const notesFile = join(releaseDirectory, "release-notes.md");
   writeFileSync(notesFile, notes);
-  if (!existing || !existing.draft) {
+  if (!existing) {
     run("gh", ["release", "create", "latest", "--verify-tag", "--target", sha, "--draft", "--title", "latest", "--notes-file", notesFile]);
   } else {
     run("gh", ["release", "edit", "latest", "--target", sha, "--title", "latest", "--notes-file", notesFile]);
@@ -128,9 +124,9 @@ function syncLatest(assets, notes) {
   verifyAssets("latest", assets);
   run("gh", ["release", "edit", "latest", "--draft=false", "--prerelease=false", "--latest"]);
   const latest = JSON.parse(run("gh", ["api", `repos/${repository}/releases/latest`]));
-  const first = listReleases().find((release) => !release.draft && !release.prerelease);
-  if (latest.tag_name !== "latest" || first?.tag_name !== "latest" || latest.body !== notes) {
-    throw new Error("latest 的排序、标记或说明不一致，请重试发布任务");
+  // GitHub 默认列表有自己的排序规则，不能把列表顺序当作 Latest 标记的判据。
+  if (latest.tag_name !== "latest" || latest.body !== notes) {
+    throw new Error("latest 的标记或说明不一致，请重试发布任务");
   }
 }
 
@@ -181,7 +177,7 @@ function publish() {
   verifyAssets(tag, completeAssets);
   run("gh", ["release", "edit", tag, "--target", sha, "--draft=false", "--prerelease=false", "--latest=false"]);
   syncLatest(completeAssets, notes);
-  console.log(`${tag} 和 latest 已发布，附件完全一致，latest 位于首位。`);
+  console.log(`${tag} 和 latest 已发布，附件完全一致，latest 已标记为最新版本。`);
 }
 
 try {

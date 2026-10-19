@@ -211,11 +211,11 @@ vpr tauri signer generate -w REPLACE_ME
 2. 将经过验证的提交合入 `main`，由维护者创建并推送对应 `vX.Y.Z` 标签。首次正式发布为 `v1.0.0`；新标签必须高于其他正式版，已公开版本的附件不能覆盖。
 3. Actions 校验版本和提交来源，然后构建三个平台。Windows 生成安装包和签名；macOS 同时生成 DMG、应用更新压缩包及签名。
 4. 全部成功后，发布任务创建或继续版本草稿，上传所有安装包、更新包、签名和包含三个平台的 `latest.json`，校验文件数量、大小和 SHA-256 摘要后公开对应的 `vX.Y.Z` Release。
-5. 将 `latest` 标签移动到同一提交，重新发布滚动的 `latest` Release，使用与该版本完全相同的附件和说明，并标记为 GitHub 最新 Release。`latest` 最后发布，位于 Releases 列表首位；此前所有版本标签及版本附件持续保留。
+5. 将 `latest` 标签移动到同一提交，更新滚动的 `latest` Release，使用与该版本完全相同的附件和说明，并标记为 GitHub 最新 Release。此前所有版本标签及版本附件持续保留。
 
 更新清单中的下载链接绑定对应版本标签，`latest` 内的清单与版本 Release 完全相同。任何平台构建或版本附件上传失败时，不切换正式更新渠道；同步滚动 `latest` 期间，更新接口先指向已经完整发布的版本，保证更新文件可用。可以重跑失败的发布任务，未公开草稿允许重试，已公开版本仅校验内容一致性，不覆盖附件。手动运行标签只构建普通安装包，不发布。
 
-固定下载入口可使用 [latest 标签 Release](https://github.com/kentxxq/KView/releases/tag/latest) 或上面的“最新 Release”入口。历史版本通过对应的 `vX.Y.Z` Release 下载。每次同步会重建滚动 Release，因此其附件下载计数会重新累计。三个平台的安装升级人工验收状态详见 [公开前检查与更新验收](docs/public-readiness.md)。
+固定下载入口可使用 [latest 标签 Release](https://github.com/kentxxq/KView/releases/tag/latest) 或上面的“最新 Release”入口。历史版本通过对应的 `vX.Y.Z` Release 下载。GitHub 的 Latest 标记和默认列表排序相互独立，没有强制置顶接口；同一天发布的版本标签仍可能排在 `latest` 前面，应使用固定入口访问最新版本。发布过程保留滚动 Release，替换的附件下载计数会重新累计。三个平台的安装升级人工验收状态详见 [公开前检查与更新验收](docs/public-readiness.md)。
 
 ## 变更日志
 
@@ -224,7 +224,7 @@ vpr tauri signer generate -w REPLACE_ME
 - 发布首个正式版本，提供 Windows x64、macOS arm64 和 x64 安装包。
 - 新增后台自动检查更新，以及“设置 → 关于”中的检查、下载进度、安装与失败重试入口。
 - 使用更新包签名校验，安装前保护未保存修改，升级后自动重启并恢复本地文件会话。
-- 新增版本标签发布流程，保留历史版本，`latest` 始终同步最新正式版的提交、说明和附件，并排在 Releases 首位。
+- 新增版本标签发布流程，保留历史版本，`latest` 始终同步最新正式版的提交、说明和附件，并标记为 GitHub 最新版本。
 - 补充公开仓库敏感信息检查记录、签名配置说明及人工验收清单。
 
 ## 项目资料
