@@ -4,12 +4,17 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: '仅重试发布：填写已有签名产物的运行 ID；留空执行普通构建'
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: tauri-${{ startsWith(github.ref, 'refs/tags/v') && 'release' || github.ref }}
+  group: tauri-${{ (startsWith(github.ref, 'refs/tags/v') || inputs.release_run_id != '') && 'release' || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -31,7 +36,7 @@ jobs:
   build:
     name: 构建 ${{ matrix.platform }}
     needs: validate
-    if: ${{ !cancelled() && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
+    if: ${{ !cancelled() && inputs.release_run_id == '' && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -96,11 +101,12 @@ jobs:
   release:
     name: 发布版本及更新清单
     needs: [validate, build]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !cancelled() && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success') || (github.event_name == 'workflow_dispatch' && inputs.release_run_id != '')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -109,11 +115,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: 读取原发布运行的标签和提交
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo '发布运行 ID 必须是数字。' >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" \
+            --jq 'if .event == "push" and .path == ".github/workflows/tauri-build.yml" and (.head_branch | startswith("v")) then "RELEASE_TAG=\(.head_branch)\nRELEASE_SHA=\(.head_sha)" else error("必须选择本仓库由版本标签触发的构建运行") end' >> "$GITHUB_ENV"
       - name: 下载三个平台的构建物
         uses: actions/download-artifact@v4
         with:
           pattern: release-*
           merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.release_run_id || github.run_id }}
           path: ${{ runner.temp }}/kview-release
       - name: 草稿上传完成后公开正式版本
         run: node scripts/release.mjs publish

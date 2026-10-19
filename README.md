@@ -221,7 +221,9 @@ Actions 仅在推送 `v*` 标签或手动运行时触发，普通分支推送不
 
 固定下载入口使用 [最新 Release](https://github.com/kentxxq/KView/releases/latest)，应用内更新继续使用 `/releases/latest/download/latest.json`，无需重新安装已发布的 `1.0.0`。`latest` Git 标签和最新版本标签指向同一提交；不再单独发布 `latest` 标签的重复 Release，原 `/releases/tag/latest` 或 `/releases/download/latest/...` 链接应改用固定入口。GitHub 没有强制置顶接口，因此采用最新版本标题显示 `latest (vX.Y.Z)` 的方式，不再让重复条目参与排序。
 
-发布仅使用 `Tauri Build` 工作流，正式发布流程会自动整理发布名称并同步 `latest`。迁移时先校验重复 `latest` 的每个附件都已完整保存在某个正式版本中，再清理重复 Release；不删除 Git 标签，不重建安装包，也不覆盖版本附件。正式发布前需分别人工验收 Windows x64、macOS arm64 和 x64 的安装升级、签名失败拦截、未保存修改保护与设置及本地会话恢复。
+发布仅使用 `Tauri Build` 工作流，正式发布流程会自动整理发布名称并同步 `latest`。发布前直接校验远端版本标签指向构建提交；Release 的 `target` 使用 `main`，不作为产物来源依据，避免构建期间工作流变更导致旧提交触发额外权限检查。迁移时先校验重复 `latest` 的每个附件都已完整保存在某个正式版本中，再清理重复 Release；不删除 Git 标签，不重建安装包，也不覆盖版本附件。正式发布前需分别人工验收 Windows x64、macOS arm64 和 x64 的安装升级、签名失败拦截、未保存修改保护与设置及本地会话恢复。
+
+发布阶段失败但三个平台的签名产物均已上传时，可在 `main` 上手动运行 `Tauri Build`，将 `release_run_id` 填为原运行 ID，仅复用原产物重试发布。重试仍校验标签、提交、版本、签名文件和附件摘要，并与正式发布共用互斥锁；产物过期或版本不一致时会失败。留空该参数仍只执行普通构建。
 
 ## 变更日志
 

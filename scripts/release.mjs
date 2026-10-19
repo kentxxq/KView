@@ -4,9 +4,9 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
-const tag = process.env.GITHUB_REF_NAME;
+const tag = process.env.RELEASE_TAG ?? process.env.GITHUB_REF_NAME;
 const repository = process.env.GITHUB_REPOSITORY;
-const sha = process.env.GITHUB_SHA;
+const sha = process.env.RELEASE_SHA ?? process.env.GITHUB_SHA;
 const releaseDirectory = process.env.RUNNER_TEMP ? join(process.env.RUNNER_TEMP, "kview-release") : "debug/tmpfile-AI-release-stage";
 const stable = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const platformFiles = {
@@ -18,7 +18,12 @@ const platformFiles = {
 function run(command, args) {
   // 不转发可能含认证信息的子进程错误输出。
   try { return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch (error) { throw new Error(`${command} ${args.slice(0, 2).join(" ")} 执行失败（退出码 ${error.status ?? "未知"}）`); }
+  catch (error) {
+    const hint = command === "gh" && /workflow.*scope/i.test(String(error.stderr))
+      ? "：GitHub 要求 workflow 权限，请检查 Release 的 target 是否与默认分支的工作流不同"
+      : "";
+    throw new Error(`${command} ${args.slice(0, 2).join(" ")} 执行失败（退出码 ${error.status ?? "未知"}）${hint}`);
+  }
 }
 
 function validateVersion() {
@@ -50,12 +55,12 @@ function validate() {
     throw new Error("缺少有效的 GitHub 仓库或提交信息");
   }
   run("git", ["merge-base", "--is-ancestor", sha, "origin/main"]);
+  const tagSha = run("gh", ["api", `repos/${repository}/commits/${encodeURIComponent(tag)}`, "--jq", ".sha"]);
+  if (tagSha !== sha) throw new Error("远端版本标签与构建提交不一致，禁止发布");
   const published = listReleases().filter((release) => !release.draft && !release.prerelease && stable.test(release.tag_name));
   if (published.some((release) => compare(tag, release.tag_name) < 0)) {
     throw new Error("发布版本必须高于其他已发布正式版本");
   }
-  const current = published.find((release) => release.tag_name === tag);
-  if (current && current.target_commitish !== sha) throw new Error("已有同版本 Release 指向其他提交，禁止覆盖");
   console.log("版本一致、提交属于 main，且没有更高正式版或冲突的同版本发布。");
 }
 
@@ -117,10 +122,10 @@ function markLatest(versionTag, versionSha) {
   }
   for (const entry of versions) {
     if (entry.tag_name !== versionTag && entry.name !== entry.tag_name) {
-      run("gh", ["release", "edit", entry.tag_name, "--title", entry.tag_name, "--latest=false"]);
+      run("gh", ["release", "edit", entry.tag_name, "--target", "main", "--title", entry.tag_name, "--latest=false"]);
     }
   }
-  run("gh", ["release", "edit", versionTag, "--title", `latest (${versionTag})`, "--latest"]);
+  run("gh", ["release", "edit", versionTag, "--target", "main", "--title", `latest (${versionTag})`, "--latest"]);
   const ref = `repos/${repository}/git/refs/tags/latest`;
   const refs = JSON.parse(run("gh", ["api", `repos/${repository}/git/matching-refs/tags/latest`]));
   const currentRef = refs.find((entry) => entry.ref === "refs/tags/latest");
@@ -171,7 +176,8 @@ function publish() {
     const section = start < 0 ? "" : changelog.slice(start).split(/\r?\n(?=#{1,3} )/)[0].trim();
     const noteArgs = section ? ["--notes-file", notesFile] : ["--generate-notes"];
     if (section) writeFileSync(notesFile, section);
-    run("gh", ["release", "create", tag, "--verify-tag", "--target", sha, "--draft", "--title", tag, ...noteArgs]);
+    // 标签已校验为构建提交；target 仅用于 Release 元数据，避免旧 SHA 触发工作流权限检查。
+    run("gh", ["release", "create", tag, "--verify-tag", "--target", "main", "--draft", "--title", tag, ...noteArgs]);
   }
   const notes = JSON.parse(run("gh", ["release", "view", tag, "--json", "body"])).body;
   const manifest = join(releaseDirectory, "latest.json");
@@ -183,7 +189,7 @@ function publish() {
     run("gh", ["release", "upload", tag, ...completeAssets, "--clobber"]);
   }
   verifyAssets(tag, completeAssets);
-  run("gh", ["release", "edit", tag, "--target", sha, "--draft=false", "--prerelease=false", "--latest=false"]);
+  run("gh", ["release", "edit", tag, "--target", "main", "--draft=false", "--prerelease=false", "--latest=false"]);
   markLatest(tag, sha);
   console.log(`${tag} 已发布并显示为 latest (${tag})，latest 标签指向同一提交。`);
 }
