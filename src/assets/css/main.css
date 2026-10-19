@@ -162,7 +162,10 @@ button,
 
 .markdown-preview h1,
 .markdown-preview h2,
-.markdown-preview h3 {
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
   margin: 1.5em 0 0.6em;
   color: var(--ui-text-highlighted);
   font-weight: 650;
@@ -177,6 +180,13 @@ button,
 }
 .markdown-preview h3 {
   font-size: 1.2rem;
+}
+.markdown-preview h4 {
+  font-size: 1.1rem;
+}
+.markdown-preview h5,
+.markdown-preview h6 {
+  font-size: 1rem;
 }
 .markdown-preview p,
 .markdown-preview ul,

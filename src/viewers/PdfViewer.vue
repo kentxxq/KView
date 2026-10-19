@@ -4,6 +4,8 @@ import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import type { OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
+import ChapterLayout from "../components/ChapterLayout.vue";
+import type { ChapterItem } from "../types/chapter";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -23,7 +25,10 @@ const pageCount = ref(0);
 const scale = ref(1.1);
 const loading = ref(true);
 const error = ref("");
-const outline = ref<Array<{ title: string; destination: unknown }>>([]);
+const outline = ref<ChapterItem[]>([]);
+const outlineTargets = new Map<string, unknown>();
+const activeId = ref("");
+let navigationGeneration = 0;
 const query = ref("");
 const matches = ref<number[]>([]);
 const pageText = ref("");
@@ -65,15 +70,32 @@ async function search() {
   if (matches.value.length) pageNumber.value = matches.value[0];
 }
 
-async function goToOutline(destination: unknown) {
-  if (!document.value || !destination) return;
-  const resolved =
-    typeof destination === "string"
-      ? await document.value.getDestination(destination)
-      : destination;
-  if (!Array.isArray(resolved)) return;
-  const index = await document.value.getPageIndex(resolved[0]);
-  pageNumber.value = index + 1;
+function mapOutline(entries: NonNullable<Awaited<ReturnType<PDFDocumentProxy["getOutline"]>>>, prefix = "pdf"): ChapterItem[] {
+  return entries.map((entry, index) => {
+    const id = `${prefix}-${index}`;
+    outlineTargets.set(id, entry.dest);
+    return { id, label: entry.title, children: mapOutline(entry.items ?? [], id) };
+  });
+}
+
+async function goToOutline(id: string) {
+  const currentDocument = document.value;
+  const destination = outlineTargets.get(id);
+  if (!currentDocument || !destination) return;
+  const generation = ++navigationGeneration;
+  try {
+    const resolved = typeof destination === "string"
+      ? await currentDocument.getDestination(destination) : destination;
+    if (!Array.isArray(resolved) || resolved[0] == null) return;
+    const index = typeof resolved[0] === "number"
+      ? resolved[0] : await currentDocument.getPageIndex(resolved[0]);
+    if (document.value !== currentDocument || generation !== navigationGeneration) return;
+    if (!Number.isInteger(index) || index < 0 || index >= currentDocument.numPages) return;
+    pageNumber.value = index + 1;
+    activeId.value = id;
+  } catch {
+    // 无效的大纲目标不影响正文阅读。
+  }
 }
 
 async function copyPageText() {
@@ -82,6 +104,7 @@ async function copyPageText() {
 
 async function loadPdf() {
   const generation = ++loadGeneration;
+  navigationGeneration++;
   renderTask?.cancel();
   const previousLoadingTask = loadingTask;
   loadingTask = undefined;
@@ -91,6 +114,8 @@ async function loadPdf() {
   pageNumber.value = 1;
   pageCount.value = 0;
   outline.value = [];
+  outlineTargets.clear();
+  activeId.value = "";
   error.value = "";
   loading.value = true;
   try {
@@ -107,10 +132,7 @@ async function loadPdf() {
     pageCount.value = nextDocument.numPages;
     const entries = await nextDocument.getOutline();
     if (generation !== loadGeneration) return;
-    outline.value = (entries ?? []).map((entry) => ({
-      title: entry.title,
-      destination: entry.dest,
-    }));
+    outline.value = mapOutline(entries ?? []);
     loading.value = false;
     await nextTick();
     await renderPage();
@@ -128,6 +150,7 @@ watch(
   () => void loadPdf(),
 );
 
+watch(pageNumber, () => { activeId.value = ""; }, { flush: "sync" });
 watch([pageNumber, scale], () => void nextTick(renderPage));
 onBeforeUnmount(() => {
   loadGeneration++;
@@ -138,22 +161,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-muted/20">
-    <div class="flex min-h-0 flex-1">
-      <aside
-        class="hidden w-56 shrink-0 overflow-auto border-r border-muted bg-default p-3 lg:block"
-      >
-        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">文档目录</p>
-        <button
-          v-for="entry in outline"
-          :key="entry.title"
-          class="mb-1 block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-elevated"
-          @click="goToOutline(entry.destination)"
-        >
-          {{ entry.title }}
-        </button>
-        <p v-if="!outline.length" class="text-xs leading-5 text-muted">此 PDF 未提供目录。</p>
-      </aside>
-      <section class="flex min-w-0 flex-1 flex-col">
+    <ChapterLayout :items="outline" :active-id="activeId"
+      :document-id="JSON.stringify([file.path, file.modifiedAt])" :loading="loading" @select="goToOutline">
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col">
         <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">
           正在加载 PDF…
         </div>
@@ -167,7 +177,7 @@ onBeforeUnmount(() => {
           <canvas ref="canvas" class="mx-auto bg-white shadow-lg" />
         </div>
       </section>
-    </div>
+    </ChapterLayout>
     <ViewerFooter :file-size="file.size">
       <template #status>PDF · {{ pageNumber }}/{{ pageCount || "-" }} · 只读</template>
       <template #actions>

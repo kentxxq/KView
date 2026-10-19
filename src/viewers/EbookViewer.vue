@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { desktopInvoke as invoke } from "../services/desktop-api";
 import DOMPurify from "dompurify";
 import type { EpubChapter, EpubDocument, EpubResource, OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
 import ViewerFooter from "../components/ViewerFooter.vue";
-import EbookTocNode from "./EbookTocNode.vue";
+import ChapterLayout from "../components/ChapterLayout.vue";
+import type { ChapterItem } from "../types/chapter";
 
 interface EbookTocItem {
   label: string;
@@ -262,6 +263,18 @@ const chapterElement = ref<HTMLElement>();
 const parser = shallowRef<EbookParser>();
 const sections = ref<EbookSection[]>([]);
 const toc = ref<EbookTocItem[]>([]);
+const activeId = ref("");
+const chapterDirectory = computed(() => {
+  const targets = new Map<string, string>();
+  function mapItems(items: EbookTocItem[], prefix = "ebook"): ChapterItem[] {
+    return items.map((item, index) => {
+      const id = `${prefix}-${index}`;
+      targets.set(id, item.href);
+      return { id, label: item.label, children: mapItems(item.children ?? [], id) };
+    });
+  }
+  return { items: mapItems(toc.value), targets };
+});
 const chapterIndex = ref(0);
 const chapterHtml = ref("");
 const fontSize = ref(100);
@@ -434,7 +447,24 @@ async function hydrateChapterImages(value: string, chapterId: string, currentPar
   };
 }
 
-async function showChapter(index: number, selector = "") {
+function findActiveChapter(section: EbookSection, selector: string) {
+  let first = "";
+  for (const [id, href] of chapterDirectory.value.targets) {
+    const resolved = parser.value?.resolveHref(href);
+    if (resolved?.id !== section.id) continue;
+    if (!first) first = id;
+    if (!section.renderSelector && !selector) return first;
+    if (resolved.selector === (section.renderSelector || selector || section.selector)) return id;
+  }
+  return first;
+}
+
+function selectChapter(id: string) {
+  const href = chapterDirectory.value.targets.get(id);
+  if (href) void navigateHref(href, id);
+}
+
+async function showChapter(index: number, selector = "", selectedId?: string) {
   const generation = ++chapterGeneration;
   const currentParser = parser.value;
   const item = sections.value[index];
@@ -460,6 +490,7 @@ async function showChapter(index: number, selector = "") {
     revokeChapterObjectUrls();
     chapterObjectUrls = hydrated.objectUrls;
     chapterIndex.value = index;
+    activeId.value = selectedId ?? findActiveChapter(item, selector);
     chapterHtml.value = sanitizeChapter(hydrated.html);
     loading.value = false;
     await nextTick();
@@ -478,7 +509,7 @@ async function showChapter(index: number, selector = "") {
   }
 }
 
-async function navigateHref(href: string) {
+async function navigateHref(href: string, selectedId?: string) {
   const resolved = parser.value?.resolveHref(href);
   if (!resolved) return;
   const sectionedNavigation = sections.value.some((item) => item.renderSelector);
@@ -487,7 +518,7 @@ async function navigateHref(href: string) {
         (item) => item.id === resolved.id && item.selector === resolved.selector,
       )
     : sections.value.findIndex((item) => item.id === resolved.id);
-  if (index >= 0) await showChapter(index, resolved.selector);
+  if (index >= 0) await showChapter(index, resolved.selector, selectedId);
 }
 
 function handleChapterClick(event: MouseEvent) {
@@ -506,6 +537,7 @@ async function initialize() {
   parser.value = undefined;
   sections.value = [];
   toc.value = [];
+  activeId.value = "";
   chapterHtml.value = "";
   error.value = "";
   loading.value = true;
@@ -562,23 +594,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-muted/20">
-    <div class="flex min-h-0 flex-1">
-      <aside
-        class="hidden w-64 shrink-0 overflow-auto border-r border-muted bg-default p-3 lg:block"
-      >
-        <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted">电子书目录</p>
-        <EbookTocNode
-          v-for="(item, index) in toc"
-          :key="`${item.href}-${index}`"
-          :item="item"
-          @navigate="navigateHref"
-        />
-        <p v-if="!loading && !toc.length" class="px-2 text-xs leading-5 text-muted">
-          此电子书未提供目录，可使用底部按钮切换章节。
-        </p>
-      </aside>
+    <ChapterLayout :items="chapterDirectory.items" :active-id="activeId"
+      :document-id="JSON.stringify([file.path, file.modifiedAt])"
+      :loading="loading && !toc.length" @select="selectChapter">
 
-      <section class="flex min-w-0 flex-1 flex-col">
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col">
         <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">
           正在解析电子书…
         </div>
@@ -606,7 +626,7 @@ onBeforeUnmount(() => {
           />
         </div>
       </section>
-    </div>
+    </ChapterLayout>
 
     <ViewerFooter
       :file-size="file.size"
