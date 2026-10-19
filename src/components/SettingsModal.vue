@@ -8,9 +8,10 @@ import appLogoUrl from "../../src-tauri/icons/icon.png";
 import { desktopInvoke as invoke } from "../services/desktop-api";
 import { useSettingsStore, type AppSettings } from "../state/settings";
 import { associationGroupsForPlatform } from "../domain/formats";
+import UpdatePanel from "./UpdatePanel.vue";
 
-const props = defineProps<{ open: boolean }>();
-const emit = defineEmits<{ "update:open": [value: boolean] }>();
+const props = defineProps<{ open: boolean; initialSection?: "general" | "about" }>();
+const emit = defineEmits<{ "update:open": [value: boolean]; "request-update": [] }>();
 const toast = useToast();
 const appSettings = useSettingsStore();
 const saving = ref(false);
@@ -21,6 +22,9 @@ const openingLogDirectory = ref(false);
 type SettingsSection = "general" | "text" | "associations" | "diagnostics" | "about";
 
 const activeSection = ref<SettingsSection>("general");
+watch(() => props.initialSection, (section) => {
+  if (props.open && section) activeSection.value = section;
+});
 const appVersion = ref(packageJson.version);
 const isWindows = /windows/i.test(navigator.userAgent);
 const autostartAvailable = !import.meta.env.DEV;
@@ -93,7 +97,7 @@ watch(
   (open) => {
     if (!open) return;
     Object.assign(form, settingsSnapshot(appSettings));
-    activeSection.value = "general";
+    activeSection.value = props.initialSection ?? "general";
     if (isTauri()) {
       void getVersion()
         .then((version) => {
@@ -377,6 +381,7 @@ async function openLogDirectory() {
                 <img :src="appLogoUrl" alt="KView logo" class="mx-auto size-24" />
                 <h2 class="mt-5 text-2xl font-semibold text-highlighted">KView</h2>
                 <p class="mt-2 text-sm text-muted">版本 {{ appVersion }}</p>
+                <UpdatePanel @request-update="emit('request-update')" />
               </div>
             </section>
           </div>

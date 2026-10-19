@@ -1,6 +1,6 @@
 {
   "name": "kview",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "release:validate": "node scripts/release.mjs validate",
+    "release:stage": "node scripts/release.mjs stage",
+    "release:publish": "node scripts/release.mjs publish"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.145",

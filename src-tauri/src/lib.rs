@@ -5,6 +5,7 @@ mod formats;
 mod command_error;
 mod diagnostics;
 mod settings;
+mod updates;
 mod archive;
 #[cfg(target_os = "windows")]
 mod windows_space_open;
@@ -1605,6 +1606,9 @@ fn close_main_window(
     app: AppHandle,
     settings: tauri::State<'_, settings::SettingsState>,
 ) -> CommandResult<()> {
+    if app.state::<updates::UpdateState>().installing() {
+        return Err("update-busy: 正在安装更新，请稍候".into());
+    }
     let residency_mode = settings
         .0
         .lock()
@@ -1640,6 +1644,7 @@ fn collect_paths(args: &[String], cwd: &str) -> Vec<String> {
 }
 
 fn queue_paths(app: &AppHandle, paths: Vec<String>) {
+    if app.state::<updates::UpdateState>().installing() { return; }
     if paths.is_empty() {
         return;
     }
@@ -1688,6 +1693,7 @@ pub(crate) fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Resu
 }
 
 fn schedule_main_window(app: &AppHandle) {
+    if app.state::<updates::UpdateState>().installing() { return; }
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         if ensure_main_window(&handle, true).is_ok() {
@@ -1735,6 +1741,7 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
                 }
             }
             "quit" => {
+                if app.state::<updates::UpdateState>().installing() { return; }
                 app.state::<DesktopState>()
                     .exiting
                     .store(true, Ordering::SeqCst);
@@ -1773,10 +1780,16 @@ pub fn run() {
             Some(vec!["--background"]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopState::default())
         .manage(settings::SettingsState::default())
         .manage(epub_reader::EpubSessions::default())
         .invoke_handler(tauri::generate_handler![
+            updates::get_update_status,
+            updates::check_for_updates,
+            updates::download_update,
+            updates::install_update,
+            updates::dismiss_update,
             inspect_file,
             list_sibling_files,
             fetch_remote_document,
@@ -1815,6 +1828,7 @@ pub fn run() {
             close_main_window
         ])
         .setup(|app| {
+            app.manage(updates::UpdateState::new(app.package_info().version.to_string()));
             let settings_file_exists = settings::path(app.handle())
                 .map(|path| path.exists())
                 .unwrap_or(false);
@@ -1828,6 +1842,7 @@ pub fn run() {
             }
 
             create_tray(app)?;
+            updates::start(app.handle());
             diagnostics::append(app.handle(), "lifecycle", "started", None);
 
             let args: Vec<String> = std::env::args().collect();

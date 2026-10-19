@@ -164,16 +164,68 @@ vpr build
 
 ## 自动构建
 
-每次向任意分支推送提交时，GitHub Actions 都会执行 Tauri 构建，也可在 Actions 页面手动运行 `Tauri Build`。
+普通分支推送及 Actions 页面手动运行 `Tauri Build` 会构建 Windows x64、macOS Apple Silicon（arm64）和 Intel（x64）安装包，构建物保存为 Actions artifacts，不发布正式更新。
 
-- Windows x64：生成 NSIS `.exe` 安装包。
-- macOS Apple Silicon（arm64）和 Intel（x64）：分别生成 `.dmg` 安装包。
-- 三个平台全部构建成功后，统一发布到同一个 **latest Release**，覆盖同名安装包，并将 `latest` 标签更新到本次构建的提交。
-- 在仓库 **Releases → latest** 下载 `KView-windows-x64.exe`、`KView-macos-arm64.dmg` 和 `KView-macos-x64.dmg`；版本号变化时也沿用这三个文件名。
-- 发布任务使用仓库自带的 `GITHUB_TOKEN`，无需额外配置发布令牌；构建失败时保留上次发布的安装包。
-- 当前构建物未配置发布证书签名或 macOS 公证；macOS 首次打开可能需要在系统设置中允许运行。
+正式版本从 [最新 Release](https://github.com/kentxxq/KView/releases/latest) 下载：
 
-工作流使用 [Vite+ 官方 CI 安装工具](https://viteplus.dev/guide/ci) 安装环境，沿用项目的 pnpm 锁文件和 `vpr tauri build` 命令。
+- Windows：`KView-windows-x64.exe`。
+- macOS：`KView-macos-arm64.dmg` 或 `KView-macos-x64.dmg`。
+- Windows 使用当前用户安装模式，覆盖升级保留设置及已有文件关联。
+- 当前没有配置系统代码签名证书或 macOS 公证，macOS 首次打开可能需要在系统设置中允许运行；更新包签名不替代系统代码签名。
+
+工作流使用 [Vite+ 官方 CI 安装工具](https://viteplus.dev/guide/ci) 安装环境，沿用 pnpm 和 Cargo 锁文件。
+
+### 应用内更新
+
+- 正式版进程启动后自动检查一次，此后每 6 小时检查；开发模式不自动检查。
+- 有新版时在可见窗口内提示，托盘运行时不主动弹出窗口；同一版本在本次进程中只提醒一次。
+- 在“设置 → 关于”手动检查、查看更新说明、下载安装或失败重试。后台检查失败不会弹出错误。
+- 用户点击更新后才下载；显示已下载大小及可用的总进度。关闭窗口不会中止 Rust 进程中的下载，低内存模式重建窗口后可继续查看状态。
+- 下载并校验签名后，安装前处理全部标签的未保存修改；取消或保存失败会保留当前工作区及已下载更新，稍后可点击“安装并重启”。进入安装阶段后暂停编辑及新文件打开。
+- 更新成功后自动重启，恢复可恢复的本地标签路径、最近打开、收藏和设置；剪贴板及远程文件会话不会恢复。
+- 首个具备更新能力的正式版本为 `1.0.0`。更早版本需要手动安装一次，之后才能应用内更新。
+- 使用 GitHub Releases 的 HTTPS 更新清单和 Tauri 签名校验，客户端不携带 GitHub Token；仅支持稳定版，不支持降级。
+
+### 配置更新签名
+
+首次发布前，在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 配置：
+
+| Secret | 内容 |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | 与应用内公钥配对的私钥文件完整内容，不是本机文件路径 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥密码；无密码时不设置即可 |
+
+本次接入已在本机用户目录 `%USERPROFILE%\.tauri\KView\updater.key` 生成无密码私钥，其 `.pub` 公钥已写入 Tauri 配置。私钥没有进入项目目录，也没有输出到日志。请将私钥保存到上述 Secret 并在仓库外备份；该本机文件只存在于接入功能的开发机器。
+
+其他维护者应沿用配对密钥。需要自行生成新密钥时，可使用以下命令，将 `REPLACE_ME` 替换为仓库外的永久保存路径，并同步配置对应公钥；已发行版本无法验证另一把私钥签署的更新。
+
+```shell
+vpr tauri signer generate -w REPLACE_ME
+```
+
+普通分支构建不读取发布私钥；正式发布缺少私钥时会失败。只有 `tauri.release.conf.json` 开启更新产物生成，本地普通构建无需配置私钥。
+
+### 发布正式版本
+
+1. 同步修改 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 的版本，并更新 Cargo 锁文件中的根包版本。
+2. 将经过验证的提交合入 `main`，由维护者创建并推送对应 `vX.Y.Z` 标签。首次正式发布为 `v1.0.0`；新标签必须高于其他正式版，已公开版本的附件不能覆盖。
+3. Actions 校验版本和提交来源，然后构建三个平台。Windows 生成安装包和签名；macOS 同时生成 DMG、应用更新压缩包及签名。
+4. 全部成功后，发布任务创建或继续版本草稿，上传所有安装包、更新包、签名和包含三个平台的 `latest.json`，校验文件数量、大小和 SHA-256 摘要后公开对应的 `vX.Y.Z` Release。
+5. 将 `latest` 标签移动到同一提交，重新发布滚动的 `latest` Release，使用与该版本完全相同的附件和说明，并标记为 GitHub 最新 Release。`latest` 最后发布，位于 Releases 列表首位；此前所有版本标签及版本附件持续保留。
+
+更新清单中的下载链接绑定对应版本标签，`latest` 内的清单与版本 Release 完全相同。任何平台构建或版本附件上传失败时，不切换正式更新渠道；同步滚动 `latest` 期间，更新接口先指向已经完整发布的版本，保证更新文件可用。可以重跑失败的发布任务，未公开草稿允许重试，已公开版本仅校验内容一致性，不覆盖附件。手动运行标签只构建普通安装包，不发布。
+
+固定下载入口可使用 [latest 标签 Release](https://github.com/kentxxq/KView/releases/tag/latest) 或上面的“最新 Release”入口。历史版本通过对应的 `vX.Y.Z` Release 下载。每次同步会重建滚动 Release，因此其附件下载计数会重新累计。三个平台的安装升级人工验收状态详见 [公开前检查与更新验收](docs/public-readiness.md)。
+
+## 变更日志
+
+### v1.0.0 (2026-10-19)
+
+- 发布首个正式版本，提供 Windows x64、macOS arm64 和 x64 安装包。
+- 新增后台自动检查更新，以及“设置 → 关于”中的检查、下载进度、安装与失败重试入口。
+- 使用更新包签名校验，安装前保护未保存修改，升级后自动重启并恢复本地文件会话。
+- 新增版本标签发布流程，保留历史版本，`latest` 始终同步最新正式版的提交、说明和附件，并排在 Releases 首位。
+- 补充公开仓库敏感信息检查记录、签名配置说明及人工验收清单。
 
 ## 项目资料
 

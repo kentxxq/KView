@@ -24,3 +24,8 @@ components.d.ts
 *.njsproj
 *.sln
 *.sw?
+
+# 本地调试数据及更新签名私钥
+/debug/
+*.key
+*.key.password

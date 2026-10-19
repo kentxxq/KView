@@ -13,6 +13,7 @@ import {
 } from "vue";
 import { defineShortcuts, useToast } from "@nuxt/ui/composables";
 import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import AppShell from "./AppShell.vue";
 import EmptyState from "./EmptyState.vue";
@@ -32,6 +33,7 @@ import { loadLocalDocument } from "../services/document-loader";
 import { initializeDesktopLifecycle } from "../services/desktop-lifecycle";
 import { recordDiagnostic } from "../services/diagnostics";
 import { useSettingsStore } from "../state/settings";
+import { useUpdatesStore } from "../state/updates";
 import { desktopInvoke as invoke } from "../services/desktop-api";
 import {
   disposeDocumentResources as closeDocumentResources,
@@ -47,6 +49,64 @@ const toast = useToast();
 const workspaceState = useWorkspaceStore();
 const libraryState = useLibraryStore();
 const appSettings = useSettingsStore();
+const updates = useUpdatesStore();
+const settingsInitialSection = ref<"general" | "about">("general");
+const updatePending = ref(false);
+const updateLocked = ref(false);
+let disposeUpdates: (() => void) | undefined;
+let disposeUpdateFocus: (() => void) | undefined;
+let notificationPending = false;
+let workspaceOperations = 0;
+
+async function notifyUpdate() {
+  const { phase, version, dismissedVersion, notes } = updates.status;
+  if (!isTauri() || !version || version === dismissedVersion || notificationPending || !["available", "ready"].includes(phase)) return;
+  notificationPending = true;
+  try {
+    const window = getCurrentWindow();
+    if (!(await window.isVisible()) || await window.isMinimized()) return;
+    await updates.dismiss();
+    toast.add({
+      id: "app-update", title: `KView ${version} 可用`,
+      description: notes?.slice(0, 300) || "可前往设置查看更新并下载安装。",
+      duration: 0, icon: "i-lucide-download",
+      actions: [{ label: "查看更新", onClick: () => {
+        settingsInitialSection.value = "about";
+        settingsOpen.value = true;
+      } }],
+    });
+  } catch { recordDiagnostic("updater", "notification-failed"); }
+  finally { notificationPending = false; }
+}
+
+async function requestUpdate() {
+  if (!isTauri() || updatePending.value || updates.busy) return;
+  updatePending.value = true;
+  try {
+    await updates.download();
+    // 不允许在已有文件载入或关闭流程期间进入安装保护。
+    if (workspaceOperations || windowClosePending || resolveGuard || tabs.some((tab) => tab.state.status === "loading")) {
+      toast.add({ title: "更新已下载", description: "请等待当前文件操作完成后，再点击安装并重启。", color: "warning" });
+      return;
+    }
+    updateLocked.value = true;
+    settingsOpen.value = false;
+    libraryOpen.value = false;
+    openUrlModalOpen.value = false;
+    await nextTick();
+    if (!(await requestDirtyDecision([...tabs]))) return;
+    await cancelSpaceOpenLink();
+    persistTabs();
+    await invoke("install_update");
+  } catch (error) {
+    toast.add({ title: "更新未完成", description: errorMessage(error), color: "error" });
+  } finally {
+    updateLocked.value = false;
+    updatePending.value = false;
+  }
+}
+
+watch(() => updates.status.revision, () => { void notifyUpdate(); });
 const addRecent = (path: string, name: string) => libraryState.addRecent(path, name);
 const removeRecent = (path: string) => libraryState.removeRecent(path);
 const toggleFavorite = (path: string, name: string) => libraryState.toggleFavorite(path, name);
@@ -58,6 +118,7 @@ const spaceOpenPaths = ref<string[]>([]);
 const spaceOpenIndex = ref(-1);
 const dragActive = ref(false);
 const guardOpen = ref(false);
+const guardSaving = ref(false);
 const settingsOpen = ref(false);
 const libraryOpen = ref(false);
 const openUrlModalOpen = ref(false);
@@ -136,6 +197,7 @@ function persistTabs() {
 }
 
 function activateTab(id: string) {
+  if (updateLocked.value) return;
   if (id === activeTabId.value) return;
   syncActiveTab();
   const target = tabs.find((tab) => tab.id === id);
@@ -264,6 +326,13 @@ async function loadFileState(
 }
 
 async function loadSpaceOpenPath(path: string | null) {
+  if (updateLocked.value) return;
+  workspaceOperations++;
+  try { await loadSpaceOpenPathImpl(path); }
+  finally { workspaceOperations--; }
+}
+
+async function loadSpaceOpenPathImpl(path: string | null) {
   const sequence = ++spaceOpenSequence;
   let tab = tabs.find((item) => item.id === spaceOpenTabId.value);
   if (!tab) {
@@ -368,6 +437,7 @@ async function loadSpaceOpenDirectory(path: string, session: number) {
 }
 
 async function startSpaceOpen(path: string | null) {
+  if (updateLocked.value) return;
   const session = ++spaceOpenSessionSequence;
   spaceOpenPaths.value = path ? [path] : [];
   spaceOpenIndex.value = path ? 0 : -1;
@@ -413,6 +483,13 @@ async function cancelSpaceOpenLink() {
 }
 
 async function openCurrentAsHex() {
+  if (updateLocked.value) return;
+  workspaceOperations++;
+  try { await openCurrentAsHexImpl(); }
+  finally { workspaceOperations--; }
+}
+
+async function openCurrentAsHexImpl() {
   if (
     !documentState.value.file ||
     (documentState.value.file.kind !== "ebook" &&
@@ -433,6 +510,7 @@ async function openCurrentAsHex() {
 }
 
 async function openPathAsTab(path: string) {
+  if (updateLocked.value) return;
   const sourceKey = `local:${path}`;
   const existing = tabs.find((tab) => tab.sourceKey === sourceKey);
   if (existing) {
@@ -473,6 +551,7 @@ async function openPaths(paths: string[]) {
 }
 
 async function openRemoteAsTab(url: string) {
+  if (updateLocked.value) return;
   const sourceKey = `remote:${url}`;
   const existing = tabs.find((tab) => tab.sourceKey === sourceKey);
   if (existing) {
@@ -537,6 +616,7 @@ function readFileAsDataUrl(file: File) {
 }
 
 async function openClipboardImage(file: File) {
+  if (updateLocked.value) return;
   const extension = (
     {
       "image/jpeg": "jpg",
@@ -608,6 +688,7 @@ async function openClipboardImage(file: File) {
 }
 
 function openClipboardText(text: string) {
+  if (updateLocked.value) return;
   const sequence = tabSequence++;
   const id = `tab-${Date.now()}-${sequence}`;
   const name = "粘贴的文本.txt";
@@ -644,6 +725,7 @@ function openClipboardText(text: string) {
 }
 
 async function selectFile() {
+  if (updateLocked.value) return;
   if (!isTauri()) {
     documentState.value.error = {
       code: "desktop-only",
@@ -658,6 +740,7 @@ async function selectFile() {
 }
 
 function updateContent(value: string) {
+  if (updateLocked.value) return;
   if (
     documentState.value.readOnly ||
     documentState.value.content.type !== "text" ||
@@ -670,6 +753,12 @@ function updateContent(value: string) {
 }
 
 async function saveState(state: DocumentState, saveAs: boolean) {
+  workspaceOperations++;
+  try { return await saveStateImpl(state, saveAs); }
+  finally { workspaceOperations--; }
+}
+
+async function saveStateImpl(state: DocumentState, saveAs: boolean) {
   if (!state.file || state.readOnly || state.content.type !== "text" || state.status !== "ready")
     return false;
   const shouldSaveAs = saveAs || state.file.source === "clipboard";
@@ -739,6 +828,7 @@ async function saveState(state: DocumentState, saveAs: boolean) {
 }
 
 async function saveDocument(saveAs: boolean) {
+  if (updateLocked.value) return false;
   const saved = await saveState(documentState.value, saveAs);
   syncActiveTab();
   return saved;
@@ -757,6 +847,7 @@ async function requestDirtyDecision(targetTabs: WorkspaceTab[]) {
 }
 
 function finishGuard(result: boolean) {
+  if (guardSaving.value) return;
   guardOpen.value = false;
   resolveGuard?.(result);
   resolveGuard = undefined;
@@ -768,13 +859,24 @@ function handleGuardOpenChange(open: boolean) {
 }
 
 async function saveAllFromGuard() {
-  for (const tab of [...guardedDirtyTabs.value]) {
-    if (!(await saveState(tab.state, false))) return;
-  }
+  if (guardSaving.value) return;
+  guardSaving.value = true;
+  try {
+    for (const tab of [...guardedDirtyTabs.value]) {
+      if (!(await saveState(tab.state, false))) return;
+    }
+  } finally { guardSaving.value = false; }
   finishGuard(true);
 }
 
 async function closeTabs(targetIds: string[]) {
+  if (updateLocked.value) return;
+  workspaceOperations++;
+  try { await closeTabsImpl(targetIds); }
+  finally { workspaceOperations--; }
+}
+
+async function closeTabsImpl(targetIds: string[]) {
   const targetIdSet = new Set(targetIds);
   const targetTabs = tabs.filter((tab) => targetIdSet.has(tab.id));
   if (!targetTabs.length || !(await requestDirtyDecision(targetTabs))) return;
@@ -844,6 +946,13 @@ async function clearWorkspace() {
 }
 
 async function returnHome() {
+  if (updateLocked.value) return;
+  workspaceOperations++;
+  try { await returnHomeImpl(); }
+  finally { workspaceOperations--; }
+}
+
+async function returnHomeImpl() {
   if (!tabs.length) return;
   if (!(await requestDirtyDecision([...tabs]))) return;
   await cancelSpaceOpenLink();
@@ -851,6 +960,7 @@ async function returnHome() {
 }
 
 async function closeWindow() {
+  if (updateLocked.value) return;
   if (!isTauri() || windowClosePending) return;
   windowClosePending = true;
   try {
@@ -928,6 +1038,13 @@ onMounted(async () => {
     onNextTab: () => cycleTab(1),
     onPreviousTab: () => cycleTab(-1),
   });
+  try {
+    disposeUpdates = await updates.initialize();
+    disposeUpdateFocus = await getCurrentWindow().onFocusChanged(({ payload }) => {
+      if (payload) void notifyUpdate();
+    });
+    await notifyUpdate();
+  } catch { recordDiagnostic("updater", "initialize-failed"); }
 });
 
 watch(
@@ -946,6 +1063,8 @@ watch(tabStrip, (element, previousElement) => {
 });
 
 onBeforeUnmount(() => {
+  disposeUpdates?.();
+  disposeUpdateFocus?.();
   tabResizeObserver?.disconnect();
   disposeLifecycle?.();
   void Promise.all(tabs.map((tab) => closeDocumentResources(tab.state)));
@@ -1094,7 +1213,7 @@ onBeforeUnmount(() => {
           size="xs"
           icon="i-lucide-settings"
           aria-label="设置"
-          @click="settingsOpen = true"
+          @click="settingsInitialSection = 'general'; settingsOpen = true"
       /></UTooltip>
     </template>
 
@@ -1174,9 +1293,9 @@ onBeforeUnmount(() => {
       >
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="取消" @click="finishGuard(false)" />
-          <UButton color="error" variant="soft" label="放弃修改并继续" @click="finishGuard(true)" />
-          <UButton icon="i-lucide-save" label="保存全部" @click="saveAllFromGuard" />
+          <UButton color="neutral" variant="ghost" label="取消" :disabled="guardSaving" @click="finishGuard(false)" />
+          <UButton color="error" variant="soft" label="放弃修改并继续" :disabled="guardSaving" @click="finishGuard(true)" />
+          <UButton icon="i-lucide-save" label="保存全部" :loading="guardSaving" :disabled="guardSaving" @click="saveAllFromGuard" />
         </div>
       </template>
     </UModal>
@@ -1187,6 +1306,9 @@ onBeforeUnmount(() => {
       @remove-recent="removeRecent"
     />
     <OpenUrlModal v-model:open="openUrlModalOpen" @open-url="openRemoteAsTab" />
-    <SettingsModal v-model:open="settingsOpen" />
+    <SettingsModal v-model:open="settingsOpen" :initial-section="settingsInitialSection" @request-update="requestUpdate" />
+    <UModal :open="updateLocked && updates.status.phase === 'installing'" :dismissible="false" title="正在安装更新">
+      <template #body><p class="text-sm text-muted">正在安装并重启 KView，请稍候…</p></template>
+    </UModal>
   </AppShell>
 </template>
