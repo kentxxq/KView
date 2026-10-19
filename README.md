@@ -221,7 +221,7 @@ Actions 仅在推送 `v*` 标签或手动运行时触发，普通分支推送不
 
 固定下载入口使用 [最新 Release](https://github.com/kentxxq/KView/releases/latest)，应用内更新继续使用 `/releases/latest/download/latest.json`，无需重新安装已发布的 `1.0.0`。`latest` Git 标签和最新版本标签指向同一提交；不再单独发布 `latest` 标签的重复 Release，原 `/releases/tag/latest` 或 `/releases/download/latest/...` 链接应改用固定入口。GitHub 没有强制置顶接口，因此采用最新版本标题显示 `latest (vX.Y.Z)` 的方式，不再让重复条目参与排序。
 
-如需整理已有发布的标题，可手动运行 Actions 中的“整理发布名称”。迁移时先校验重复 `latest` 的每个附件都已完整保存在某个正式版本中，再清理重复 Release；不删除 Git 标签，不重建安装包，也不覆盖版本附件。正式发布前需分别人工验收 Windows x64、macOS arm64 和 x64 的安装升级、签名失败拦截、未保存修改保护与设置及本地会话恢复。
+正式发布流程会自动整理发布名称并同步 `latest`；独立的“整理发布名称”工作流仅支持手动运行，用于整理已有发布。迁移时先校验重复 `latest` 的每个附件都已完整保存在某个正式版本中，再清理重复 Release；不删除 Git 标签，不重建安装包，也不覆盖版本附件。正式发布前需分别人工验收 Windows x64、macOS arm64 和 x64 的安装升级、签名失败拦截、未保存修改保护与设置及本地会话恢复。
 
 ## 变更日志
 

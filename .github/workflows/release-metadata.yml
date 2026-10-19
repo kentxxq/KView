@@ -1,8 +1,6 @@
 name: 整理发布名称
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
