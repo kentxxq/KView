@@ -1,0 +1,116 @@
+name: Tauri Build
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tauri-latest
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            bundles: nsis
+            artifact-path: src-tauri/target/release/bundle/nsis/*.exe
+            asset-name: KView-windows-x64.exe
+          - platform: macos-arm64
+            runner: macos-15
+            bundles: dmg
+            artifact-path: src-tauri/target/release/bundle/dmg/*.dmg
+            asset-name: KView-macos-arm64.dmg
+          - platform: macos-x64
+            runner: macos-15-intel
+            bundles: dmg
+            artifact-path: src-tauri/target/release/bundle/dmg/*.dmg
+            asset-name: KView-macos-x64.dmg
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Vite+ 和 Node.js
+        uses: voidzero-dev/setup-vp@v1.21.2
+        with:
+          node-version: '24'
+          cache: true
+          run-install: false
+
+      - name: 安装前端依赖
+        run: vp install --frozen-lockfile
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 构建
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: 构建 Tauri 安装包
+        run: vpr tauri build --bundles ${{ matrix.bundles }}
+
+      - name: 整理安装包
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          cp ${{ matrix.artifact-path }} "$RUNNER_TEMP/release/${{ matrix.asset-name }}"
+
+      - name: 暂存安装包供发布任务使用
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: ${{ runner.temp }}/release/${{ matrix.asset-name }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: 更新 latest Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - name: 下载全部安装包
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+
+      - name: 更新 latest 标签和安装包
+        shell: bash
+        run: |
+          if gh api "repos/$GH_REPO/git/ref/tags/latest" --silent; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/latest" \
+              -f sha="$BUILD_SHA" -F force=true --silent
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref=refs/tags/latest -f sha="$BUILD_SHA" --silent
+          fi
+
+          if ! gh release view latest > /dev/null 2>&1; then
+            gh release create latest --verify-tag --title latest \
+              --notes "最新自动构建，提交：$BUILD_SHA" --latest
+          fi
+
+          gh release upload latest release/* --clobber
+          gh release edit latest --title latest \
+            --notes "最新自动构建，提交：$BUILD_SHA" --latest

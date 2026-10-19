@@ -162,6 +162,19 @@ vpr tauri dev
 vpr build
 ```
 
+## 自动构建
+
+每次向任意分支推送提交时，GitHub Actions 都会执行 Tauri 构建，也可在 Actions 页面手动运行 `Tauri Build`。
+
+- Windows x64：生成 NSIS `.exe` 安装包。
+- macOS Apple Silicon（arm64）和 Intel（x64）：分别生成 `.dmg` 安装包。
+- 三个平台全部构建成功后，统一发布到同一个 **latest Release**，覆盖同名安装包，并将 `latest` 标签更新到本次构建的提交。
+- 在仓库 **Releases → latest** 下载 `KView-windows-x64.exe`、`KView-macos-arm64.dmg` 和 `KView-macos-x64.dmg`；版本号变化时也沿用这三个文件名。
+- 发布任务使用仓库自带的 `GITHUB_TOKEN`，无需额外配置发布令牌；构建失败时保留上次发布的安装包。
+- 当前构建物未配置发布证书签名或 macOS 公证；macOS 首次打开可能需要在系统设置中允许运行。
+
+工作流使用 [Vite+ 官方 CI 安装工具](https://viteplus.dev/guide/ci) 安装环境，沿用项目的 pnpm 锁文件和 `vpr tauri build` 命令。
+
 ## 项目资料
 
 - [性能基线](docs/performance-baseline.md)
