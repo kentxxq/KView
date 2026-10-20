@@ -9,6 +9,7 @@ interface DesktopLifecycleHandlers {
   onWindowCloseRequested: () => void | Promise<void>;
   onDragStateChange: (active: boolean) => void;
   onOpenFile?: () => void | Promise<void>;
+  onOpenAbout: () => void | Promise<void>;
   onCloseTab?: () => void | Promise<void>;
   onNextTab?: () => void;
   onPreviousTab?: () => void;
@@ -27,6 +28,12 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
     if (request && handlers.onSpaceOpenPath) await handlers.onSpaceOpenPath(request.path);
   };
 
+  const consumePendingAbout = async () => {
+    const requested = await invoke<boolean>("take_pending_about");
+    if (requested) await handlers.onOpenAbout();
+  };
+
+  unlisteners.push(await listen("about-requested", consumePendingAbout));
   unlisteners.push(await listen("open-requested", consumePendingPaths));
   unlisteners.push(await listen("space-open-path-changed", consumePendingSpaceOpen));
   unlisteners.push(await listen("space-open-close-requested", handlers.onWindowCloseRequested));
@@ -56,6 +63,7 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
 
   await consumePendingPaths();
   await consumePendingSpaceOpen();
+  await consumePendingAbout();
 
   return () => {
     for (const unlisten of unlisteners) unlisten();

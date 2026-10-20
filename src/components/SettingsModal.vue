@@ -22,6 +22,11 @@ const openingLogDirectory = ref(false);
 type SettingsSection = "general" | "text" | "associations" | "diagnostics" | "about";
 
 const activeSection = ref<SettingsSection>("general");
+defineExpose({
+  showAbout() {
+    activeSection.value = "about";
+  },
+});
 watch(() => props.initialSection, (section) => {
   if (props.open && section) activeSection.value = section;
 });

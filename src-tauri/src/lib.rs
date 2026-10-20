@@ -40,6 +40,7 @@ use command_error::CommandResult;
 #[derive(Default)]
 struct DesktopState {
     pending_paths: Mutex<Vec<String>>,
+    pending_about: AtomicBool,
     pending_space_open: Mutex<Option<SpaceOpenRequest>>,
     exiting: AtomicBool,
     large_text_sessions: Mutex<HashMap<String, Arc<LargeTextSession>>>,
@@ -1654,6 +1655,11 @@ fn take_pending_space_open(state: tauri::State<'_, DesktopState>) -> Option<Spac
 }
 
 #[tauri::command]
+fn take_pending_about(state: tauri::State<'_, DesktopState>) -> CommandResult<bool> {
+    Ok(state.pending_about.swap(false, Ordering::SeqCst))
+}
+
+#[tauri::command]
 fn cancel_space_open(app: AppHandle) {
     #[cfg(target_os = "windows")]
     windows_space_open::cancel(&app);
@@ -1773,6 +1779,11 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     )?;
     let quit_label = if cfg!(debug_assertions) { "退出 KView DEV" } else { "退出" };
     let quit_item = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
+    #[cfg(target_os = "windows")]
+    let about_item = MenuItem::with_id(app, "about", "关于", true, None::<&str>)?;
+    #[cfg(target_os = "windows")]
+    let menu = Menu::with_items(app, &[&open_item, &autostart_item, &about_item, &quit_item])?;
+    #[cfg(not(target_os = "windows"))]
     let menu = Menu::with_items(app, &[&open_item, &autostart_item, &quit_item])?;
     let autostart_for_menu = autostart_item.clone();
 
@@ -1788,6 +1799,16 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     tray_builder
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => schedule_main_window(app),
+            #[cfg(target_os = "windows")]
+            "about" => {
+                if app.state::<updates::UpdateState>().installing() { return; }
+                app.state::<DesktopState>().pending_about.store(true, Ordering::SeqCst);
+                schedule_main_window(app);
+                if let Err(error) = app.emit("about-requested", ()) {
+                    diagnostics::append(app, "tray", "about-notification-failed", None);
+                    eprintln!("发送关于入口通知失败：{error}");
+                }
+            }
             "autostart" => {
                 if settings::autostart_available() {
                     let enabled = settings::autostart_enabled(app).unwrap_or(false);
@@ -1897,6 +1918,7 @@ pub fn run() {
             diagnostics::open_log_directory,
             take_pending_paths,
             take_pending_space_open,
+            take_pending_about,
             cancel_space_open,
             close_main_window
         ])

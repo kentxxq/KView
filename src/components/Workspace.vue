@@ -72,10 +72,7 @@ async function notifyUpdate() {
       id: "app-update", title: `KView ${version} 可用`,
       description: notes?.slice(0, 300) || "可前往设置查看更新并下载安装。",
       duration: 0, icon: "i-lucide-download",
-      actions: [{ label: "查看更新", onClick: () => {
-        settingsInitialSection.value = "about";
-        settingsOpen.value = true;
-      } }],
+      actions: [{ label: "查看更新", onClick: openAboutSettings }],
     });
   } catch { recordDiagnostic("updater", "notification-failed"); }
   finally { notificationPending = false; }
@@ -122,6 +119,13 @@ const dragActive = ref(false);
 const guardOpen = ref(false);
 const guardSaving = ref(false);
 const settingsOpen = ref(false);
+const settingsModal = ref<InstanceType<typeof SettingsModal>>();
+
+function openAboutSettings() {
+  settingsInitialSection.value = "about";
+  settingsModal.value?.showAbout();
+  settingsOpen.value = true;
+}
 const libraryOpen = ref(false);
 const openUrlModalOpen = ref(false);
 const guardTargetIds = ref<string[]>([]);
@@ -1136,6 +1140,7 @@ onMounted(async () => {
       dragActive.value = active;
     },
     onOpenFile: selectFile,
+    onOpenAbout: openAboutSettings,
     onCloseTab: () => closeTab(),
     onNextTab: () => cycleTab(1),
     onPreviousTab: () => cycleTab(-1),
@@ -1410,7 +1415,7 @@ onBeforeUnmount(() => {
       @remove-recent="removeRecent"
     />
     <OpenUrlModal v-model:open="openUrlModalOpen" @open-url="openRemoteAsTab" />
-    <SettingsModal v-model:open="settingsOpen" :initial-section="settingsInitialSection" @request-update="requestUpdate" />
+    <SettingsModal ref="settingsModal" v-model:open="settingsOpen" :initial-section="settingsInitialSection" @request-update="requestUpdate" />
     <UModal :open="updateLocked && updates.status.phase === 'installing'" :dismissible="false" title="正在安装更新">
       <template #body><p class="text-sm text-muted">正在安装并重启 KView，请稍候…</p></template>
     </UModal>
