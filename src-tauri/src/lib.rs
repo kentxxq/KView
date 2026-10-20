@@ -8,6 +8,7 @@ mod settings;
 mod updates;
 mod archive;
 mod app_identity;
+mod html_preview;
 #[cfg(target_os = "windows")]
 mod windows_space_open;
 mod file_associations;
@@ -216,6 +217,7 @@ fn remote_format_hint(extension: &str, mime_type: &str) -> Option<RemoteFormat> 
         "image/gif" => RemoteFormat { extension: "gif", mime_type: "image/gif", kind: "image" },
         "image/svg+xml" => RemoteFormat { extension: "svg", mime_type: "image/svg+xml", kind: "image" },
         "application/pdf" => RemoteFormat { extension: "pdf", mime_type: "application/pdf", kind: "pdf" },
+        "text/html" => RemoteFormat { extension: "html", mime_type: "text/html", kind: "text" },
         "video/mp4" => RemoteFormat { extension: "mp4", mime_type: "video/mp4", kind: "video" },
         "video/webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
         "video/quicktime" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
@@ -226,6 +228,7 @@ fn remote_format_hint(extension: &str, mime_type: &str) -> Option<RemoteFormat> 
             "gif" => RemoteFormat { extension: "gif", mime_type: "image/gif", kind: "image" },
             "svg" => RemoteFormat { extension: "svg", mime_type: "image/svg+xml", kind: "image" },
             "pdf" => RemoteFormat { extension: "pdf", mime_type: "application/pdf", kind: "pdf" },
+            "html" | "htm" => RemoteFormat { extension: "html", mime_type: "text/html", kind: "text" },
             "mp4" => RemoteFormat { extension: "mp4", mime_type: "video/mp4", kind: "video" },
             "webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
             "mov" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
@@ -264,6 +267,7 @@ fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> Optio
     }
 
     let hinted = remote_format_hint(extension, mime_type)?;
+    if hinted.extension == "html" { return Some(hinted); }
     if hinted.extension == "svg" {
         let prefix = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_ascii_lowercase();
         if prefix.contains("<svg") {
@@ -356,7 +360,9 @@ async fn fetch_remote_document(url: String) -> CommandResult<RemoteDocument> {
         .and_then(|name| name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()))
         .unwrap_or(url_extension);
     let hinted = remote_format_hint(&path_extension, &mime_type);
-    let declared_limit = if hinted.is_some_and(|format| format.kind == "image") {
+    let declared_limit = if hinted.is_some_and(|format| format.extension == "html") {
+        LARGE_TEXT_CHUNK_BYTES
+    } else if hinted.is_some_and(|format| format.kind == "image") {
         MAX_IMAGE_BYTES
     } else {
         MAX_REMOTE_BYTES
@@ -373,19 +379,25 @@ async fn fetch_remote_document(url: String) -> CommandResult<RemoteDocument> {
         .await
         .map_err(|error| format!("读取远程内容失败：{error}"))?
     {
-        if bytes.len().saturating_add(chunk.len()) > MAX_REMOTE_BYTES as usize {
-            return Err("远程内容超过 200 MiB 安全限制".into());
+        if bytes.len().saturating_add(chunk.len()) > declared_limit as usize {
+            return Err(format!("远程内容超过 {} MiB 安全限制", declared_limit / 1024 / 1024).into());
         }
         bytes.extend_from_slice(&chunk);
     }
 
     let format = detect_remote_format(&bytes, &path_extension, &mime_type)
-        .ok_or_else(|| "远程内容不是受支持的图片、PDF 或视频".to_string())?;
+        .ok_or_else(|| "远程内容不是受支持的图片、PDF、视频或 HTML".to_string())?;
+    if format.extension == "html" && bytes.len() > LARGE_TEXT_CHUNK_BYTES as usize {
+        return Err("远程 HTML 超过 2 MiB 预览限制".into());
+    }
     if format.kind == "image" && bytes.len() > MAX_IMAGE_BYTES as usize {
         return Err("远程图片超过 100 MiB 安全限制".into());
     }
     let name = remote_file_name(header_name, &final_url, format.extension);
-    let content = if format.kind == "image" {
+    let size = bytes.len() as u64;
+    let content = if format.extension == "html" {
+        String::from_utf8(bytes).map_err(|_| "远程 HTML 不是有效的 UTF-8 文本")?
+    } else if format.kind == "image" {
         format!("data:{};base64,{}", format.mime_type, BASE64.encode(&bytes))
     } else {
         BASE64.encode(&bytes)
@@ -397,7 +409,7 @@ async fn fetch_remote_document(url: String) -> CommandResult<RemoteDocument> {
             path: source_url.to_string(),
             name,
             extension: format.extension.into(),
-            size: bytes.len() as u64,
+            size,
             modified_at: 0,
             kind: format.kind.into(),
             encoding: None,
@@ -1834,9 +1846,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopState::default())
+        .manage(html_preview::HtmlPreviews::default())
+        .register_asynchronous_uri_scheme_protocol("kview-html", |context, request, responder| {
+            let app = context.app_handle().clone();
+            tauri::async_runtime::spawn_blocking(move || responder.respond(html_preview::serve(&app, request)));
+        })
         .manage(settings::SettingsState::default())
         .manage(epub_reader::EpubSessions::default())
         .invoke_handler(tauri::generate_handler![
+            html_preview::create_html_preview,
+            html_preview::update_html_preview,
+            html_preview::close_html_preview,
             updates::get_update_status,
             updates::check_for_updates,
             updates::download_update,

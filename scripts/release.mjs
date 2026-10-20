@@ -170,7 +170,7 @@ function publish() {
   const existing = listReleases().find((release) => release.tag_name === tag);
   if (!existing) {
     const changelog = readFileSync("CHANGLOG.md", "utf8");
-    const heading = `## ${tag} (`;
+    const heading = `### ${tag} (`;
     const start = changelog.indexOf(heading);
     const notesFile = join(releaseDirectory, "release-notes.md");
     const section = start < 0 ? "" : changelog.slice(start).split(/\r?\n(?=#{1,3} )/)[0].trim();

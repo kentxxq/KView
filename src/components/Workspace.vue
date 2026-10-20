@@ -589,7 +589,9 @@ async function openRemoteAsTab(url: string) {
     state.file = remote.file;
     state.viewerKind = remote.file.kind;
     state.sourceModifiedAt = null;
-    if (remote.file.kind === "image") {
+    if (remote.file.kind === "text") {
+      state.content = { type: "text", value: remote.content };
+    } else if (remote.file.kind === "image") {
       state.content = { type: "data-url", value: remote.content };
     } else if (["video", "audio"].includes(remote.file.kind)) {
       const mediaMimes: Record<string, string> = {

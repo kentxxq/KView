@@ -8,6 +8,13 @@ import {
 const definitions = new Map<string, ViewerDefinition>();
 const definitionsByFileName = new Map<string, ViewerDefinition>();
 const definitionsByKind = new Map<OpenedFile["kind"], ViewerDefinition>();
+const htmlViewer: ViewerDefinition = {
+  kind: "text",
+  componentKey: "html",
+  extensions: ["html", "htm"],
+  readOnly: false,
+  load: () => import("./HtmlViewer.vue"),
+};
 let initialized = false;
 
 export function registerViewer(definition: ViewerDefinition) {
@@ -70,6 +77,7 @@ export function initializeViewerRegistry() {
 
 export function resolveViewer(file: Pick<OpenedFile, "extension" | "kind">) {
   initializeViewerRegistry();
+  if (file.kind === "text" && htmlViewer.extensions.includes(file.extension.toLowerCase())) return htmlViewer;
   const openedFile = file as Pick<OpenedFile, "extension" | "kind"> &
     Partial<Pick<OpenedFile, "name">>;
   return (

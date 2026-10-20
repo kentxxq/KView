@@ -2163,14 +2163,16 @@ dependencies = [
 
 [[package]]
 name = "kview"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "base64 0.22.1",
  "flate2",
+ "getrandom 0.4.3",
  "hpvcd",
  "msi",
  "office_oxide",
  "pelite",
+ "percent-encoding",
  "rbook",
  "reqwest",
  "serde",
