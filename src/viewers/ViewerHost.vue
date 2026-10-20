@@ -13,6 +13,8 @@ const props = defineProps<{
 defineEmits<{
   "update:content": [value: string];
   "open-hex": [];
+  "pdf-modified": [bytes: Uint8Array<ArrayBuffer>];
+  "save-pdf": [bytes: Uint8Array<ArrayBuffer>];
 }>();
 
 const viewerComponents = new Map<string, Component>();
@@ -64,6 +66,8 @@ const viewer = computed(() => {
       :read-only="readOnly"
       @update:content="$emit('update:content', $event)"
       @open-hex="$emit('open-hex')"
+      @pdf-modified="$emit('pdf-modified', $event)"
+      @save-pdf="$emit('save-pdf', $event)"
     />
   </div>
 </template>

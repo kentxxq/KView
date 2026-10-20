@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 defineProps<{ immersive?: boolean }>();
 const emit = defineEmits<{ "request-close": [] }>();
+const isDevelopment = import.meta.env.DEV;
 
 function withWindow(action: (window: ReturnType<typeof getCurrentWindow>) => Promise<void>) {
   if (isTauri()) void action(getCurrentWindow());
@@ -32,6 +33,7 @@ function closeWindow() {
           <UIcon name="i-lucide-scan-eye" class="size-3.5" />
         </div>
         <span class="select-none text-xs font-semibold text-highlighted">KView</span>
+        <span v-if="isDevelopment" class="select-none rounded bg-amber-500/20 px-1 py-0.5 text-[9px] font-bold leading-none text-amber-700 dark:text-amber-400">DEV</span>
       </div>
 
       <div class="min-w-0 flex-1" data-tauri-drag-region>

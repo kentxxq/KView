@@ -7,6 +7,7 @@ mod diagnostics;
 mod settings;
 mod updates;
 mod archive;
+mod app_identity;
 #[cfg(target_os = "windows")]
 mod windows_space_open;
 mod file_associations;
@@ -1400,6 +1401,32 @@ fn encode_text(content: &str, encoding: &str, bom: bool) -> Result<Vec<u8>, Stri
 }
 
 #[tauri::command]
+fn save_annotated_pdf(path: String, source_path: Option<String>, bytes: Vec<u8>) -> CommandResult<()> {
+    let target = PathBuf::from(&path);
+    if !target.is_absolute() || target.extension().and_then(|value| value.to_str()).is_none_or(|ext| !ext.eq_ignore_ascii_case("pdf")) {
+        return Err("请选择有效的 PDF 绝对保存路径".into());
+    }
+    if !bytes.starts_with(b"%PDF-") {
+        return Err("导出的数据不是有效的 PDF 文档".into());
+    }
+    if let Some(source) = source_path {
+        let original = PathBuf::from(source).canonicalize()
+            .map_err(|error| format!("无法确认原文件路径：{error}"))?;
+        if target.exists() && target.canonicalize()
+            .map_err(|error| format!("无法确认保存路径：{error}"))? == original {
+            return Err("标注 PDF 必须另存为，不能覆盖原文件".into());
+        }
+    }
+    let parent = target.parent().ok_or("保存路径无效")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("无法创建临时文件：{error}"))?;
+    temporary.write_all(&bytes).and_then(|_| temporary.as_file().sync_all())
+        .map_err(|error| format!("无法写入 PDF：{error}"))?;
+    temporary.persist(&target).map_err(|error| format!("无法保存 PDF：{}", error.error))?;
+    Ok(())
+}
+
+#[tauri::command]
 fn save_text(
     path: String,
     content: String,
@@ -1700,7 +1727,7 @@ pub(crate) fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Resu
         .unwrap_or((1200.0, 760.0));
 
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("KView")
+        .title(app_identity::APP_NAME)
         .decorations(false)
         .inner_size(default_width, default_height)
         .min_inner_size(640.0, 480.0)
@@ -1723,7 +1750,7 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     let autostart_available = settings::autostart_available();
     let autostart_enabled = settings::autostart_enabled(app.handle()).unwrap_or(false);
 
-    let open_item = MenuItem::with_id(app, "open", "打开 KView", true, None::<&str>)?;
+    let open_item = MenuItem::with_id(app, "open", format!("打开 {}", app_identity::APP_NAME), true, None::<&str>)?;
     let autostart_item = CheckMenuItem::with_id(
         app,
         "autostart",
@@ -1732,12 +1759,13 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         autostart_enabled,
         None::<&str>,
     )?;
-    let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let quit_label = if cfg!(debug_assertions) { "退出 KView DEV" } else { "退出" };
+    let quit_item = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &autostart_item, &quit_item])?;
     let autostart_for_menu = autostart_item.clone();
 
     let mut tray_builder = TrayIconBuilder::with_id("kview-tray")
-        .tooltip("KView 快速文件查看器")
+        .tooltip(format!("{} 快速文件查看器", app_identity::APP_NAME))
         .menu(&menu)
         .show_menu_on_left_click(false);
 
@@ -1792,6 +1820,8 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    app_identity::configure(&mut context);
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             queue_paths(app, collect_paths(&args, &cwd));
@@ -1840,6 +1870,7 @@ pub fn run() {
             file_associations::unregister_file_associations,
             existing_paths,
             save_text,
+            save_annotated_pdf,
             settings::get_settings,
             settings::update_settings,
             diagnostics::record_diagnostic,
@@ -1889,7 +1920,7 @@ pub fn run() {
 
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application");
 
     app.run(|app, event| {

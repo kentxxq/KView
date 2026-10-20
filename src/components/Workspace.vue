@@ -35,6 +35,7 @@ import { recordDiagnostic } from "../services/diagnostics";
 import { useSettingsStore } from "../state/settings";
 import { useUpdatesStore } from "../state/updates";
 import { desktopInvoke as invoke } from "../services/desktop-api";
+import { saveAnnotatedPdf } from "../services/pdf-annotations";
 import {
   createDocumentObjectUrl,
   disposeDocumentResources as closeDocumentResources,
@@ -802,6 +803,19 @@ async function saveState(state: DocumentState, saveAs: boolean) {
 }
 
 async function saveStateImpl(state: DocumentState, saveAs: boolean) {
+  if (state.file?.kind === "pdf" && state.content.type === "bytes" && state.status === "ready") {
+    try {
+      const saved = await saveAnnotatedPdf(state.file, state.content.value);
+      if (saved) {
+        state.dirty = false;
+        toast.add({ title: "标注 PDF 已另存", color: "success" });
+      }
+      return saved;
+    } catch (cause) {
+      toast.add({ title: "PDF 另存失败", description: errorMessage(cause), color: "error" });
+      return false;
+    }
+  }
   if (!state.file || state.readOnly || state.content.type !== "text" || state.status !== "ready")
     return false;
   const shouldSaveAs = saveAs || state.file.source === "clipboard";
@@ -875,6 +889,16 @@ async function saveDocument(saveAs: boolean) {
   const saved = await saveState(documentState.value, saveAs);
   syncActiveTab();
   return saved;
+}
+
+function pdfModified(bytes: Uint8Array<ArrayBuffer>) {
+  const owner = tabs.find((tab) => tab.state.content.type === "bytes" && tab.state.content.value === bytes);
+  if (owner) owner.state.dirty = true;
+}
+
+async function savePdf(bytes: Uint8Array<ArrayBuffer>) {
+  const owner = tabs.find((tab) => tab.state.content.type === "bytes" && tab.state.content.value === bytes);
+  if (owner) await saveState(owner.state, true);
 }
 
 async function requestDirtyDecision(targetTabs: WorkspaceTab[]) {
@@ -1329,6 +1353,8 @@ onBeforeUnmount(() => {
               :large-text-session="documentState.largeTextSession"
               @update:content="updateContent"
               @open-hex="openCurrentAsHex"
+              @pdf-modified="pdfModified"
+              @save-pdf="savePdf"
             />
           </component>
         </KeepAlive>
