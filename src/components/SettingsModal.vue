@@ -209,11 +209,15 @@ async function openLogDirectory() {
   <UModal
     :open="open"
     title="设置"
-    :ui="{ content: 'sm:max-w-4xl' }"
+    :ui="{
+      content: 'h-[min(46rem,calc(100dvh-4rem))] sm:max-w-6xl',
+      header: 'shrink-0',
+      body: 'flex min-h-0 flex-1 overflow-hidden p-0 sm:p-0',
+    }"
     @update:open="emit('update:open', $event)"
   >
     <template #body>
-      <div class="flex h-[32rem] min-h-0 -m-4 sm:-m-6">
+      <div class="flex min-h-0 w-full flex-1">
         <nav class="w-44 shrink-0 border-r border-default bg-muted/40 p-3" aria-label="设置分类">
           <button
             v-for="section in settingsSections"
@@ -381,13 +385,15 @@ async function openLogDirectory() {
               </div>
             </section>
 
-            <section v-else class="flex min-h-full items-center justify-center py-8 text-center">
-              <div>
-                <img :src="appLogoUrl" alt="KView logo" class="mx-auto size-24" />
-                <h2 class="mt-5 text-2xl font-semibold text-highlighted">KView</h2>
-                <p class="mt-2 text-sm text-muted">版本 {{ appVersion }}</p>
-                <UpdatePanel @request-update="emit('request-update')" />
+            <section v-else class="mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center gap-6">
+              <div class="flex shrink-0 items-center justify-center gap-5">
+                <img :src="appLogoUrl" alt="KView logo" class="size-20 shrink-0" />
+                <div>
+                  <h2 class="text-2xl font-semibold text-highlighted">KView</h2>
+                  <p class="mt-2 text-sm text-muted">版本 {{ appVersion }}</p>
+                </div>
               </div>
+              <UpdatePanel @request-update="emit('request-update')" />
             </section>
           </div>
 

@@ -32,7 +32,7 @@ async function check() {
 </script>
 
 <template>
-  <div class="mt-6 w-full max-w-md space-y-3 rounded-xl border border-muted p-4 text-left">
+  <div class="w-full space-y-3 rounded-xl border border-muted p-5 text-left">
     <p class="text-sm font-medium">{{ isTauri() ? phaseLabel : "更新功能仅在桌面版中可用" }}</p>
     <p v-if="updates.status.version" class="text-sm text-muted">新版本 {{ updates.status.version }}</p>
     <p v-if="updates.status.notes" class="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted">{{ updates.status.notes }}</p>

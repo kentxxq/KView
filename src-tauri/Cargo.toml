@@ -1,6 +1,6 @@
 [package]
 name = "kview"
-version = "1.0.5"
+version = "1.0.6"
 description = "快速、轻量的本地文件查看器"
 authors = ["KView Contributors"]
 edition = "2021"
