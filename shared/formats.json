@@ -3,7 +3,7 @@
     "id": "image",
     "label": "图片与动态照片",
     "viewerKind": "image",
-    "extensions": ["jpg", "jpeg", "heic", "heif", "png", "webp", "gif", "svg"],
+    "extensions": ["jpg", "jpeg", "heic", "heif", "png", "webp", "gif", "svg", "avif", "bmp", "ico", "jxl", "tif", "tiff"],
     "fileNames": [],
     "platforms": ["windows", "macos"],
     "editable": false,
@@ -156,6 +156,28 @@
     "editable": false,
     "associable": true,
     "hexFallback": false
+  },
+  {
+    "id": "presentation",
+    "label": "文档",
+    "viewerKind": "presentation",
+    "extensions": ["ppt", "pptx"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": true,
+    "hexFallback": false
+  },
+  {
+    "id": "binary-structure",
+    "label": "二进制结构",
+    "viewerKind": "binary-structure",
+    "extensions": ["dll", "elf"],
+    "fileNames": [],
+    "platforms": ["windows", "macos"],
+    "editable": false,
+    "associable": false,
+    "hexFallback": true
   },
   {
     "id": "ebook",

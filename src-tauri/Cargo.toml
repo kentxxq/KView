@@ -1,6 +1,6 @@
 [package]
 name = "kview"
-version = "1.0.6"
+version = "1.0.7"
 description = "快速、轻量的本地文件查看器"
 authors = ["KView Contributors"]
 edition = "2021"
@@ -36,6 +36,7 @@ rbook = { version = "0.7.12", default-features = false, features = ["threadsafe"
 msi = "0.10"
 pelite = "0.10"
 hpvcd = "0.3.3"
+object = { version = "0.40.0", default-features = false, features = ["read_core", "elf", "std"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -502,7 +502,7 @@ async function openCurrentAsHex() {
 async function openCurrentAsHexImpl() {
   if (
     !documentState.value.file ||
-    (documentState.value.file.kind !== "ebook" &&
+    (!["ebook", "binary-structure"].includes(documentState.value.file.kind) &&
       !["binary-content", "unsupported-encoding"].includes(documentState.value.error?.code ?? ""))
   )
     return;
@@ -1331,7 +1331,7 @@ onBeforeUnmount(() => {
             :error="documentState.error"
             :can-open-hex="
               ['binary-content', 'unsupported-encoding'].includes(documentState.error.code) ||
-              documentState.file?.kind === 'ebook'
+              ['ebook', 'binary-structure'].includes(documentState.file?.kind ?? '')
             "
             @dismiss="closeTab()"
             @open-hex="openCurrentAsHex"

@@ -1,4 +1,7 @@
 mod installer;
+mod binary_structure;
+mod presentation;
+mod image_formats;
 mod live_photo;
 mod epub_reader;
 mod formats;
@@ -212,6 +215,11 @@ struct RemoteFormat {
 
 fn remote_format_hint(extension: &str, mime_type: &str) -> Option<RemoteFormat> {
     let format = match mime_type {
+        "image/avif" => RemoteFormat { extension: "avif", mime_type: "image/avif", kind: "image" },
+        "image/bmp" | "image/x-ms-bmp" => RemoteFormat { extension: "bmp", mime_type: "image/bmp", kind: "image" },
+        "image/x-icon" | "image/vnd.microsoft.icon" => RemoteFormat { extension: "ico", mime_type: "image/vnd.microsoft.icon", kind: "image" },
+        "image/jxl" => RemoteFormat { extension: "jxl", mime_type: "image/jxl", kind: "image" },
+        "image/tiff" => RemoteFormat { extension: "tiff", mime_type: "image/tiff", kind: "image" },
         "image/jpeg" => RemoteFormat { extension: "jpg", mime_type: "image/jpeg", kind: "image" },
         "image/png" => RemoteFormat { extension: "png", mime_type: "image/png", kind: "image" },
         "image/webp" => RemoteFormat { extension: "webp", mime_type: "image/webp", kind: "image" },
@@ -223,6 +231,11 @@ fn remote_format_hint(extension: &str, mime_type: &str) -> Option<RemoteFormat> 
         "video/webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
         "video/quicktime" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
         _ => match extension {
+            "avif" => RemoteFormat { extension: "avif", mime_type: "image/avif", kind: "image" },
+            "bmp" => RemoteFormat { extension: "bmp", mime_type: "image/bmp", kind: "image" },
+            "ico" => RemoteFormat { extension: "ico", mime_type: "image/vnd.microsoft.icon", kind: "image" },
+            "jxl" => RemoteFormat { extension: "jxl", mime_type: "image/jxl", kind: "image" },
+            "tif" | "tiff" => RemoteFormat { extension: "tiff", mime_type: "image/tiff", kind: "image" },
             "jpg" | "jpeg" => RemoteFormat { extension: "jpg", mime_type: "image/jpeg", kind: "image" },
             "png" => RemoteFormat { extension: "png", mime_type: "image/png", kind: "image" },
             "webp" => RemoteFormat { extension: "webp", mime_type: "image/webp", kind: "image" },
@@ -240,6 +253,9 @@ fn remote_format_hint(extension: &str, mime_type: &str) -> Option<RemoteFormat> 
 }
 
 fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> Option<RemoteFormat> {
+    if let Some((extension, mime)) = image_formats::detect_native_image(bytes) {
+        return remote_format_hint(extension, mime);
+    }
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return remote_format_hint("jpg", "image/jpeg");
     }
@@ -1122,6 +1138,11 @@ fn read_image(path: String) -> CommandResult<ImageDocument> {
         "webp" => "image/webp",
         "gif" => "image/gif",
         "svg" => "image/svg+xml",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/vnd.microsoft.icon",
+        "jxl" => "image/jxl",
+        "tif" | "tiff" => "image/tiff",
         _ => return Err("不支持的图片格式".into()),
     };
     let bytes = std::fs::read(&canonical).map_err(|error| format!("无法读取图片：{error}"))?;
@@ -1523,6 +1544,14 @@ fn inspect_file(path: String) -> CommandResult<OpenedFile> {
     }
     let modified_at = modified_millis(&metadata);
     let mut kind = formats::viewer_kind(&extension, &name);
+    if kind == "text" {
+        let mut signature = [0; 4];
+        let mut file = File::open(&canonical).map_err(|error| format!("无法打开文件：{error}"))?;
+        let length = file.read(&mut signature).map_err(|error| format!("无法读取文件头：{error}"))?;
+        if length == signature.len() && &signature == b"\x7fELF" {
+            kind = "binary-structure".into();
+        }
+    }
     if matches!(extension.as_str(), "livp" | "jpg" | "jpeg" | "heic" | "heif")
         && live_photo::is_live_photo(&canonical)
     {
@@ -1887,6 +1916,8 @@ pub fn run() {
             list_sibling_files,
             fetch_remote_document,
             installer::read_installer,
+            binary_structure::read_binary_structure,
+            presentation::read_presentation,
             read_text,
             open_large_text_session,
             get_large_text_index_status,

@@ -42,6 +42,8 @@ export function initializeViewerRegistry() {
     video: () => import("./VideoViewer.vue"),
     audio: () => import("./AudioViewer.vue"),
     installer: () => import("./InstallerViewer.vue"),
+    "binary-structure": () => import("./BinaryStructureViewer.vue"),
+    presentation: () => import("./PresentationViewer.vue"),
     markdown: () => import("./MarkdownViewer.vue"),
     json: () => import("./StructuredViewer.vue"),
     yaml: () => import("./StructuredViewer.vue"),

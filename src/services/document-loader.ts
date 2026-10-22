@@ -13,6 +13,7 @@ import type {
 } from "../types/document";
 import { resolveViewer } from "../viewers/registry";
 import { desktopInvoke, desktopInvokeBytes } from "./desktop-api";
+import { readPresentation } from "./presentation";
 import {
   beginDocumentLoad,
   commitDocumentLoad,
@@ -91,6 +92,10 @@ export async function loadLocalDocument(
       }
     } else if (file.kind === "live-photo") {
       state.content = { type: "structured", value: await loadLivePhoto(state, file.path) };
+    } else if (file.kind === "binary-structure" || file.kind === "hex") {
+      state.content = { type: "empty" };
+    } else if (file.kind === "presentation") {
+      state.content = { type: "structured", value: await readPresentation(file) };
     } else if (file.kind === "installer") {
       state.content = {
         type: "structured",

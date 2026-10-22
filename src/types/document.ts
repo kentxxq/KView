@@ -19,6 +19,8 @@ export type ViewerKind =
   | "audio"
   | "video"
   | "installer"
+  | "binary-structure"
+  | "presentation"
   | "hex"
   | "unsupported";
 
@@ -175,6 +177,39 @@ export interface BinaryChunk {
   offset: number;
   base64: string;
   bytesRead: number;
+}
+
+export interface BinaryStructureRow {
+  name: string;
+  address: string | null;
+  offset: string | null;
+  size: string | null;
+  details: string;
+}
+
+export interface BinaryStructureTable {
+  items: BinaryStructureRow[];
+  truncated: boolean;
+}
+
+export interface BinaryStructureDocument {
+  format: "PE" | "ELF";
+  bitness: number;
+  architecture: string;
+  byteOrder: string;
+  entryPoint: string;
+  imageBase: string | null;
+  fileType: string;
+  sections: BinaryStructureTable;
+  imports: BinaryStructureTable;
+  exports: BinaryStructureTable;
+  symbols: BinaryStructureTable;
+  programHeaders: BinaryStructureTable;
+  dependencies: BinaryStructureTable;
+}
+
+export interface PresentationDocument {
+  slides: { index: number; title: string | null; html: string }[];
 }
 
 export interface LargeTextLine {

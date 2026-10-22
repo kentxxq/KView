@@ -315,7 +315,7 @@ watch(() => [props.file.path, props.file.modifiedAt, props.content] as const, pr
           variant="subtle"
           icon="i-lucide-image-off"
           title="图片无法显示"
-          description="文件可能已损坏，或使用了当前系统 WebView 不支持的编码。"
+          description="当前系统不支持此图片格式或文件已损坏。原生图片解码能力取决于系统 WebView 版本。"
         />
       </div>
       <div v-else class="relative" :style="contentStyle">
