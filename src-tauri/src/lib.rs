@@ -1689,9 +1689,9 @@ fn take_pending_about(state: tauri::State<'_, DesktopState>) -> CommandResult<bo
 }
 
 #[tauri::command]
-fn cancel_space_open(app: AppHandle) {
+fn cancel_space_open(_app: AppHandle) {
     #[cfg(target_os = "windows")]
-    windows_space_open::cancel(&app);
+    windows_space_open::cancel(&_app);
 }
 
 #[tauri::command]

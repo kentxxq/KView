@@ -12,8 +12,10 @@ struct FormatCapability {
     file_suffixes: Vec<String>,
     platforms: Vec<String>,
     #[serde(default)]
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     associable: bool,
     #[serde(default)]
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     association_extensions: Vec<String>,
 }
 

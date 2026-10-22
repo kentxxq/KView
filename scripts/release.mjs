@@ -15,6 +15,24 @@ const platformFiles = {
   "macos-x64": { target: "darwin-x86_64", installer: "KView-macos-x64.dmg", bundle: "dmg", extension: ".dmg" },
 };
 
+function releaseNotesWithoutDownloads(body) {
+  return body.replace(/\r?\n\r?\n<!-- kview-downloads:start -->[\s\S]*?<!-- kview-downloads:end -->/g, "");
+}
+
+function releaseDownloadFooter() {
+  const downloadLink = (platform, label) => `[${label}](https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(platformFiles[platform].installer)})`;
+  return [
+    "<!-- kview-downloads:start -->",
+    "---",
+    "",
+    "### 下载",
+    "",
+    `- Windows：${downloadLink("windows-x64", "x64（常用）")}`,
+    `- macOS：${downloadLink("macos-arm64", "arm64（M 芯片系列）")}、${downloadLink("macos-x64", "x64（老款 Mac，Intel 芯片）")}`,
+    "<!-- kview-downloads:end -->",
+  ].join("\n");
+}
+
 function run(command, args) {
   // 不转发可能含认证信息的子进程错误输出。
   try { return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
@@ -179,13 +197,16 @@ function publish() {
     // 标签已校验为构建提交；target 仅用于 Release 元数据，避免旧 SHA 触发工作流权限检查。
     run("gh", ["release", "create", tag, "--verify-tag", "--target", "main", "--draft", "--title", tag, ...noteArgs]);
   }
-  const notes = JSON.parse(run("gh", ["release", "view", tag, "--json", "body"])).body;
+  const notes = releaseNotesWithoutDownloads(JSON.parse(run("gh", ["release", "view", tag, "--json", "body"])).body);
   const manifest = join(releaseDirectory, "latest.json");
   const pubDate = new Date(run("git", ["show", "-s", "--format=%cI", sha])).toISOString();
   writeFileSync(manifest, JSON.stringify({ version, notes, pub_date: pubDate, platforms }, null, 2));
   const completeAssets = [...assets, manifest];
   // 已公开版本只校验，不覆盖；允许单独重试 latest 同步。
   if (!existing || existing.draft) {
+    const notesFile = join(releaseDirectory, "release-notes.md");
+    writeFileSync(notesFile, `${notes}\n\n${releaseDownloadFooter()}`);
+    run("gh", ["release", "edit", tag, "--notes-file", notesFile]);
     run("gh", ["release", "upload", tag, ...completeAssets, "--clobber"]);
   }
   verifyAssets(tag, completeAssets);
