@@ -79,20 +79,33 @@ pub(crate) fn close_html_preview(state: tauri::State<'_, HtmlPreviews>, session_
     Ok(())
 }
 
+fn validate_relative_path(relative: &str) -> Result<(), &'static str> {
+    if relative.contains(['\\', ':', '\0']) || Path::new(relative).components().any(|part| !matches!(part, Component::Normal(_))) {
+        return Err("资源路径不允许越过 HTML 所在目录");
+    }
+    Ok(())
+}
+
+fn resolve_disk_resource_path(root: &Path, encoded_path: &str) -> Result<PathBuf, String> {
+    let decoded = percent_decode_str(encoded_path).decode_utf8().map_err(|_| "资源路径不是有效的 UTF-8")?;
+    let relative = decoded.strip_prefix('/').ok_or("资源路径无效")?;
+    validate_relative_path(relative)?;
+    let path = root.join(relative).canonicalize().map_err(|error| format!("无法定位 HTML 资源：{error}"))?;
+    if !path.starts_with(root) { return Err("资源路径不允许越过 HTML 所在目录".into()); }
+    Ok(path)
+}
+
 fn read_resource(state: &HtmlPreviews, session_id: &str, encoded_path: &str) -> Result<(Vec<u8>, String), String> {
     let preview = state.0.lock().map_err(|_| "HTML 预览会话锁不可用")?
         .get(session_id).cloned().ok_or("HTML 预览会话已关闭")?;
     let decoded = percent_decode_str(encoded_path).decode_utf8().map_err(|_| "资源路径不是有效的 UTF-8")?;
     let relative = decoded.strip_prefix('/').ok_or("资源路径无效")?;
-    if relative.contains(['\\', ':', '\0']) || Path::new(relative).components().any(|part| !matches!(part, Component::Normal(_))) {
-        return Err("资源路径不允许越过 HTML 所在目录".into());
-    }
+    validate_relative_path(relative)?;
     if relative == preview.entry {
         return Ok((preview.content.as_bytes().to_vec(), "text/html; charset=utf-8".into()));
     }
     let root = preview.root.as_ref().ok_or("当前 HTML 没有本地资源目录")?;
-    let path = root.join(relative).canonicalize().map_err(|error| format!("无法定位 HTML 资源：{error}"))?;
-    if !path.starts_with(root) { return Err("资源路径不允许越过 HTML 所在目录".into()); }
+    let path = resolve_disk_resource_path(root, encoded_path)?;
     let bytes = std::fs::read(&path).map_err(|error| format!("无法读取 HTML 资源：{error}"))?;
     let mime = tauri::utils::mime_type::MimeType::parse_with_fallback(
         &bytes, &path.to_string_lossy().to_lowercase(), tauri::utils::mime_type::MimeType::OctetStream,
@@ -138,3 +151,99 @@ pub(crate) fn serve(app: &tauri::AppHandle, request: Request<Vec<u8>>) -> Respon
     headers.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
     response
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir() -> tempfile::TempDir {
+        let debug = Path::new(env!("CARGO_MANIFEST_DIR")).join("../debug");
+        std::fs::create_dir_all(&debug).expect("创建项目调试目录失败");
+        tempfile::Builder::new().prefix("tmpfile-AI-html-preview-")
+            .tempdir_in(debug).expect("创建 HTML 测试临时目录失败")
+    }
+
+    #[test]
+    fn allows_valid_normal_relative_path() {
+        assert!(validate_relative_path("style.css").is_ok());
+        assert!(validate_relative_path("assets/image.png").is_ok());
+        assert!(validate_relative_path("sub/folder/file.js").is_ok());
+    }
+
+    #[test]
+    fn rejects_path_traversal() {
+        assert!(validate_relative_path("../secret.txt").is_err());
+        assert!(validate_relative_path("sub/../../secret.txt").is_err());
+    }
+
+    #[test]
+    fn rejects_backslashes_and_colons() {
+        assert!(validate_relative_path("sub\\file.txt").is_err());
+        assert!(validate_relative_path("C:/windows/file.txt").is_err());
+        assert!(validate_relative_path("file.txt:stream").is_err());
+    }
+
+    #[test]
+    fn rejects_null_bytes() {
+        assert!(validate_relative_path("image.png\0.exe").is_err());
+    }
+
+    #[test]
+    fn resolves_valid_percent_encoded_real_file() {
+        let temp_dir = temp_dir();
+        let root = temp_dir.path().canonicalize().expect("canonicalize root");
+        let file_path = root.join("测试.txt");
+        std::fs::write(&file_path, "hello world").expect("write file");
+
+        // /%E6%B5%8B%E8%AF%95.txt -> /测试.txt
+        let resolved = resolve_disk_resource_path(&root, "/%E6%B5%8B%E8%AF%95.txt");
+        assert!(resolved.is_ok(), "Expected ok, got: {:?}", resolved);
+        assert_eq!(resolved.unwrap(), file_path);
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_percent_encoding() {
+        let temp_dir = temp_dir();
+        let root = temp_dir.path();
+
+        let result = resolve_disk_resource_path(root, "/%FF%FE");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "资源路径不是有效的 UTF-8");
+    }
+
+    #[test]
+    fn rejects_percent_encoded_traversal_attempts() {
+        let temp_dir = temp_dir();
+        let root = temp_dir.path();
+
+        // %2e%2e%2f is ../
+        let result = resolve_disk_resource_path(root, "/%2e%2e%2foutside.txt");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "资源路径不允许越过 HTML 所在目录");
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "Windows 环境跳过：创建符号链接需要额外权限")]
+    fn rejects_symlink_crossing_root_boundary() {
+        let base_dir = temp_dir();
+        let base_path = base_dir.path().canonicalize().expect("canonicalize base");
+        let root = base_path.join("sandbox");
+        std::fs::create_dir(&root).expect("create sandbox root");
+
+        let outside_file = base_path.join("secret.txt");
+        std::fs::write(&outside_file, "confidential").expect("write outside secret");
+
+        let symlink_path = root.join("leak_link.txt");
+
+        #[cfg(windows)]
+        let link_created = std::os::windows::fs::symlink_file(&outside_file, &symlink_path);
+        #[cfg(unix)]
+        let link_created = std::os::unix::fs::symlink(&outside_file, &symlink_path);
+
+        link_created.expect("无法创建测试符号链接，未完成越界验证；请检查符号链接权限");
+        let result = resolve_disk_resource_path(&root, "/leak_link.txt");
+        assert_eq!(result.expect_err("必须拒绝指向根目录外的符号链接"), "资源路径不允许越过 HTML 所在目录");
+    }
+}
+
+

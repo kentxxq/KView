@@ -2,13 +2,13 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync, copyFileSync } fro
 import { join, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { stable, compare } from "./release-utils.mjs";
 
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 const tag = process.env.RELEASE_TAG ?? process.env.GITHUB_REF_NAME;
 const repository = process.env.GITHUB_REPOSITORY;
 const sha = process.env.RELEASE_SHA ?? process.env.GITHUB_SHA;
 const releaseDirectory = process.env.RUNNER_TEMP ? join(process.env.RUNNER_TEMP, "kview-release") : "debug/tmpfile-AI-release-stage";
-const stable = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const platformFiles = {
   "windows-x64": { target: "windows-x86_64", installer: "KView-windows-x64.exe", bundle: "nsis", extension: ".exe" },
   "macos-arm64": { target: "darwin-aarch64", installer: "KView-macos-arm64.dmg", bundle: "dmg", extension: ".dmg" },
@@ -52,15 +52,6 @@ function validateVersion() {
     throw new Error("标签与前端、Rust、Tauri 版本不一致");
   }
   return version;
-}
-
-function compare(left, right) {
-  const a = left.slice(1).split(".").map(BigInt);
-  const b = right.slice(1).split(".").map(BigInt);
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
-  }
-  return 0;
 }
 
 function listReleases() {

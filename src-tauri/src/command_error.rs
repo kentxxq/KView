@@ -35,3 +35,41 @@ impl From<&str> for CommandError {
 }
 
 pub(crate) type CommandResult<T> = Result<T, CommandError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_structured_error_code() {
+        let err = CommandError::from("file-not-found: path does not exist");
+        assert_eq!(err.code, "file-not-found");
+        assert_eq!(err.message, "path does not exist");
+        assert!(err.recoverable);
+    }
+
+    #[test]
+    fn fallbacks_unstructured_error() {
+        let err = CommandError::from("something went wrong without code");
+        assert_eq!(err.code, "desktop-command-failed");
+        assert_eq!(err.message, "something went wrong without code");
+        assert!(err.recoverable);
+    }
+
+    #[test]
+    fn ignores_invalid_code_prefix() {
+        let err = CommandError::from("INVALID_CODE: something went wrong");
+        assert_eq!(err.code, "desktop-command-failed");
+        assert_eq!(err.message, "INVALID_CODE: something went wrong");
+    }
+
+    #[test]
+    fn serializes_to_camel_case_json() {
+        let err = CommandError::from("permission-denied: access denied");
+        let json = serde_json::to_string(&err).expect("serialize error");
+        assert!(json.contains("\"code\":\"permission-denied\""));
+        assert!(json.contains("\"message\":\"access denied\""));
+        assert!(json.contains("\"recoverable\":true"));
+    }
+}
+

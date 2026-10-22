@@ -18,7 +18,7 @@ export class DesktopCommandError extends Error implements CommandErrorShape {
   }
 }
 
-function normalizeCommandError(cause: unknown): CommandErrorShape {
+export function normalizeCommandError(cause: unknown): CommandErrorShape {
   if (cause && typeof cause === "object") {
     const value = cause as Partial<CommandErrorShape>;
     if (typeof value.code === "string" && typeof value.message === "string") {
