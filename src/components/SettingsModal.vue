@@ -9,6 +9,7 @@ import { desktopInvoke as invoke } from "../services/desktop-api";
 import { useSettingsStore, type AppSettings } from "../state/settings";
 import { associationGroupsForPlatform } from "../domain/formats";
 import UpdatePanel from "./UpdatePanel.vue";
+import { errorMessage } from "../utils/error";
 
 const props = defineProps<{ open: boolean; initialSection?: "general" | "about" }>();
 const emit = defineEmits<{ "update:open": [value: boolean]; "request-update": [] }>();
@@ -130,7 +131,7 @@ async function submit() {
   } catch (error) {
     toast.add({
       title: "设置保存失败",
-      description: error instanceof Error ? error.message : String(error),
+      description: errorMessage(error),
       color: "error",
     });
   } finally {
@@ -150,7 +151,7 @@ async function openFileAssociationSettings() {
   } catch (error) {
     toast.add({
       title: "无法打开文件关联设置",
-      description: error instanceof Error ? error.message : String(error),
+      description: errorMessage(error),
       color: "error",
     });
   } finally {
@@ -177,7 +178,7 @@ async function changeFileAssociations(action: "register" | "unregister") {
   } catch (error) {
     toast.add({
       title: action === "register" ? "文件关联注册失败，可重试" : "取消注册未完成，可重试",
-      description: error instanceof Error ? error.message : String(error),
+      description: errorMessage(error),
       color: "error",
     });
   } finally {
@@ -196,7 +197,7 @@ async function openLogDirectory() {
   } catch (error) {
     toast.add({
       title: "无法打开日志目录",
-      description: error instanceof Error ? error.message : String(error),
+      description: errorMessage(error),
       color: "error",
     });
   } finally {

@@ -1,3 +1,5 @@
+mod file_access;
+mod text_encoding;
 mod installer;
 mod binary_structure;
 mod presentation;
@@ -26,7 +28,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, UNIX_EPOCH},
+    time::Duration,
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -39,6 +41,8 @@ use tauri::{
 };
 
 use command_error::CommandResult;
+use file_access::{display_path, local_file_metadata, modified_millis};
+use text_encoding::{decode_text, detect_line_ending, encode_text, utf16_unit, DecodeTextError};
 
 #[derive(Default)]
 struct DesktopState {
@@ -435,159 +439,6 @@ async fn fetch_remote_document(url: String) -> CommandResult<RemoteDocument> {
         },
         content,
     })
-}
-
-fn display_path(path: &Path) -> String {
-    let value = path.to_string_lossy();
-    if let Some(unc) = value.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{unc}")
-    } else {
-        value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
-    }
-}
-
-fn modified_millis(metadata: &std::fs::Metadata) -> u64 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|value| value.as_millis() as u64)
-        .unwrap_or_default()
-}
-
-fn detect_line_ending(content: &str) -> &'static str {
-    let mut crlf = 0usize;
-    let mut lf = 0usize;
-    let mut cr = 0usize;
-    let bytes = content.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\r' {
-            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
-                crlf += 1;
-                i += 2;
-                continue;
-            } else {
-                cr += 1;
-            }
-        } else if bytes[i] == b'\n' {
-            lf += 1;
-        }
-        i += 1;
-    }
-
-    if crlf >= lf && crlf >= cr && crlf > 0 {
-        "crlf"
-    } else if cr > lf && cr > 0 {
-        "cr"
-    } else {
-        "lf"
-    }
-}
-
-enum DecodeTextError {
-    BinaryContent,
-    UnsupportedEncoding,
-}
-
-fn complete_utf8_prefix_len(bytes: &[u8]) -> usize {
-    if bytes.is_empty() {
-        return 0;
-    }
-    let mut lead = bytes.len() - 1;
-    while lead > 0 && bytes[lead] & 0b1100_0000 == 0b1000_0000 {
-        lead -= 1;
-    }
-    let expected = match bytes[lead] {
-        0x00..=0x7F => 1,
-        0xC2..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF4 => 4,
-        _ => 1,
-    };
-    if bytes.len() - lead < expected {
-        lead
-    } else {
-        bytes.len()
-    }
-}
-
-fn decode_text(
-    bytes: &[u8],
-    chunked: bool,
-) -> Result<(String, &'static str, bool, usize), DecodeTextError> {
-    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        let payload = &bytes[3..];
-        let consumed = if chunked {
-            complete_utf8_prefix_len(payload)
-        } else {
-            payload.len()
-        };
-        let content = if chunked {
-            String::from_utf8_lossy(&payload[..consumed]).into_owned()
-        } else {
-            String::from_utf8(payload.to_vec()).map_err(|_| DecodeTextError::UnsupportedEncoding)?
-        };
-        return Ok((content, "utf-8-bom", true, 3 + consumed));
-    }
-
-    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
-        let little_endian = bytes.starts_with(&[0xFF, 0xFE]);
-        let mut payload = &bytes[2..];
-        if payload.len() % 2 != 0 {
-            payload = &payload[..payload.len() - 1];
-        }
-        let units: Vec<u16> = payload
-            .chunks_exact(2)
-            .map(|pair| {
-                if little_endian {
-                    u16::from_le_bytes([pair[0], pair[1]])
-                } else {
-                    u16::from_be_bytes([pair[0], pair[1]])
-                }
-            })
-            .collect();
-        let complete_units = if chunked && units.last().is_some_and(|unit| (0xD800..=0xDBFF).contains(unit)) {
-            &units[..units.len() - 1]
-        } else {
-            &units
-        };
-        let content = if chunked {
-            String::from_utf16_lossy(complete_units)
-        } else {
-            String::from_utf16(complete_units).map_err(|_| DecodeTextError::UnsupportedEncoding)?
-        };
-        return Ok((
-            content,
-            if little_endian { "utf-16-le" } else { "utf-16-be" },
-            true,
-            2 + complete_units.len() * 2,
-        ));
-    }
-
-    if bytes.iter().take(8192).any(|byte| *byte == 0) {
-        return Err(DecodeTextError::BinaryContent);
-    }
-
-    let consumed = if chunked {
-        complete_utf8_prefix_len(bytes)
-    } else {
-        bytes.len()
-    };
-    let content = if chunked {
-        String::from_utf8_lossy(&bytes[..consumed]).into_owned()
-    } else {
-        String::from_utf8(bytes.to_vec()).map_err(|_| DecodeTextError::UnsupportedEncoding)?
-    };
-    Ok((content, "utf-8", false, consumed))
-}
-
-fn utf16_unit(pair: &[u8], little_endian: bool) -> u16 {
-    if little_endian {
-        u16::from_le_bytes([pair[0], pair[1]])
-    } else {
-        u16::from_be_bytes([pair[0], pair[1]])
-    }
 }
 
 enum OpenLargeTextError {
@@ -988,15 +839,7 @@ fn read_text(
     settings: tauri::State<'_, settings::SettingsState>,
     path: String,
 ) -> CommandResult<TextReadResult> {
-    let canonical = Path::new(&path)
-        .canonicalize()
-        .map_err(|error| format!("无法访问文件：{error}"))?;
-    let metadata = canonical
-        .metadata()
-        .map_err(|error| format!("无法读取文件信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
+    let (canonical, metadata) = local_file_metadata(&path)?;
     let threshold_bytes = settings
         .0
         .lock()
@@ -1053,15 +896,7 @@ fn open_large_text_session(
     state: tauri::State<'_, DesktopState>,
     path: String,
 ) -> CommandResult<LargeTextSessionInfo> {
-    let canonical = Path::new(&path)
-        .canonicalize()
-        .map_err(|error| format!("无法访问文件：{error}"))?;
-    let metadata = canonical
-        .metadata()
-        .map_err(|error| format!("无法读取文件信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
+    let (canonical, metadata) = local_file_metadata(&path)?;
     Ok(create_large_text_session(&state, canonical, metadata).map_err(|error| match error {
         OpenLargeTextError::BinaryContent => "文件包含二进制内容，不能作为文本打开。".into(),
         OpenLargeTextError::UnsupportedEncoding => "文件可能是文本，但其编码暂不受支持。".into(),
@@ -1172,15 +1007,7 @@ fn read_live_photo(path: String) -> CommandResult<tauri::ipc::Response> {
 #[tauri::command]
 fn read_binary(path: String) -> CommandResult<tauri::ipc::Response> {
     const MAX_DOCUMENT_BYTES: u64 = 200 * 1024 * 1024;
-    let canonical = Path::new(&path)
-        .canonicalize()
-        .map_err(|error| format!("无法访问文件：{error}"))?;
-    let metadata = canonical
-        .metadata()
-        .map_err(|error| format!("无法读取文件信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
+    let (canonical, metadata) = local_file_metadata(&path)?;
     if metadata.len() > MAX_DOCUMENT_BYTES {
         return Err("文档超过 200 MiB 安全限制".into());
     }
@@ -1225,15 +1052,7 @@ fn read_mobi(path: String) -> CommandResult<tauri::ipc::Response> {
 #[tauri::command]
 fn read_legacy_doc(path: String) -> CommandResult<HtmlDocument> {
     const MAX_DOCUMENT_BYTES: u64 = 200 * 1024 * 1024;
-    let canonical = Path::new(&path)
-        .canonicalize()
-        .map_err(|error| format!("无法访问文件：{error}"))?;
-    let metadata = canonical
-        .metadata()
-        .map_err(|error| format!("无法读取文件信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
+    let (canonical, metadata) = local_file_metadata(&path)?;
     if metadata.len() > MAX_DOCUMENT_BYTES {
         return Err("文档超过 200 MiB 安全限制".into());
     }
@@ -1368,15 +1187,7 @@ fn read_binary_chunk(
         return Err("二进制分块偏移必须按 64 KiB 对齐".into());
     }
 
-    let canonical = Path::new(&path)
-        .canonicalize()
-        .map_err(|error| format!("无法访问文件：{error}"))?;
-    let metadata = canonical
-        .metadata()
-        .map_err(|error| format!("无法读取文件信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
+    let (canonical, metadata) = local_file_metadata(&path)?;
     if modified_millis(&metadata) != expected_modified_at {
         return Err("文件已被外部修改，请重新打开后继续查看".into());
     }
@@ -1402,36 +1213,6 @@ fn read_binary_chunk(
 #[tauri::command]
 fn existing_paths(paths: Vec<String>) -> Vec<String> {
     paths.into_iter().filter(|path| Path::new(path).is_file()).collect()
-}
-
-fn encode_text(content: &str, encoding: &str, bom: bool) -> Result<Vec<u8>, String> {
-    match encoding {
-        "utf-8" | "utf-8-bom" => {
-            let mut bytes = Vec::with_capacity(content.len() + 3);
-            if bom || encoding == "utf-8-bom" {
-                bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
-            }
-            bytes.extend_from_slice(content.as_bytes());
-            Ok(bytes)
-        }
-        "utf-16-le" | "utf-16-be" => {
-            let little_endian = encoding == "utf-16-le";
-            let mut bytes = Vec::with_capacity(content.len() * 2 + 2);
-            if bom {
-                bytes.extend_from_slice(if little_endian { &[0xFF, 0xFE] } else { &[0xFE, 0xFF] });
-            }
-            for unit in content.encode_utf16() {
-                let encoded = if little_endian {
-                    unit.to_le_bytes()
-                } else {
-                    unit.to_be_bytes()
-                };
-                bytes.extend_from_slice(&encoded);
-            }
-            Ok(bytes)
-        }
-        _ => Err("不支持的文本编码".into()),
-    }
 }
 
 #[tauri::command]
@@ -1518,16 +1299,7 @@ fn save_text(
 
 #[tauri::command]
 fn inspect_file(path: String) -> CommandResult<OpenedFile> {
-    let canonical = Path::new(&path)
-        .canonicalize()
-        .map_err(|error| format!("无法访问文件：{error}"))?;
-    let metadata = canonical
-        .metadata()
-        .map_err(|error| format!("无法读取文件信息：{error}"))?;
-
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
+    let (canonical, metadata) = local_file_metadata(&path)?;
 
     let name = canonical
         .file_name()

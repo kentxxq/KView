@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
+import { mediaMimeType } from "../utils/media";
 
 const props = defineProps<{
   file: OpenedFile;
@@ -14,18 +15,7 @@ const url = ref("");
 const error = ref("");
 const duration = ref(0);
 
-const mimeType = computed(
-  () =>
-    ({
-      mp3: "audio/mpeg",
-      wav: "audio/wav",
-      m4a: "audio/mp4",
-      aac: "audio/aac",
-      flac: "audio/flac",
-      ogg: "audio/ogg",
-      opus: "audio/ogg; codecs=opus",
-    })[props.file.extension] ?? "application/octet-stream",
-);
+const mimeType = computed(() => mediaMimeType(props.file.extension, "audio"));
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds)) return "未知时长";
@@ -41,12 +31,16 @@ function formatDuration(seconds: number) {
 
 let localUrl = "";
 
-function loadAudio() {
+function releaseAudio() {
   audio.value?.pause();
   if (localUrl) {
     URL.revokeObjectURL(localUrl);
     localUrl = "";
   }
+}
+
+function loadAudio() {
+  releaseAudio();
   url.value = "";
   error.value = "";
   duration.value = 0;
@@ -69,13 +63,7 @@ function loadAudio() {
 onMounted(loadAudio);
 watch(() => [props.file.path, props.file.modifiedAt, props.content, props.binaryContent], loadAudio);
 
-onBeforeUnmount(() => {
-  audio.value?.pause();
-  if (localUrl) {
-    URL.revokeObjectURL(localUrl);
-    localUrl = "";
-  }
-});
+onBeforeUnmount(releaseAudio);
 </script>
 
 <template>

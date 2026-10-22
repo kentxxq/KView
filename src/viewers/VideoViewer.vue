@@ -3,6 +3,7 @@ import Artplayer from "artplayer";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import type { OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
+import { mediaMimeType } from "../utils/media";
 
 const props = defineProps<{
   file: OpenedFile;
@@ -17,14 +18,7 @@ const error = ref("");
 const duration = ref(0);
 const dimensions = ref("");
 
-const mimeType = computed(
-  () =>
-    ({
-      mp4: "video/mp4",
-      webm: "video/webm",
-      mov: "video/quicktime",
-    })[props.file.extension] ?? "application/octet-stream",
-);
+const mimeType = computed(() => mediaMimeType(props.file.extension, "video"));
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds)) return "未知时长";
@@ -48,13 +42,17 @@ function handlePlaybackError() {
 
 let localUrl = "";
 
-function loadVideo() {
+function releaseVideo() {
   player.value?.destroy(false);
   player.value = undefined;
   if (localUrl) {
     URL.revokeObjectURL(localUrl);
     localUrl = "";
   }
+}
+
+function loadVideo() {
+  releaseVideo();
   url.value = "";
   error.value = "";
   duration.value = 0;
@@ -110,14 +108,7 @@ function loadVideo() {
 onMounted(loadVideo);
 watch(() => [props.file.path, props.file.modifiedAt, props.content, props.binaryContent], loadVideo);
 
-onBeforeUnmount(() => {
-  player.value?.destroy(false);
-  player.value = undefined;
-  if (localUrl) {
-    URL.revokeObjectURL(localUrl);
-    localUrl = "";
-  }
-});
+onBeforeUnmount(releaseVideo);
 </script>
 
 <template>

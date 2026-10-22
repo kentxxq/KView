@@ -29,6 +29,8 @@ import { useLibraryStore } from "../state/library";
 import { useWorkspaceStore, type WorkspaceTab } from "../state/workspace";
 import type { DocumentState, OpenedFile, RemoteDocument, SaveResult } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
+import { errorMessage } from "../utils/error";
+import { mediaMimeType } from "../utils/media";
 import { loadLocalDocument } from "../services/document-loader";
 import { initializeDesktopLifecycle } from "../services/desktop-lifecycle";
 import { recordDiagnostic } from "../services/diagnostics";
@@ -183,14 +185,6 @@ const currentFavorite = computed(() => {
   return file?.source === "local" && libraryState.isFavorite(file.path);
 });
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function syncActiveTab() {
-  persistTabs();
-}
-
 function persistTabs() {
   const activeFile = activeTab.value?.state.file;
   const activeLocalPath = activeFile?.source === "local" ? activeFile.path : null;
@@ -209,7 +203,7 @@ function activateTab(id: string) {
   if (spaceOpenTabId.value && id !== spaceOpenTabId.value) {
     void cancelSpaceOpenLink();
   }
-  syncActiveTab();
+  persistTabs();
   const target = tabs.find((tab) => tab.id === id);
   if (!target) return;
   activeTabId.value = id;
@@ -327,14 +321,6 @@ async function openFileWith(path: string) {
   }
 }
 
-async function loadFileState(
-  target: DocumentState,
-  path: string,
-  options: { inspectedFile?: OpenedFile } = {},
-) {
-  await loadLocalDocument(target, path, { ...options, onRecent: addRecent });
-}
-
 async function loadSpaceOpenPath(path: string | null) {
   if (updateLocked.value) return;
   workspaceOperations++;
@@ -345,7 +331,7 @@ async function loadSpaceOpenPath(path: string | null) {
 async function loadSpaceOpenPathImpl(path: string | null) {
   let tab = tabs.find((item) => item.id === spaceOpenTabId.value);
   if (!tab) {
-    syncActiveTab();
+    persistTabs();
     tab = reactive<WorkspaceTab>({
       id: `space-open-${Date.now()}-${tabSequence++}`,
       sourceKey: "space-open:",
@@ -397,7 +383,7 @@ async function loadSpaceOpenPathImpl(path: string | null) {
       });
     }
 
-    await loadFileState(nextState, path, { inspectedFile: file });
+    await loadLocalDocument(nextState, path, { inspectedFile: file, onRecent: addRecent });
   } catch (error) {
     nextState.status = "error";
     nextState.error = {
@@ -516,7 +502,7 @@ async function openCurrentAsHexImpl() {
   documentState.value.error = null;
   documentState.value.status = "ready";
   addRecent(documentState.value.file.path, documentState.value.file.name);
-  syncActiveTab();
+  persistTabs();
 }
 
 async function openPathAsTab(path: string) {
@@ -541,7 +527,7 @@ async function openPathAsTab(path: string) {
   activateTab(tab.id);
   const startedAt = performance.now();
   try {
-    await loadFileState(state, path);
+    await loadLocalDocument(state, path, { onRecent: addRecent });
     recordDiagnostic("performance", `open-${state.viewerKind}`, performance.now() - startedAt);
   } catch (error) {
     recordDiagnostic("viewer", "open-failed", performance.now() - startedAt);
@@ -598,20 +584,8 @@ async function openRemoteAsTab(url: string) {
     } else if (remote.file.kind === "image") {
       state.content = { type: "data-url", value: remote.content };
     } else if (["video", "audio"].includes(remote.file.kind)) {
-      const mediaMimes: Record<string, string> = {
-        mp4: "video/mp4",
-        webm: "video/webm",
-        mov: "video/quicktime",
-        mp3: "audio/mpeg",
-        wav: "audio/wav",
-        m4a: "audio/mp4",
-        aac: "audio/aac",
-        flac: "audio/flac",
-        ogg: "audio/ogg",
-        opus: "audio/ogg; codecs=opus",
-      };
       const bytes = decodeBase64(remote.content);
-      const mimeType = mediaMimes[remote.file.extension] ?? "application/octet-stream";
+      const mimeType = mediaMimeType(remote.file.extension);
       if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) {
         await closeDocumentResources(state);
         return;
@@ -799,7 +773,7 @@ function updateContent(value: string) {
     return;
   documentState.value.content = { type: "text", value };
   documentState.value.dirty = true;
-  syncActiveTab();
+  persistTabs();
 }
 
 async function saveState(state: DocumentState, saveAs: boolean) {
@@ -893,7 +867,7 @@ async function saveStateImpl(state: DocumentState, saveAs: boolean) {
 async function saveDocument(saveAs: boolean) {
   if (updateLocked.value) return false;
   const saved = await saveState(documentState.value, saveAs);
-  syncActiveTab();
+  persistTabs();
   return saved;
 }
 
@@ -908,7 +882,7 @@ async function savePdf(bytes: Uint8Array<ArrayBuffer>) {
 }
 
 async function requestDirtyDecision(targetTabs: WorkspaceTab[]) {
-  syncActiveTab();
+  persistTabs();
   const dirtyTargetIds = targetTabs.filter((tab) => tab.state.dirty).map((tab) => tab.id);
   if (!dirtyTargetIds.length) return true;
   if (resolveGuard) return false;

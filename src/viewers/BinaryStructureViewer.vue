@@ -4,6 +4,7 @@ import type { BinaryStructureDocument, OpenedFile } from "../types/document";
 import { readBinaryStructure } from "../services/binary-structure";
 import ViewerFooter from "../components/ViewerFooter.vue";
 import HexViewer from "./HexViewer.vue";
+import { errorMessage } from "../utils/error";
 
 const props = defineProps<{ file: OpenedFile }>();
 const mode = ref<"structure" | "hex">("structure");
@@ -33,7 +34,7 @@ watch(() => [props.file.path, props.file.modifiedAt], async () => {
     const result = await readBinaryStructure(props.file);
     if (current === generation) document.value = result;
   } catch (cause) {
-    if (current === generation) error.value = cause instanceof Error ? cause.message : String(cause);
+    if (current === generation) error.value = errorMessage(cause);
   } finally {
     if (current === generation) loading.value = false;
   }

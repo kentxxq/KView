@@ -5,6 +5,7 @@ import type { OpenedFile } from "../types/document";
 import TextViewer from "./TextViewer.vue";
 import TreeNode from "./TreeNode.vue";
 import ViewerFooter from "../components/ViewerFooter.vue";
+import { errorMessage } from "../utils/error";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const emit = defineEmits<{ "update:content": [value: string] }>();
@@ -26,7 +27,7 @@ const parsed = computed(() => {
       error: "",
     };
   } catch (error) {
-    return { value: null, error: error instanceof Error ? error.message : String(error) };
+    return { value: null, error: errorMessage(error) };
   }
 });
 

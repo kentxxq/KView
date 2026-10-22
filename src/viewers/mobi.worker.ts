@@ -1,3 +1,5 @@
+import { errorMessage } from "../utils/error";
+
 interface WorkerRequest {
   id: number;
   type: "initialize" | "load-chapter" | "resolve-href" | "destroy";
@@ -156,7 +158,7 @@ workerScope.onmessage = (event) => {
     } catch (cause) {
       workerScope.postMessage({
         id: request.id,
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: errorMessage(cause),
       });
     }
   })();

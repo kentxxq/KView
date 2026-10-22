@@ -5,6 +5,7 @@ use pelite::{PeFile, Wrap, pe64::{imports::Import, exports::Export}};
 use serde::Serialize;
 
 use crate::command_error::CommandResult;
+use crate::file_access::modified_millis;
 
 const TABLE_LIMIT: usize = 5_000;
 
@@ -301,7 +302,7 @@ fn parse_binary_structure(path: &str, expected_modified_at: u64) -> CommandResul
     let file = File::open(&canonical).map_err(|error| format!("无法打开文件：{error}"))?;
     let metadata = file.metadata().map_err(|error| format!("无法读取文件信息：{error}"))?;
     if !metadata.is_file() { return Err("所选路径不是文件".into()); }
-    if crate::modified_millis(&metadata) != expected_modified_at {
+    if modified_millis(&metadata) != expected_modified_at {
         return Err("文件已被外部修改，请重新打开".into());
     }
     let cache = ReadCache::new(file);
@@ -320,7 +321,7 @@ fn parse_binary_structure(path: &str, expected_modified_at: u64) -> CommandResul
         Err("文件内容不是 ELF 或 DLL".into())
     }?;
     let after = canonical.metadata().map_err(|error| format!("无法复核文件信息：{error}"))?;
-    if crate::modified_millis(&after) != expected_modified_at || after.len() != metadata.len() {
+    if modified_millis(&after) != expected_modified_at || after.len() != metadata.len() {
         return Err("文件在解析期间被外部修改，请重新打开".into());
     }
     Ok(result)

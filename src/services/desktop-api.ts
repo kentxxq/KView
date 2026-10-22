@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { errorMessage } from "../utils/error";
 
 export interface CommandErrorShape {
   code: string;
@@ -25,7 +26,7 @@ export function normalizeCommandError(cause: unknown): CommandErrorShape {
       return { code: value.code, message: value.message, recoverable: value.recoverable !== false };
     }
   }
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = errorMessage(cause);
   return { code: "desktop-command-failed", message, recoverable: true };
 }
 

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { desktopInvoke as invoke } from "../services/desktop-api";
 import type { BinaryChunk, OpenedFile } from "../types/document";
 import { decodeBase64 } from "../utils/binary";
+import { errorMessage } from "../utils/error";
 import ViewerFooter from "../components/ViewerFooter.vue";
 
 const props = defineProps<{ file: OpenedFile }>();
@@ -111,7 +112,7 @@ async function loadChunk(offset: number) {
     cacheRevision.value += 1;
     pruneChunkCache();
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason);
+    error.value = errorMessage(reason);
   } finally {
     loadingChunks.delete(offset);
   }

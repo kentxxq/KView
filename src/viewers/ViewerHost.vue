@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, type Component } from "vue";
 import type { DocumentContent, LargeTextSessionInfo, OpenedFile } from "../types/document";
-import { resolveViewer, resolveViewerKey } from "./registry";
+import { resolveViewer } from "./registry";
 
 const props = defineProps<{
   file: OpenedFile;
@@ -21,8 +21,8 @@ const viewerComponents = new Map<string, Component>();
 const LargeTextViewer = defineAsyncComponent(() => import("./LargeTextViewer.vue"));
 
 const textContent = computed(() => {
-  if (["text", "data-url"].includes(props.content.type)) {
-    return (props.content as { value: string }).value;
+  if (props.content.type === "text" || props.content.type === "data-url") {
+    return props.content.value;
   }
   if (props.content.type !== "structured") return "";
   return typeof props.content.value === "string" ? props.content.value : "";
@@ -36,8 +36,9 @@ const binaryContent = computed(() =>
 
 const viewer = computed(() => {
   const definition = resolveViewer(props.file);
-  const key = resolveViewerKey(props.file);
-  if (!definition || !key) return null;
+  if (!definition) return null;
+  const key = definition.componentKey ?? definition.kind;
+  if (!key) return null;
   const cached = viewerComponents.get(key);
   if (cached) return cached;
   const component = defineAsyncComponent(definition.load);

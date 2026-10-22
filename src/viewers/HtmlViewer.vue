@@ -6,6 +6,7 @@ import { desktopInvoke } from "../services/desktop-api";
 import { recordDiagnostic } from "../services/diagnostics";
 import ViewerFooter from "../components/ViewerFooter.vue";
 import TextViewer from "./TextViewer.vue";
+import { errorMessage } from "../utils/error";
 
 const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
 const emit = defineEmits<{ "update:content": [value: string] }>();
@@ -30,7 +31,7 @@ let unlisten: UnlistenFn | undefined;
 let disposed = false;
 
 function reportError(cause: unknown) {
-  error.value = cause instanceof Error ? cause.message : String(cause);
+  error.value = errorMessage(cause);
   recordDiagnostic("viewer", "html-preview-failed");
 }
 

@@ -17,6 +17,7 @@ import type {
   OpenedFile,
 } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
+import { errorMessage } from "../utils/error";
 
 const ROW_HEIGHT = 21;
 const OVERSCAN_ROWS = 24;
@@ -189,7 +190,7 @@ async function loadBatch(
     }
   } catch (cause) {
     if (!disposed && generation === loadGeneration) {
-      error.value = cause instanceof Error ? cause.message : String(cause);
+      error.value = errorMessage(cause);
     }
   } finally {
     if (pendingStarts.get(safeStart) === generation) pendingStarts.delete(safeStart);
@@ -249,7 +250,7 @@ async function pollIndexStatus() {
       scheduleVisibleLoad(visibleStartLine.value, visibleEndLine.value);
     }
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : String(cause);
+    error.value = errorMessage(cause);
     stopPolling();
   }
 }

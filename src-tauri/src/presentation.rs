@@ -1,9 +1,8 @@
-use std::path::Path;
-
 use office_oxide::{Document, format::DocumentFormat, ir::DocumentIR, ir_render::{HtmlOptions, ImageEmbed}};
 use serde::Serialize;
 
 use crate::command_error::CommandResult;
+use crate::file_access::{local_file_metadata, modified_millis};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,16 +25,11 @@ pub async fn read_presentation(path: String, expected_modified_at: u64) -> Comma
 }
 
 fn parse_presentation(path: &str, expected_modified_at: u64) -> CommandResult<PresentationDocument> {
-    let canonical = Path::new(path).canonicalize()
-        .map_err(|error| format!("无法访问文件：{error}"))?;
-    let metadata = canonical.metadata().map_err(|error| format!("无法读取文件信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("所选路径不是文件".into());
-    }
+    let (canonical, metadata) = local_file_metadata(path)?;
     if metadata.len() > 200 * 1024 * 1024 {
         return Err("演示文稿超过 200 MiB 安全限制".into());
     }
-    if crate::modified_millis(&metadata) != expected_modified_at {
+    if modified_millis(&metadata) != expected_modified_at {
         return Err("文件已被外部修改，请重新打开".into());
     }
     if !canonical.extension().and_then(|value| value.to_str())
@@ -64,7 +58,7 @@ fn parse_presentation(path: &str, expected_modified_at: u64) -> CommandResult<Pr
         });
     }
     let after = canonical.metadata().map_err(|error| format!("无法复核文件信息：{error}"))?;
-    if crate::modified_millis(&after) != expected_modified_at || after.len() != metadata.len() {
+    if modified_millis(&after) != expected_modified_at || after.len() != metadata.len() {
         return Err("文件在解析期间被外部修改，请重新打开".into());
     }
     Ok(PresentationDocument { slides })
