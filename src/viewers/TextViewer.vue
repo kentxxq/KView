@@ -1,42 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import EditorWorker from "monaco-editor/editor/editor.worker?worker";
-import JsonWorker from "monaco-editor/languages/features/json/json.worker?worker";
-import "monaco-editor/features/register.all";
+import { inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
 import { resolveLanguage } from "./languages";
-
-import "monaco-editor/languages/features/json/register";
-import "monaco-editor/languages/definitions/bat/register";
-import "monaco-editor/languages/definitions/cpp/register";
-import "monaco-editor/languages/definitions/csharp/register";
-import "monaco-editor/languages/definitions/css/register";
-import "monaco-editor/languages/definitions/dart/register";
-import "monaco-editor/languages/definitions/dockerfile/register";
-import "monaco-editor/languages/definitions/go/register";
-import "monaco-editor/languages/definitions/graphql/register";
-import "monaco-editor/languages/definitions/html/register";
-import "monaco-editor/languages/definitions/ini/register";
-import "monaco-editor/languages/definitions/java/register";
-import "monaco-editor/languages/definitions/javascript/register";
-import "monaco-editor/languages/definitions/kotlin/register";
-import "monaco-editor/languages/definitions/less/register";
-import "monaco-editor/languages/definitions/lua/register";
-import "monaco-editor/languages/definitions/markdown/register";
-import "monaco-editor/languages/definitions/php/register";
-import "monaco-editor/languages/definitions/powershell/register";
-import "monaco-editor/languages/definitions/protobuf/register";
-import "monaco-editor/languages/definitions/python/register";
-import "monaco-editor/languages/definitions/ruby/register";
-import "monaco-editor/languages/definitions/rust/register";
-import "monaco-editor/languages/definitions/scss/register";
-import "monaco-editor/languages/definitions/shell/register";
-import "monaco-editor/languages/definitions/sql/register";
-import "monaco-editor/languages/definitions/swift/register";
-import "monaco-editor/languages/definitions/typescript/register";
-import "monaco-editor/languages/definitions/xml/register";
-import "monaco-editor/languages/definitions/yaml/register";
+import { textDocumentKey, textModelFor } from "../services/text-models";
+import { loadMonaco } from "../services/monaco-runtime";
+import { errorMessage } from "../utils/error";
 
 const props = withDefaults(
   defineProps<{
@@ -58,24 +27,26 @@ const emit = defineEmits<{
 }>();
 
 const editorElement = ref<HTMLElement>();
+const loadError = ref("");
 const wordWrap = ref(props.wordWrap ?? props.file.extension !== "log");
 const unicodeHighlight = ref(props.unicodeHighlight ?? false);
 let editor: import("monaco-editor").editor.IStandaloneCodeEditor | undefined;
 let monacoApi: typeof import("monaco-editor/editor") | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let applyingExternalValue = false;
+let disposed = false;
+const document = inject(textDocumentKey);
 
 onMounted(async () => {
-  self.MonacoEnvironment = {
-    getWorker: (_, label) => (label === "json" ? new JsonWorker() : new EditorWorker()),
-  };
-  const monaco = await import("monaco-editor/editor");
+  try {
+  const monaco = await loadMonaco();
   monacoApi = monaco;
-  if (!editorElement.value) return;
+  if (!editorElement.value || disposed) return;
+  const model = document ? await textModelFor(document) : monaco.editor.createModel(props.content, resolveLanguage(props.file));
+  if (disposed) { if (!document) model.dispose(); return; }
 
   const instance = monaco.editor.create(editorElement.value, {
-    value: props.content,
-    language: resolveLanguage(props.file),
+    model,
     theme: "vs-dark",
     readOnly: props.readOnly,
     automaticLayout: false,
@@ -96,16 +67,17 @@ onMounted(async () => {
   });
   editor = instance;
   instance.onDidChangeModelContent(() => {
-    if (!applyingExternalValue) emit("update:content", instance.getValue());
+    if (!document && !applyingExternalValue) emit("update:content", instance.getValue());
   });
   resizeObserver = new ResizeObserver(() => editor?.layout());
   resizeObserver.observe(editorElement.value);
+  } catch (cause) { if (!disposed) loadError.value = errorMessage(cause); }
 });
 
 watch(
   () => props.content,
   (value) => {
-    if (!editor || editor.getValue() === value) return;
+    if (!editor || document || editor.getValue() === value) return;
     applyingExternalValue = true;
     editor.setValue(value);
     applyingExternalValue = false;
@@ -147,10 +119,16 @@ watch(
 
 watch(
   () => props.file,
-  (file) => {
+  async (file) => {
+    try {
+    if (document && editor && document.content.type === "text") {
+      const shared = await textModelFor(document);
+      if (!disposed) editor.setModel(shared);
+    }
     const model = editor?.getModel();
     if (model) monacoApi?.editor.setModelLanguage(model, resolveLanguage(file));
     if (props.wordWrap === undefined) wordWrap.value = file.extension !== "log";
+    } catch (cause) { if (!disposed) loadError.value = errorMessage(cause); }
   },
 );
 
@@ -165,14 +143,16 @@ function updateUnicodeHighlight(enabled: boolean) {
 }
 
 onBeforeUnmount(() => {
+  disposed = true;
   resizeObserver?.disconnect();
-  editor?.getModel()?.dispose();
+  if (!document) editor?.getModel()?.dispose();
   editor?.dispose();
 });
 </script>
 
 <template>
-  <div v-if="embedded" ref="editorElement" class="size-full min-h-0 bg-inverted" />
+  <UAlert v-if="loadError" color="error" title="无法载入文本编辑器" :description="loadError" />
+  <div v-else-if="embedded" ref="editorElement" class="size-full min-h-0 bg-inverted" />
   <div v-else class="flex size-full min-h-0 flex-col bg-inverted">
     <div ref="editorElement" class="min-h-0 flex-1 bg-inverted" />
     <ViewerFooter :file-size="file.size">

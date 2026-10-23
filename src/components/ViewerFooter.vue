@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, inject } from "vue";
+import { logModeControlKey } from "../services/viewer-footer";
+
+const logModeControl = inject(logModeControlKey, undefined);
 
 const props = defineProps<{
   fileSize?: number;
@@ -52,8 +55,9 @@ const noticeLines = computed(() =>
     <div class="flex shrink-0 items-center gap-0.5 whitespace-nowrap">
       <slot name="actions" />
     </div>
-    <div v-if="$slots.viewSwitch" class="flex shrink-0 items-center border-l border-muted/70 pl-2">
+    <div v-if="$slots.viewSwitch || logModeControl?.visible.value" class="flex shrink-0 items-center gap-3 border-l border-muted/70 pl-2">
       <slot name="viewSwitch" />
+      <USwitch v-if="logModeControl?.visible.value" size="xs" label="日志模式" :model-value="logModeControl.enabled.value" :disabled="logModeControl.disabled.value" @update:model-value="logModeControl.toggle" />
     </div>
   </footer>
 </template>

@@ -20,11 +20,20 @@ pub(crate) struct AppSettings {
     pub(crate) autostart: bool,
     #[serde(default = "default_large_file_threshold_mb")]
     pub(crate) large_file_threshold_mb: u64,
+    #[serde(default)]
+    pub(crate) log_highlight_rules: Vec<LogHighlightRule>,
 }
 
-fn current_schema_version() -> u32 { 3 }
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LogHighlightRule {
+    keyword: String,
+    color: String,
+}
+
+fn current_schema_version() -> u32 { 4 }
 fn default_close_behavior() -> String { "keep-tabs".into() }
-fn default_large_file_threshold_mb() -> u64 { 2 }
+fn default_large_file_threshold_mb() -> u64 { 10 }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -35,6 +44,7 @@ impl Default for AppSettings {
             close_behavior: default_close_behavior(),
             autostart: true,
             large_file_threshold_mb: default_large_file_threshold_mb(),
+            log_highlight_rules: Vec::new(),
         }
     }
 }
@@ -54,17 +64,26 @@ pub(crate) fn read(app: &AppHandle) -> Result<AppSettings, String> {
     let content = std::fs::read_to_string(path).map_err(|error| format!("无法读取设置：{error}"))?;
     let value: serde_json::Value = serde_json::from_str(&content)
         .map_err(|error| format!("设置文件已损坏：{error}"))?;
-    let mut needs_migration = value.get("schemaVersion").is_none()
+    let legacy_schema = value.get("schemaVersion").is_none();
+    let mut needs_migration = legacy_schema
         || value.get("closeBehavior").is_none()
         || value.get("largeFileThresholdMb").is_none();
     let mut settings: AppSettings = serde_json::from_value(value)
         .map_err(|error| format!("设置文件已损坏：{error}"))?;
+    if legacy_schema { settings.schema_version = 0; }
     if settings.residency_mode == "low-memory" && settings.close_behavior == "keep-tabs" {
         settings.close_behavior = "close-tabs".into();
         needs_migration = true;
     }
     if settings.schema_version < 3 {
         if settings.large_file_threshold_mb == 100 {
+            settings.large_file_threshold_mb = default_large_file_threshold_mb();
+        }
+        settings.schema_version = 3;
+        needs_migration = true;
+    }
+    if settings.schema_version < 4 {
+        if settings.large_file_threshold_mb == 2 {
             settings.large_file_threshold_mb = default_large_file_threshold_mb();
         }
         settings.schema_version = current_schema_version();
@@ -85,6 +104,11 @@ fn validate(settings: &AppSettings) -> Result<(), String> {
     }
     if !(1..=1024).contains(&settings.large_file_threshold_mb) {
         return Err("大文件阈值必须是 1–1024 之间的整数 MiB".into());
+    }
+    for rule in &settings.log_highlight_rules {
+        if rule.keyword.trim().is_empty() || !matches!(rule.color.as_str(), "red" | "orange" | "yellow" | "green" | "blue" | "purple") {
+            return Err("日志关键词或颜色无效".into());
+        }
     }
     Ok(())
 }

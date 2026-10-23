@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import {
   computed,
+  defineAsyncComponent,
   defineComponent,
+  h,
   nextTick,
   onBeforeUnmount,
   onMounted,
+  provide,
   reactive,
   ref,
   toRef,
@@ -22,6 +25,7 @@ import FileLibraryModal from "./FileLibraryModal.vue";
 import OpenUrlModal from "./OpenUrlModal.vue";
 import SettingsModal from "./SettingsModal.vue";
 import ViewerFooter from "./ViewerFooter.vue";
+import { logModeControlKey } from "../services/viewer-footer";
 import ViewerHost from "../viewers/ViewerHost.vue";
 import { resolveViewer, resolveViewerKey } from "../viewers/registry";
 import { createDocumentState } from "../state/document";
@@ -50,6 +54,10 @@ interface SiblingFileList {
 }
 
 const toast = useToast();
+const DiffViewer = defineAsyncComponent(() => import("../viewers/DiffViewer.vue"));
+const LogViewer = defineAsyncComponent(() => import("../viewers/LogViewer.vue"));
+const comparisonBaseId = ref("");
+const logModePending = ref(false);
 const workspaceState = useWorkspaceStore();
 const libraryState = useLibraryStore();
 const appSettings = useSettingsStore();
@@ -61,6 +69,7 @@ let disposeUpdates: (() => void) | undefined;
 let disposeUpdateFocus: (() => void) | undefined;
 let notificationPending = false;
 let workspaceOperations = 0;
+const savingDocuments = new WeakSet<DocumentState>();
 
 async function notifyUpdate() {
   const { phase, version, dismissedVersion, notes } = updates.status;
@@ -155,8 +164,32 @@ function viewerShellFor(tabId: string) {
   if (!shell) {
     shell = defineComponent({
       name: viewerShellName(tabId),
-      setup(_, { slots }) {
-        return () => slots.default?.();
+      setup() {
+        return () => {
+          const tab = tabs.find((item) => item.id === tabId);
+          if (!tab) return null;
+          const comparison = tab.comparison;
+          if (comparison) {
+            const left = tabs.find((item) => item.id === comparison.leftId);
+            const right = tabs.find((item) => item.id === comparison.rightId);
+            if (!left || !right) return null;
+            return h(DiffViewer, { left: left.state, right: right.state, locked: updateLocked.value,
+              onFocus: (side: "left" | "right") => { comparison.focused = side; },
+              onSave: (side: "left" | "right") => { void saveState((side === "left" ? left : right).state, false); },
+            });
+          }
+          const state = tab.state;
+          if (!state.file || state.status !== "ready") return null;
+          if (tab.logMode) return h(LogViewer, { file: state.file, document: state });
+          return h(ViewerHost, {
+            key: tab.id === spaceOpenTabId.value ? `space-open:${resolveViewerKey(state.file)}:${state.file.path}` : tab.id,
+            file: state.file, document: state, content: state.content,
+            readOnly: state.readOnly || updateLocked.value, largeTextSession: state.largeTextSession,
+            "onUpdate:content": (value: string) => updateStateContent(state, value),
+            onOpenHex: () => { if (activeTabId.value === tab.id) void openCurrentAsHex(); },
+            onPdfModified: pdfModified, onSavePdf: savePdf,
+          });
+        };
       },
     });
     viewerShells.set(tabId, shell);
@@ -167,12 +200,99 @@ function viewerShellFor(tabId: string) {
 const activeViewerShell = computed(() =>
   activeTab.value ? viewerShellFor(activeTab.value.id) : null,
 );
-const documentState = computed(() => activeTab.value?.state ?? emptyDocumentState);
-const activeViewerKey = computed(() =>
-  documentState.value.file
-    ? (resolveViewerKey(documentState.value.file) ?? documentState.value.viewerKind)
-    : documentState.value.viewerKind,
-);
+const comparisonSources = computed(() => {
+  const comparison = activeTab.value?.comparison;
+  if (!comparison) return null;
+  const left = tabs.find((tab) => tab.id === comparison.leftId);
+  const right = tabs.find((tab) => tab.id === comparison.rightId);
+  return left && right ? { left, right } : null;
+});
+const documentState = computed(() => {
+  const sources = comparisonSources.value;
+  return sources ? sources[activeTab.value!.comparison!.focused].state : activeTab.value?.state ?? emptyDocumentState;
+});
+function tabName(tab: WorkspaceTab) {
+  if (!tab.comparison) return tab.state.file?.name ?? tab.fallbackName;
+  return `${tabs.find((item) => item.id === tab.comparison!.leftId)?.state.file?.name ?? ""} ↔ ${tabs.find((item) => item.id === tab.comparison!.rightId)?.state.file?.name ?? ""}`;
+}
+type ComparisonCandidate = WorkspaceTab & {
+  state: DocumentState & { file: OpenedFile; content: { type: "text"; value: string } };
+};
+function isComparisonCandidate(tab: WorkspaceTab): tab is ComparisonCandidate {
+  const state = tab.state;
+  return !tab.comparison && !tab.logMode && state.status === "ready" && state.file?.source === "local" && !state.readOnly && state.content.type === "text";
+}
+async function compareTabs(leftId: string, rightId: string) {
+  if (updateLocked.value) return;
+  const left = tabs.find((tab) => tab.id === leftId);
+  const right = tabs.find((tab) => tab.id === rightId);
+  if (!left || !right || !isComparisonCandidate(left) || !isComparisonCandidate(right) || left.id === right.id || left.state.file?.path === right.state.file?.path) {
+    toast.add({ title: "无法比较", description: "请选择两个不同的可编辑本地文本，且每侧均不超过当前编辑阈值；日志模式不可参与比较。", color: "warning" });
+    return;
+  }
+  for (const tab of [left, right]) {
+    const state = tab.state;
+    const bytes = state.encoding?.startsWith("utf-16") ? state.content.value.length * 2 + (state.bom ? 2 : 0) : new TextEncoder().encode(state.content.value).length + (state.bom ? 3 : 0);
+    if (bytes > appSettings.largeFileThresholdMb * 1024 * 1024) {
+      toast.add({ title: "文本超过对比大小限制", description: `${state.file!.name} 超过当前 ${appSettings.largeFileThresholdMb} MiB 编辑阈值。`, color: "warning" });
+      return;
+    }
+  }
+  if ([leftId, rightId].includes(spaceOpenTabId.value)) await cancelSpaceOpenLink();
+  if (!tabs.includes(left) || !tabs.includes(right)) return;
+  const existing = tabs.find((tab) => tab.comparison?.leftId === leftId && tab.comparison?.rightId === rightId);
+  if (existing) { activateTab(existing.id); return; }
+  const id = `diff-${Date.now()}-${tabSequence++}`;
+  tabs.push({ id, sourceKey: id, state: createDocumentState(), fallbackName: "文本对比", comparison: { leftId, rightId, focused: "right" } });
+  activateTab(id);
+}
+async function compareWithFile(tab: WorkspaceTab) {
+  if (updateLocked.value || !isComparisonCandidate(tab)) return;
+  const path = await open({ multiple: false, directory: false });
+  if (!path || Array.isArray(path)) return;
+  try {
+    await openPathAsTab(path);
+    const right = tabs.find((item) => !item.comparison && item.state.file?.path === path) ?? tabs.find((item) => item.sourceKey === `local:${path}`);
+    if (right) await compareTabs(tab.id, right.id);
+  } catch (cause) { toast.add({ title: "无法打开对比文件", description: errorMessage(cause), color: "error" }); }
+}
+const canUseLog = computed(() => {
+  const tab = activeTab.value;
+  return !!tab && !tab.comparison && tab.state.status === "ready" && tab.state.file?.source === "local" && (tab.logMode || tab.state.content.type === "text" || !!tab.state.largeTextSession);
+});
+provide(logModeControlKey, {
+  visible: canUseLog,
+  enabled: computed(() => !!activeTab.value?.logMode),
+  disabled: computed(() => updateLocked.value || logModePending.value),
+  toggle: toggleLogMode,
+});
+async function toggleLogMode(enabled: boolean) {
+  const tab = activeTab.value;
+  if (!tab || !canUseLog.value || updateLocked.value || logModePending.value) return;
+  if (tabs.some((item) => item.comparison && [item.comparison.leftId, item.comparison.rightId].includes(tab.id))) {
+    toast.add({ title: "文件正在对比", description: "请先关闭引用此文件的对比标签，再进入日志模式。", color: "warning" });
+    return;
+  }
+  workspaceOperations++;
+  logModePending.value = true;
+  try {
+    if (enabled && !(await requestDirtyDecision([tab]))) return;
+    if (!tabs.includes(tab)) return;
+    if (spaceOpenTabId.value === tab.id) await cancelSpaceOpenLink();
+    if (enabled) {
+      await closeDocumentResources(tab.state);
+      tab.state.dirty = false;
+      tab.state.readOnly = true;
+      tab.state.content = { type: "empty" };
+      tab.logMode = true;
+    } else {
+      const path = tab.state.file!.path;
+      await loadLocalDocument(tab.state, path, { onRecent: addRecent });
+      tab.logMode = false;
+    }
+  } catch (cause) { toast.add({ title: "无法切换日志模式", description: errorMessage(cause), color: "error" }); }
+  finally { workspaceOperations--; logModePending.value = false; }
+}
 const guardedDirtyTabs = computed(() => {
   const targetIds = new Set(guardTargetIds.value);
   return tabs.filter((tab) => targetIds.has(tab.id) && tab.state.dirty);
@@ -242,6 +362,7 @@ function tabContextItems(tab: WorkspaceTab) {
   const file = tab.state.file;
   const path = file?.source === "local" ? file.path : null;
   const index = tabs.findIndex((item) => item.id === tab.id);
+  const candidate = isComparisonCandidate(tab);
   const closeItems = [
     {
       label: "关闭右侧标签页",
@@ -260,6 +381,10 @@ function tabContextItems(tab: WorkspaceTab) {
   ];
   if (!path) return closeItems;
   return [
+    { label: "选择以进行比较", icon: "i-lucide-git-compare", disabled: !candidate, onSelect: () => { comparisonBaseId.value = tab.id; } },
+    { label: "与所选文件比较", disabled: !candidate || !comparisonBaseId.value || comparisonBaseId.value === tab.id, onSelect: () => compareTabs(comparisonBaseId.value, tab.id) },
+    { label: "与文件比较…", disabled: !candidate, onSelect: () => compareWithFile(tab) },
+    { type: "separator" as const },
     {
       label: "打开文件位置",
       icon: "i-lucide-folder-open",
@@ -763,23 +888,28 @@ async function selectFile() {
   if (selection) await openPaths(Array.isArray(selection) ? selection : [selection]);
 }
 
-function updateContent(value: string) {
+function updateStateContent(state: DocumentState, value: string) {
   if (updateLocked.value) return;
   if (
-    documentState.value.readOnly ||
-    documentState.value.content.type !== "text" ||
-    documentState.value.content.value === value
+    state.readOnly ||
+    state.content.type !== "text" ||
+    state.content.value === value
   )
     return;
-  documentState.value.content = { type: "text", value };
-  documentState.value.dirty = true;
+  state.content = { type: "text", value };
+  state.dirty = true;
   persistTabs();
 }
 
 async function saveState(state: DocumentState, saveAs: boolean) {
+  if (savingDocuments.has(state)) {
+    toast.add({ title: "该文件正在保存，请稍候", color: "info" });
+    return false;
+  }
+  savingDocuments.add(state);
   workspaceOperations++;
   try { return await saveStateImpl(state, saveAs); }
-  finally { workspaceOperations--; }
+  finally { workspaceOperations--; savingDocuments.delete(state); }
 }
 
 async function saveStateImpl(state: DocumentState, saveAs: boolean) {
@@ -823,9 +953,10 @@ async function saveStateImpl(state: DocumentState, saveAs: boolean) {
   }
 
   try {
+    const savedContent = state.content.value;
     const result = await invoke<SaveResult>("save_text", {
       path: targetPath,
-      content: state.content.value,
+      content: savedContent,
       encoding: state.encoding ?? "utf-8",
       lineEnding: state.lineEnding ?? "lf",
       bom: state.bom,
@@ -837,7 +968,7 @@ async function saveStateImpl(state: DocumentState, saveAs: boolean) {
     refreshed.readOnly = false;
     state.file = refreshed;
     state.sourceModifiedAt = result.modifiedAt;
-    state.dirty = false;
+    state.dirty = state.content.type === "text" && state.content.value !== savedContent;
     const owner = tabs.find((tab) => tab.state === state);
     if (owner) {
       owner.sourceKey = `local:${refreshed.path}`;
@@ -925,6 +1056,9 @@ async function closeTabs(targetIds: string[]) {
 
 async function closeTabsImpl(targetIds: string[]) {
   const targetIdSet = new Set(targetIds);
+  for (const tab of tabs) {
+    if (tab.comparison && (targetIdSet.has(tab.comparison.leftId) || targetIdSet.has(tab.comparison.rightId))) targetIdSet.add(tab.id);
+  }
   const targetTabs = tabs.filter((tab) => targetIdSet.has(tab.id));
   if (!targetTabs.length || !(await requestDirtyDecision(targetTabs))) return;
 
@@ -968,7 +1102,9 @@ async function closeTabsToRight(id: string) {
 async function closeOtherTabs(id: string) {
   if (!tabs.some((tab) => tab.id === id)) return;
   activateTab(id);
-  await closeTabs(tabs.filter((tab) => tab.id !== id).map((tab) => tab.id));
+  const comparison = tabs.find((tab) => tab.id === id)?.comparison;
+  const keep = new Set([id, ...(comparison ? [comparison.leftId, comparison.rightId] : [])]);
+  await closeTabs(tabs.filter((tab) => !keep.has(tab.id)).map((tab) => tab.id));
 }
 
 async function closeAllTabs(id: string) {
@@ -1080,8 +1216,8 @@ defineShortcuts(
         }
       : false,
     meta_o: selectFile,
-    meta_s: () => saveDocument(false),
-    meta_shift_s: () => saveDocument(true),
+    meta_s: { handler: () => saveDocument(false), usingInput: true },
+    meta_shift_s: { handler: () => saveDocument(true), usingInput: true },
     meta_w: () => closeTab(),
     meta_tab: () => cycleTab(1),
     meta_shift_tab: () => cycleTab(-1),
@@ -1201,7 +1337,7 @@ onBeforeUnmount(() => {
                     v-if="tab.state.dirty"
                     class="size-1.5 shrink-0 rounded-full bg-amber-500"
                   />
-                  <span class="truncate">{{ tab.state.file?.name ?? tab.fallbackName }}</span>
+                  <span class="truncate">{{ tabName(tab) }}</span>
                 </button>
               </UTooltip>
               <UTooltip text="关闭标签页" :delay-duration="500"
@@ -1322,22 +1458,7 @@ onBeforeUnmount(() => {
         class="flex min-h-0 flex-1 flex-col"
       >
         <KeepAlive :exclude="viewerCacheExclusions" :max="12">
-          <component :is="activeViewerShell" :key="activeTabId">
-            <ViewerHost
-              :key="
-                activeTab?.id === spaceOpenTabId ? `space-open:${activeViewerKey}` : activeTabId
-              "
-              class="min-h-0 flex-1"
-              :file="documentState.file"
-              :content="documentState.content"
-              :read-only="documentState.readOnly"
-              :large-text-session="documentState.largeTextSession"
-              @update:content="updateContent"
-              @open-hex="openCurrentAsHex"
-              @pdf-modified="pdfModified"
-              @save-pdf="savePdf"
-            />
-          </component>
+          <component :is="activeViewerShell" :key="activeTabId" class="min-h-0 flex-1" />
         </KeepAlive>
       </div>
       <div v-else-if="documentState.status === 'loading'" class="flex min-h-0 flex-1 flex-col">

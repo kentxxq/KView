@@ -1,12 +1,14 @@
 import type { DocumentState } from "../types/document";
 import { desktopInvoke } from "./desktop-api";
 import { recordDiagnostic } from "./diagnostics";
+import { disposeTextModel } from "./text-models";
 
 const loadGenerations = new WeakMap<DocumentState, number>();
 interface ResourceHandles {
   objectUrls: Set<string>;
   largeTextSessionId?: string;
   ebookSessionId?: string;
+  logSessionId?: string;
 }
 const resources = new WeakMap<DocumentState, ResourceHandles>();
 
@@ -47,7 +49,17 @@ export function registerEbookSession(state: DocumentState, sessionId: string) {
   handlesFor(state).ebookSessionId = sessionId;
 }
 
+export function registerLogSession(state: DocumentState, sessionId: string) {
+  handlesFor(state).logSessionId = sessionId;
+}
+
+export function unregisterLogSession(state: DocumentState, sessionId: string) {
+  const handles = resources.get(state);
+  if (handles?.logSessionId === sessionId) delete handles.logSessionId;
+}
+
 async function releaseHandles(state: DocumentState) {
+  disposeTextModel(state);
   const handles = resources.get(state);
   if (!handles) return;
   resources.delete(state);
@@ -56,6 +68,9 @@ async function releaseHandles(state: DocumentState) {
   const ebookSessionId = handles.ebookSessionId;
   state.largeTextSession = null;
   await Promise.all([
+    handles.logSessionId
+      ? desktopInvoke("close_log_session", { sessionId: handles.logSessionId }).catch(() => recordDiagnostic("viewer", "log-close-failed"))
+      : Promise.resolve(),
     largeTextSessionId
       ? desktopInvoke("close_large_text_session", { sessionId: largeTextSessionId }).catch(() =>
           recordDiagnostic("viewer", "large-text-close-failed"),

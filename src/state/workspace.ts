@@ -6,6 +6,8 @@ export interface WorkspaceTab {
   sourceKey: string;
   state: DocumentState;
   fallbackName: string;
+  comparison?: { leftId: string; rightId: string; focused: "left" | "right" };
+  logMode?: boolean;
 }
 
 export const useWorkspaceStore = defineStore("workspace", {

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, type Component } from "vue";
+import { computed, defineAsyncComponent, provide, type Component } from "vue";
+import type { DocumentState } from "../types/document";
+import { textDocumentKey } from "../services/text-models";
 import type { DocumentContent, LargeTextSessionInfo, OpenedFile } from "../types/document";
 import { resolveViewer } from "./registry";
 
@@ -8,7 +10,9 @@ const props = defineProps<{
   content: DocumentContent;
   readOnly: boolean;
   largeTextSession: LargeTextSessionInfo | null;
+  document: DocumentState;
 }>();
+provide(textDocumentKey, props.document);
 
 defineEmits<{
   "update:content": [value: string];

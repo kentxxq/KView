@@ -51,6 +51,7 @@ function settingsSnapshot(settings: AppSettings): AppSettings {
     closeBehavior: settings.closeBehavior,
     autostart: settings.autostart,
     largeFileThresholdMb: settings.largeFileThresholdMb,
+    logHighlightRules: settings.logHighlightRules.map((rule) => ({ ...rule })),
   };
 }
 

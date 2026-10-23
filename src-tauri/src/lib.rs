@@ -1,5 +1,6 @@
 mod file_access;
 mod text_encoding;
+mod log_reader;
 mod installer;
 mod binary_structure;
 mod presentation;
@@ -52,6 +53,7 @@ struct DesktopState {
     exiting: AtomicBool,
     large_text_sessions: Mutex<HashMap<String, Arc<LargeTextSession>>>,
     next_large_text_session_id: AtomicU64,
+    always_on_top: AtomicBool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1482,6 +1484,7 @@ fn close_main_window(
     if let Some(window) = app.get_webview_window("main") {
         if residency_mode == "low-memory" {
             window.destroy().map_err(|error| error.to_string())?;
+            log_reader::end_window(&app)?;
             diagnostics::append(&app, "residency", "window-destroyed", None);
         } else {
             window.hide().map_err(|error| error.to_string())?;
@@ -1545,14 +1548,32 @@ pub(crate) fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Resu
         })
         .unwrap_or((1200.0, 760.0));
 
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+    log_reader::begin_window(app).map_err(|error| std::io::Error::other(error))?;
+    let result = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title(app_identity::APP_NAME)
         .decorations(false)
         .inner_size(default_width, default_height)
         .min_inner_size(640.0, 480.0)
         .center()
         .visible(activate)
-        .build()
+        .always_on_top(app.state::<DesktopState>().always_on_top.load(Ordering::SeqCst))
+        .build();
+    if result.is_err() {
+        log_reader::end_window(app).map_err(|error| std::io::Error::other(error))?;
+    }
+    result
+}
+
+#[tauri::command]
+fn get_window_pin(state: tauri::State<'_, DesktopState>) -> bool {
+    state.always_on_top.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn set_window_pin(window: WebviewWindow, state: tauri::State<'_, DesktopState>, pinned: bool) -> CommandResult<bool> {
+    window.set_always_on_top(pinned).map_err(|error| error.to_string())?;
+    state.always_on_top.store(pinned, Ordering::SeqCst);
+    Ok(pinned)
 }
 
 fn schedule_main_window(app: &AppHandle) {
@@ -1668,6 +1689,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopState::default())
+        .manage(log_reader::LogSessions::default())
         .manage(html_preview::HtmlPreviews::default())
         .register_asynchronous_uri_scheme_protocol("kview-html", |context, request, responder| {
             let app = context.app_handle().clone();
@@ -1676,6 +1698,12 @@ pub fn run() {
         .manage(settings::SettingsState::default())
         .manage(epub_reader::EpubSessions::default())
         .invoke_handler(tauri::generate_handler![
+            get_window_pin,
+            set_window_pin,
+            log_reader::open_log_session,
+            log_reader::get_log_window_generation,
+            log_reader::read_log_increment,
+            log_reader::close_log_session,
             html_preview::create_html_preview,
             html_preview::update_html_preview,
             html_preview::close_html_preview,

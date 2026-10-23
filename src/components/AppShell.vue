@@ -1,6 +1,26 @@
 <script setup lang="ts">
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { onMounted, ref } from "vue";
+import { desktopInvoke } from "../services/desktop-api";
+import { errorMessage } from "../utils/error";
+import { useToast } from "@nuxt/ui/composables";
+
+const pinned = ref(false);
+const pinPending = ref(false);
+const toast = useToast();
+onMounted(async () => {
+  if (!isTauri()) return;
+  try { pinned.value = await desktopInvoke<boolean>("get_window_pin"); }
+  catch (error) { toast.add({ title: "无法读取置顶状态", description: errorMessage(error), color: "error" }); }
+});
+async function togglePin() {
+  if (!isTauri() || pinPending.value) return;
+  pinPending.value = true;
+  try { pinned.value = await desktopInvoke<boolean>("set_window_pin", { pinned: !pinned.value }); }
+  catch (error) { toast.add({ title: "无法切换置顶", description: errorMessage(error), color: "error" }); }
+  finally { pinPending.value = false; }
+}
 
 defineProps<{ immersive?: boolean }>();
 const emit = defineEmits<{ "request-close": [] }>();
@@ -45,6 +65,11 @@ function closeWindow() {
           <slot name="actions" />
         </div>
         <div class="flex items-stretch border-l border-muted/60">
+          <UTooltip :text="pinned ? '取消置顶' : '置顶'" :delay-duration="500">
+            <button class="titlebar-button" :class="{ 'text-primary bg-primary/10': pinned }" type="button" :aria-label="pinned ? '取消置顶' : '置顶'" :aria-pressed="pinned" :disabled="pinPending" @click="togglePin">
+              <UIcon :name="pinned ? 'i-lucide-pin-off' : 'i-lucide-pin'" class="size-3.5" />
+            </button>
+          </UTooltip>
           <UTooltip text="最小化" :delay-duration="500">
             <button
               class="titlebar-button"

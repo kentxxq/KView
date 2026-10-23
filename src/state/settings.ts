@@ -5,6 +5,8 @@ import { desktopInvoke as invoke } from "../services/desktop-api";
 export type ThemePreference = "system" | "light" | "dark";
 export type ResidencyMode = "fast" | "low-memory";
 export type CloseBehavior = "keep-tabs" | "close-tabs";
+export type LogColor = "red" | "orange" | "yellow" | "green" | "blue" | "purple";
+export interface LogHighlightRule { keyword: string; color: LogColor }
 
 export interface AppSettings {
   theme: ThemePreference;
@@ -12,6 +14,7 @@ export interface AppSettings {
   closeBehavior: CloseBehavior;
   autostart: boolean;
   largeFileThresholdMb: number;
+  logHighlightRules: LogHighlightRule[];
 }
 
 const defaults = (): AppSettings => ({
@@ -19,7 +22,8 @@ const defaults = (): AppSettings => ({
   residencyMode: "fast",
   closeBehavior: "keep-tabs",
   autostart: true,
-  largeFileThresholdMb: 2,
+  largeFileThresholdMb: 10,
+  logHighlightRules: [],
 });
 
 let mediaQuery: MediaQueryList | undefined;
