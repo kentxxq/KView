@@ -40,6 +40,7 @@ export interface OpenedFile {
 export interface RemoteDocument {
   file: OpenedFile;
   content: string;
+  bom?: boolean;
 }
 
 export interface ViewerDefinition {

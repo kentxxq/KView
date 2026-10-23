@@ -89,6 +89,8 @@ struct OpenedFile {
 struct RemoteDocument {
     file: OpenedFile,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bom: Option<bool>,
 }
 
 const LARGE_TEXT_CHUNK_BYTES: u64 = 2 * 1024 * 1024;
@@ -96,6 +98,7 @@ const LARGE_TEXT_CHECKPOINT_LINES: u64 = 1024;
 const LARGE_TEXT_INITIAL_LINES: u64 = 2048;
 const MAX_IMAGE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_REMOTE_BYTES: u64 = 200 * 1024 * 1024;
+const MAX_REMOTE_TEXT_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -219,46 +222,161 @@ struct RemoteFormat {
     kind: &'static str,
 }
 
+impl RemoteFormat {
+    fn is_text(self) -> bool {
+        matches!(self.kind, "text" | "markdown" | "json" | "yaml")
+    }
+
+    fn byte_limit(self) -> u64 {
+        if self.is_text() { MAX_REMOTE_TEXT_BYTES }
+        else if self.kind == "image" { MAX_IMAGE_BYTES }
+        else { MAX_REMOTE_BYTES }
+    }
+}
+
 fn remote_format_hint(extension: &str, mime_type: &str) -> Option<RemoteFormat> {
-    let format = match mime_type {
-        "image/avif" => RemoteFormat { extension: "avif", mime_type: "image/avif", kind: "image" },
-        "image/bmp" | "image/x-ms-bmp" => RemoteFormat { extension: "bmp", mime_type: "image/bmp", kind: "image" },
-        "image/x-icon" | "image/vnd.microsoft.icon" => RemoteFormat { extension: "ico", mime_type: "image/vnd.microsoft.icon", kind: "image" },
-        "image/jxl" => RemoteFormat { extension: "jxl", mime_type: "image/jxl", kind: "image" },
-        "image/tiff" => RemoteFormat { extension: "tiff", mime_type: "image/tiff", kind: "image" },
-        "image/jpeg" => RemoteFormat { extension: "jpg", mime_type: "image/jpeg", kind: "image" },
-        "image/png" => RemoteFormat { extension: "png", mime_type: "image/png", kind: "image" },
-        "image/webp" => RemoteFormat { extension: "webp", mime_type: "image/webp", kind: "image" },
-        "image/gif" => RemoteFormat { extension: "gif", mime_type: "image/gif", kind: "image" },
-        "image/svg+xml" => RemoteFormat { extension: "svg", mime_type: "image/svg+xml", kind: "image" },
-        "application/pdf" => RemoteFormat { extension: "pdf", mime_type: "application/pdf", kind: "pdf" },
-        "text/html" => RemoteFormat { extension: "html", mime_type: "text/html", kind: "text" },
-        "video/mp4" => RemoteFormat { extension: "mp4", mime_type: "video/mp4", kind: "video" },
-        "video/webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
-        "video/quicktime" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
-        _ => match extension {
-            "avif" => RemoteFormat { extension: "avif", mime_type: "image/avif", kind: "image" },
-            "bmp" => RemoteFormat { extension: "bmp", mime_type: "image/bmp", kind: "image" },
-            "ico" => RemoteFormat { extension: "ico", mime_type: "image/vnd.microsoft.icon", kind: "image" },
-            "jxl" => RemoteFormat { extension: "jxl", mime_type: "image/jxl", kind: "image" },
-            "tif" | "tiff" => RemoteFormat { extension: "tiff", mime_type: "image/tiff", kind: "image" },
-            "jpg" | "jpeg" => RemoteFormat { extension: "jpg", mime_type: "image/jpeg", kind: "image" },
-            "png" => RemoteFormat { extension: "png", mime_type: "image/png", kind: "image" },
-            "webp" => RemoteFormat { extension: "webp", mime_type: "image/webp", kind: "image" },
-            "gif" => RemoteFormat { extension: "gif", mime_type: "image/gif", kind: "image" },
-            "svg" => RemoteFormat { extension: "svg", mime_type: "image/svg+xml", kind: "image" },
-            "pdf" => RemoteFormat { extension: "pdf", mime_type: "application/pdf", kind: "pdf" },
-            "html" | "htm" => RemoteFormat { extension: "html", mime_type: "text/html", kind: "text" },
-            "mp4" => RemoteFormat { extension: "mp4", mime_type: "video/mp4", kind: "video" },
-            "webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
-            "mov" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
-            _ => return None,
+    let extension = match mime_type {
+        "image/avif" => "avif",
+        "image/bmp" | "image/x-ms-bmp" => "bmp",
+        "image/x-icon" | "image/vnd.microsoft.icon" => "ico",
+        "image/jxl" => "jxl",
+        "image/tiff" => "tiff",
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/svg+xml" => "svg",
+        "application/pdf" => "pdf",
+        "text/html" => "html",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/quicktime" => "mov",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/wav" | "audio/wave" | "audio/x-wav" => "wav",
+        "audio/mp4" | "audio/x-m4a" => "m4a",
+        "audio/aac" | "audio/aacp" => "aac",
+        "audio/flac" | "audio/x-flac" => "flac",
+        "audio/ogg" | "application/ogg" => "ogg",
+        "audio/opus" => "opus",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+        "application/vnd.ms-excel" => "xls",
+        "application/json" => return Some(RemoteFormat { extension: "json", mime_type: "application/json", kind: "json" }),
+        "application/yaml" | "application/x-yaml" | "text/yaml" => return Some(RemoteFormat { extension: "yaml", mime_type: "application/yaml", kind: "yaml" }),
+        "text/markdown" => return Some(RemoteFormat { extension: "md", mime_type: "text/markdown", kind: "markdown" }),
+        _ => extension,
+    };
+    let format = match extension {
+        "avif" => RemoteFormat { extension: "avif", mime_type: "image/avif", kind: "image" },
+        "bmp" => RemoteFormat { extension: "bmp", mime_type: "image/bmp", kind: "image" },
+        "ico" => RemoteFormat { extension: "ico", mime_type: "image/vnd.microsoft.icon", kind: "image" },
+        "jxl" => RemoteFormat { extension: "jxl", mime_type: "image/jxl", kind: "image" },
+        "tif" | "tiff" => RemoteFormat { extension: "tiff", mime_type: "image/tiff", kind: "image" },
+        "jpg" | "jpeg" => RemoteFormat { extension: "jpg", mime_type: "image/jpeg", kind: "image" },
+        "png" => RemoteFormat { extension: "png", mime_type: "image/png", kind: "image" },
+        "webp" => RemoteFormat { extension: "webp", mime_type: "image/webp", kind: "image" },
+        "gif" => RemoteFormat { extension: "gif", mime_type: "image/gif", kind: "image" },
+        "svg" => RemoteFormat { extension: "svg", mime_type: "image/svg+xml", kind: "image" },
+        "pdf" => RemoteFormat { extension: "pdf", mime_type: "application/pdf", kind: "pdf" },
+        "html" | "htm" => RemoteFormat { extension: "html", mime_type: "text/html", kind: "text" },
+        "mp4" => RemoteFormat { extension: "mp4", mime_type: "video/mp4", kind: "video" },
+        "webm" => RemoteFormat { extension: "webm", mime_type: "video/webm", kind: "video" },
+        "mov" => RemoteFormat { extension: "mov", mime_type: "video/quicktime", kind: "video" },
+        "mp3" => RemoteFormat { extension: "mp3", mime_type: "audio/mpeg", kind: "audio" },
+        "wav" => RemoteFormat { extension: "wav", mime_type: "audio/wav", kind: "audio" },
+        "m4a" => RemoteFormat { extension: "m4a", mime_type: "audio/mp4", kind: "audio" },
+        "aac" => RemoteFormat { extension: "aac", mime_type: "audio/aac", kind: "audio" },
+        "flac" => RemoteFormat { extension: "flac", mime_type: "audio/flac", kind: "audio" },
+        "ogg" => RemoteFormat { extension: "ogg", mime_type: "audio/ogg", kind: "audio" },
+        "opus" => RemoteFormat { extension: "opus", mime_type: "audio/ogg", kind: "audio" },
+        "docx" => RemoteFormat { extension: "docx", mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", kind: "docx" },
+        "xlsx" => RemoteFormat { extension: "xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", kind: "xlsx" },
+        "xls" => RemoteFormat { extension: "xls", mime_type: "application/vnd.ms-excel", kind: "xlsx" },
+        _ => {
+            if let Some((extension, kind)) = formats::text_format(extension, "") {
+                RemoteFormat { extension, mime_type: "text/plain", kind }
+            } else if mime_type.starts_with("text/") || matches!(mime_type, "application/xml" | "application/javascript" | "application/x-javascript") {
+                RemoteFormat { extension: "txt", mime_type: "text/plain", kind: "text" }
+            } else {
+                return None;
+            }
         },
     };
     Some(format)
 }
 
-fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> Option<RemoteFormat> {
+fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> CommandResult<Option<RemoteFormat>> {
+    if bytes.starts_with(b"PK\x03\x04") {
+        let archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+            .map_err(|error| format!("远程 Office 容器已损坏：{error}"))?;
+        let has_types = archive.file_names().any(|name| name == "[Content_Types].xml");
+        if has_types && archive.file_names().any(|name| name == "word/document.xml") {
+            return Ok(remote_format_hint("docx", ""));
+        }
+        if has_types && archive.file_names().any(|name| name == "xl/workbook.xml") {
+            return Ok(remote_format_hint("xlsx", ""));
+        }
+        return Err("远程 ZIP 容器不是受支持的 DOCX 或 XLSX 文档".into());
+    }
+    Ok(detect_remote_media_or_text(bytes, extension, mime_type))
+}
+
+fn id3_audio_offset(bytes: &[u8]) -> Option<usize> {
+    let header = bytes.get(..10)?;
+    if !header.starts_with(b"ID3") || header[4] == 0xFF || header[6..10].iter().any(|byte| byte & 0x80 != 0) {
+        return None;
+    }
+    let reserved_flags = match header[3] {
+        2 => 0x3F,
+        3 => 0x1F,
+        4 => 0x0F,
+        _ => return None,
+    };
+    if header[5] & reserved_flags != 0 { return None; }
+    let tag_size = header[6..10].iter().fold(0usize, |size, byte| (size << 7) | usize::from(*byte));
+    let footer_size = if header[3] == 4 && header[5] & 0x10 != 0 { 10 } else { 0 };
+    Some(10 + tag_size + footer_size)
+}
+
+fn detect_remote_audio_frame(bytes: &[u8]) -> Option<RemoteFormat> {
+    let audio = if bytes.starts_with(b"ID3") {
+        bytes.get(id3_audio_offset(bytes)?..)?
+    } else {
+        bytes
+    };
+    let header = audio.get(..4)?;
+    if header[0] == 0xFF && header[1] & 0xE0 == 0xE0
+        && header[1] & 0x18 != 0x08 && header[1] & 0x06 != 0
+        && header[2] & 0xF0 != 0xF0 && header[2] & 0x0C != 0x0C
+        && header[3] & 0x03 != 0x02
+    {
+        return remote_format_hint("mp3", "audio/mpeg");
+    }
+    if audio.len() >= 7 && header[0] == 0xFF && header[1] & 0xF6 == 0xF0
+        && (header[2] >> 2) & 0x0F <= 12
+    {
+        return remote_format_hint("aac", "audio/aac");
+    }
+    None
+}
+
+fn remote_prefix_byte_limit(bytes: &[u8], extension: &str, mime_type: &str) -> u64 {
+    // ZIP 的目录在文件尾，ID3 后的音频帧也可能尚未接收，先采用二进制上限。
+    if bytes.starts_with(b"PK\x03\x04") || id3_audio_offset(bytes).is_some() {
+        return MAX_REMOTE_BYTES;
+    }
+    detect_remote_media_or_text(bytes, extension, mime_type)
+        .map(RemoteFormat::byte_limit).unwrap_or(MAX_REMOTE_BYTES)
+}
+
+fn validate_remote_size(actual: u64, declared: Option<u64>, limit: u64) -> CommandResult<()> {
+    if actual > limit || declared.is_some_and(|length| length > limit) {
+        return Err(format!("远程内容超过 {} MiB 安全限制", limit / 1024 / 1024).into());
+    }
+    Ok(())
+}
+
+fn detect_remote_media_or_text(bytes: &[u8], extension: &str, mime_type: &str) -> Option<RemoteFormat> {
     if let Some((extension, mime)) = image_formats::detect_native_image(bytes) {
         return remote_format_hint(extension, mime);
     }
@@ -277,10 +395,35 @@ fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> Optio
     if bytes.starts_with(b"%PDF-") {
         return remote_format_hint("pdf", "application/pdf");
     }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE" {
+        return remote_format_hint("wav", "audio/wav");
+    }
+    if bytes.starts_with(b"fLaC") {
+        return remote_format_hint("flac", "audio/flac");
+    }
+    if bytes.starts_with(b"OggS") {
+        let segment_count = usize::from(*bytes.get(26)?);
+        let packet = bytes.get(27 + segment_count..)?;
+        if packet.starts_with(b"OpusHead") {
+            return remote_format_hint("opus", "audio/opus");
+        }
+        if packet.starts_with(b"\x01vorbis") {
+            return remote_format_hint("ogg", "audio/ogg");
+        }
+        return None;
+    }
+    if let Some(format) = detect_remote_audio_frame(bytes) {
+        return Some(format);
+    }
+    if bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
+        return remote_format_hint(extension, mime_type).filter(|format| format.extension == "xls");
+    }
     if bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
         return remote_format_hint("webm", "video/webm");
     }
     if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        let audio = &bytes[8..12] == b"M4A " || extension == "m4a" || matches!(mime_type, "audio/mp4" | "audio/x-m4a");
+        if audio { return remote_format_hint("m4a", "audio/mp4"); }
         let quicktime = &bytes[8..12] == b"qt  " || extension == "mov" || mime_type == "video/quicktime";
         return if quicktime {
             remote_format_hint("mov", "video/quicktime")
@@ -290,7 +433,7 @@ fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> Optio
     }
 
     let hinted = remote_format_hint(extension, mime_type)?;
-    if hinted.extension == "html" { return Some(hinted); }
+    if hinted.is_text() { return Some(hinted); }
     if hinted.extension == "svg" {
         let prefix = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_ascii_lowercase();
         if prefix.contains("<svg") {
@@ -378,48 +521,54 @@ async fn fetch_remote_document(url: String) -> CommandResult<RemoteDocument> {
         .and_then(|segments| segments.filter(|segment| !segment.is_empty()).last())
         .and_then(|name| name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()))
         .unwrap_or_default();
-    let path_extension = header_name
+    let mut path_extension = header_name
         .as_deref()
         .and_then(|name| name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()))
         .unwrap_or(url_extension);
-    let hinted = remote_format_hint(&path_extension, &mime_type);
-    let declared_limit = if hinted.is_some_and(|format| format.extension == "html") {
-        LARGE_TEXT_CHUNK_BYTES
-    } else if hinted.is_some_and(|format| format.kind == "image") {
-        MAX_IMAGE_BYTES
-    } else {
-        MAX_REMOTE_BYTES
-    };
-    if response.content_length().is_some_and(|length| length > declared_limit) {
-        return Err(format!("远程内容超过 {} MiB 安全限制", declared_limit / 1024 / 1024).into());
+    let file_name = header_name.as_deref().or_else(|| final_url.path_segments().and_then(|segments| segments.filter(|segment| !segment.is_empty()).last())).unwrap_or_default();
+    if let Some((extension, _)) = formats::text_format(&path_extension, file_name) {
+        path_extension = extension.to_string();
     }
+    let content_length = response.content_length();
+    validate_remote_size(0, content_length, MAX_REMOTE_BYTES)?;
 
     let mut bytes = Vec::with_capacity(
-        response.content_length().unwrap_or_default().min(declared_limit) as usize,
+        content_length.unwrap_or_default().min(MAX_REMOTE_TEXT_BYTES) as usize,
     );
+    let mut download_limit = None;
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|error| format!("读取远程内容失败：{error}"))?
     {
-        if bytes.len().saturating_add(chunk.len()) > declared_limit as usize {
-            return Err(format!("远程内容超过 {} MiB 安全限制", declared_limit / 1024 / 1024).into());
-        }
+        let limit = download_limit.unwrap_or(MAX_REMOTE_BYTES);
+        validate_remote_size(bytes.len().saturating_add(chunk.len()) as u64, None, limit)?;
         bytes.extend_from_slice(&chunk);
+        if download_limit.is_none() && bytes.len() >= 4096 {
+            let limit = remote_prefix_byte_limit(&bytes[..4096], &path_extension, &mime_type);
+            validate_remote_size(bytes.len() as u64, content_length, limit)?;
+            download_limit = Some(limit);
+        }
     }
 
-    let format = detect_remote_format(&bytes, &path_extension, &mime_type)
-        .ok_or_else(|| "远程内容不是受支持的图片、PDF、视频或 HTML".to_string())?;
-    if format.extension == "html" && bytes.len() > LARGE_TEXT_CHUNK_BYTES as usize {
-        return Err("远程 HTML 超过 2 MiB 预览限制".into());
-    }
-    if format.kind == "image" && bytes.len() > MAX_IMAGE_BYTES as usize {
-        return Err("远程图片超过 100 MiB 安全限制".into());
-    }
+    let format = detect_remote_format(&bytes, &path_extension, &mime_type)?
+        .ok_or_else(|| "远程内容格式不受支持或文件已损坏；支持图片、PDF、音视频、DOCX、XLS/XLSX、文本与 HTML".to_string())?;
+    validate_remote_size(bytes.len() as u64, None, format.byte_limit())?;
     let name = remote_file_name(header_name, &final_url, format.extension);
     let size = bytes.len() as u64;
-    let content = if format.extension == "html" {
-        String::from_utf8(bytes).map_err(|_| "远程 HTML 不是有效的 UTF-8 文本")?
+    let mut encoding = None;
+    let mut line_ending = None;
+    let mut bom = None;
+    let content = if format.is_text() {
+        let (content, detected_encoding, detected_bom, consumed) = decode_text(&bytes, false).map_err(|error| match error {
+            DecodeTextError::BinaryContent => "远程文本包含二进制内容",
+            DecodeTextError::UnsupportedEncoding => "远程文本编码不受支持；支持 UTF-8 或带 BOM 的 UTF-16",
+        })?;
+        if consumed != bytes.len() { return Err("远程文本包含不完整的编码字符".into()); }
+        encoding = Some(detected_encoding);
+        line_ending = Some(detect_line_ending(&content));
+        bom = Some(detected_bom);
+        content
     } else if format.kind == "image" {
         format!("data:{};base64,{}", format.mime_type, BASE64.encode(&bytes))
     } else {
@@ -435,11 +584,12 @@ async fn fetch_remote_document(url: String) -> CommandResult<RemoteDocument> {
             size,
             modified_at: 0,
             kind: format.kind.into(),
-            encoding: None,
-            line_ending: None,
+            encoding,
+            line_ending,
             read_only: true,
         },
         content,
+        bom,
     })
 }
 

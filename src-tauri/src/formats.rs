@@ -38,6 +38,21 @@ fn catalog() -> &'static Vec<FormatCapability> {
     })
 }
 
+pub(crate) fn text_format(extension: &str, file_name: &str) -> Option<(&'static str, &'static str)> {
+    catalog().iter().find_map(|capability| {
+        let kind = capability.viewer_kind.as_str();
+        if !matches!(kind, "text" | "markdown" | "json" | "yaml") { return None; }
+        let matched_extension = capability.extensions.iter().find(|value| value.as_str() == extension);
+        if let Some(extension) = matched_extension {
+            Some((extension.as_str(), kind))
+        } else if capability.file_names.iter().any(|value| value.eq_ignore_ascii_case(file_name)) {
+            capability.extensions.first().map(|extension| (extension.as_str(), kind))
+        } else {
+            None
+        }
+    })
+}
+
 pub(crate) fn viewer_kind(extension: &str, file_name: &str) -> String {
     let lower_name = file_name.to_ascii_lowercase();
     #[cfg(target_os = "windows")]

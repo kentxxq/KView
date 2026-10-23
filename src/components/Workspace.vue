@@ -704,8 +704,11 @@ async function openRemoteAsTab(url: string) {
     state.file = remote.file;
     state.viewerKind = remote.file.kind;
     state.sourceModifiedAt = null;
-    if (remote.file.kind === "text") {
+    if (["text", "markdown", "json", "yaml"].includes(remote.file.kind)) {
       state.content = { type: "text", value: remote.content };
+      state.encoding = remote.file.encoding;
+      state.lineEnding = remote.file.lineEnding;
+      state.bom = remote.bom === true;
     } else if (remote.file.kind === "image") {
       state.content = { type: "data-url", value: remote.content };
     } else if (["video", "audio"].includes(remote.file.kind)) {

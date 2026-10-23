@@ -39,7 +39,7 @@ watch(
   <UModal
     :open="open"
     title="打开 URL"
-    description="支持公开的 HTTP/HTTPS 图片、PDF、视频和 HTML 地址"
+    description="支持公开的 HTTP/HTTPS 图片、PDF、音视频、DOCX、XLS/XLSX、文本及 HTML 地址；文本上限 10 MiB"
     @update:open="emit('update:open', $event)"
   >
     <template #body>
