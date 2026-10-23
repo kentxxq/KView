@@ -117,27 +117,28 @@ fn decode(bytes: &[u8], encoding: &str) -> Result<(String, usize), String> {
 }
 
 fn read_chunk(session: &mut LogSession, limit: u64, truncated: bool) -> Result<LogChunk, String> {
-    let current = File::open(&session.path).map_err(|error| format!("日志文件无法访问：{error}"))?;
+    let mut current = File::open(&session.path).map_err(|error| format!("日志文件无法访问：{error}"))?;
     if identity(&current)? != session.identity { return Err("日志文件已被替换，请重新连接".into()); }
     let metadata = current.metadata().map_err(|error| error.to_string())?;
     if metadata.len() < session.observed_size {
         return Err("日志文件已被截断，请重新连接".into());
     }
     if !session.anchor.is_empty() {
-        session.file.seek(SeekFrom::Start(session.offset - session.anchor.len() as u64)).map_err(|error| error.to_string())?;
+        current.seek(SeekFrom::Start(session.offset - session.anchor.len() as u64)).map_err(|error| error.to_string())?;
         let mut anchor = vec![0; session.anchor.len()];
-        session.file.read_exact(&mut anchor).map_err(|error| error.to_string())?;
+        current.read_exact(&mut anchor).map_err(|error| error.to_string())?;
         if anchor != session.anchor { return Err("日志已有内容被改写，请重新连接".into()); }
     }
-    session.file.seek(SeekFrom::Start(session.offset)).map_err(|error| error.to_string())?;
+    current.seek(SeekFrom::Start(session.offset)).map_err(|error| error.to_string())?;
     let mut bytes = vec![0; (metadata.len().saturating_sub(session.offset).min(limit)) as usize];
-    session.file.read_exact(&mut bytes).map_err(|error| format!("读取日志失败：{error}"))?;
+    current.read_exact(&mut bytes).map_err(|error| format!("读取日志失败：{error}"))?;
     let (mut content, consumed) = decode(&bytes, session.encoding)?;
     session.offset += consumed as u64;
     if consumed > 0 {
         session.anchor = bytes[consumed.saturating_sub(64)..consumed].to_vec();
     }
     session.observed_size = metadata.len();
+    session.file = current;
     let mut truncated = truncated;
     if limit == WINDOW_BYTES {
         let mut breaks = 0;
