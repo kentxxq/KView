@@ -6,6 +6,7 @@ const emit = defineEmits<{
   select: [];
   openUrl: [];
   pasteUrl: [url: string];
+  pastePath: [path: string];
   pasteImage: [file: File];
   pasteText: [text: string];
 }>();
@@ -35,6 +36,14 @@ function handlePaste(event: ClipboardEvent) {
 
   const text = clipboard.getData("text/plain");
   if (!text.trim()) return;
+  const trimmed = text.trim();
+  const path =
+    trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1) : trimmed;
+  if (!/[\r\n]/.test(path) && /^(?:[a-z]:[\\/]|\\\\|\/|%[^%]+%)/i.test(path)) {
+    event.preventDefault();
+    emit("pastePath", path);
+    return;
+  }
   try {
     const url = normalizePublicUrl(text.trim());
     event.preventDefault();

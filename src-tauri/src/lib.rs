@@ -1863,6 +1863,7 @@ pub fn run() {
             updates::install_update,
             updates::dismiss_update,
             inspect_file,
+            file_access::resolve_pasted_path,
             list_sibling_files,
             fetch_remote_document,
             installer::read_installer,

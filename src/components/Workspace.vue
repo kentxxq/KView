@@ -671,6 +671,16 @@ async function openPaths(paths: string[]) {
   for (const path of [...new Set(paths.filter(Boolean))]) await openPathAsTab(path);
 }
 
+async function openPastedPath(path: string) {
+  if (updateLocked.value) return;
+  try {
+    const resolved = await invoke<string>("resolve_pasted_path", { path });
+    await openPathAsTab(resolved);
+  } catch (cause) {
+    toast.add({ title: "无法打开文件", description: errorMessage(cause), color: "error" });
+  }
+}
+
 async function openRemoteAsTab(url: string) {
   if (updateLocked.value) return;
   const sourceKey = `remote:${url}`;
@@ -1482,6 +1492,7 @@ onBeforeUnmount(() => {
       @select="selectFile"
       @open-url="openUrlModalOpen = true"
       @paste-url="openRemoteAsTab"
+      @paste-path="openPastedPath"
       @paste-image="openClipboardImage"
       @paste-text="openClipboardText"
     />
