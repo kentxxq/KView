@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { OpenedFile } from "../types/document";
 import { desktopInvoke } from "../services/desktop-api";
@@ -8,12 +8,15 @@ import ViewerFooter from "../components/ViewerFooter.vue";
 import TextViewer from "./TextViewer.vue";
 import { errorMessage } from "../utils/error";
 
-const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean }>();
-const emit = defineEmits<{ "update:content": [value: string] }>();
+const props = defineProps<{ file: OpenedFile; content: string; readOnly: boolean; previewMode: boolean }>();
+const emit = defineEmits<{
+  "update:content": [value: string];
+  "update:previewMode": [value: boolean];
+}>();
 interface PreviewHandle { sessionId: string; url: string }
 interface ResourceError { sessionId: string; message: string }
 
-const mode = ref<"text" | "preview">("text");
+const mode = computed(() => props.previewMode ? "preview" : "text");
 const wordWrap = ref(true);
 const unicodeHighlight = ref(false);
 const active = ref(true);
@@ -47,7 +50,17 @@ function previewContent(file: OpenedFile, content: string) {
   if (file.source !== "remote") return content;
   const document = new DOMParser().parseFromString(content, "text/html");
   const base = document.querySelector("base[href]");
-  if (base) base.setAttribute("href", new URL(base.getAttribute("href")!, file.path).href);
+  if (base) {
+    let href: string;
+    try {
+      href = new URL(base.getAttribute("href")!, file.path).href;
+    } catch (cause) {
+      if (!(cause instanceof TypeError)) throw cause;
+      href = file.path;
+      recordDiagnostic("viewer", "html-invalid-base");
+    }
+    base.setAttribute("href", href);
+  }
   else {
     const element = document.createElement("base");
     element.href = file.path;
@@ -106,7 +119,7 @@ onBeforeUnmount(() => {
 });
 
 function updateMode(value: string | number) {
-  if (value === "text" || value === "preview") mode.value = value;
+  if (value === "text" || value === "preview") emit("update:previewMode", value === "preview");
 }
 </script>
 

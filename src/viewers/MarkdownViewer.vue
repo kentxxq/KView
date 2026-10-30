@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import DOMPurify from "dompurify";
-import MarkdownIt from "markdown-it";
-import type Token from "markdown-it/lib/token.mjs";
+import MarkdownIt, { type Token } from "markdown-it";
 import type { ChapterItem } from "../types/chapter";
 import ChapterLayout from "../components/ChapterLayout.vue";
 import type { OpenedFile } from "../types/document";
@@ -19,6 +18,7 @@ const viewModes = [
   { label: "预览", value: "preview", icon: "i-lucide-eye" },
 ];
 const markdown = new MarkdownIt({ html: false, linkify: true, typographer: true });
+markdown.linkify.set({ fuzzyLink: true, urlAuth: true });
 const preview = ref<HTMLElement>();
 const activeId = ref("");
 const documentId = computed(() => JSON.stringify([props.file.path, props.file.modifiedAt]));

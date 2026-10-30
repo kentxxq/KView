@@ -8,6 +8,7 @@ export interface WorkspaceTab {
   fallbackName: string;
   comparison?: { leftId: string; rightId: string; focused: "left" | "right" };
   logMode?: boolean;
+  htmlPreview?: boolean;
 }
 
 export const useWorkspaceStore = defineStore("workspace", {

@@ -36,6 +36,15 @@ KView 是一款面向开发者和高级用户的现代化跨平台桌面文件�
 - `vpr tauri:build`: 构建生成跨平台桌面端生产分发包
 - `vpr release:validate`: 校验发布规范与版本一致性
 
+## 已知构建警告
+
+以下警告已在本次性能与错误处理修复前的 HEAD 基线构建中复现，构建成功；当前接受，不作为新增问题重复提示，也不为消除提示自动调整构建配置或引入 polyfill：
+
+- `Some chunks are larger than 500 kB after minification`：Monaco、PDF.js 等重型查看器产物超过默认分块提示阈值；查看器仍按需加载，该提示本身不代表首屏全量加载或构建失败。
+- `Module "stream" has been externalized for browser compatibility`，且导入方为 `sax/lib/sax.js`：来自已有电子书依赖链 `@lingo-reader/mobi-parser → @lingo-reader/shared → sax` 对 Node `stream` 的引用，不是本次修复新增的依赖。
+
+仅在构建成功、警告类型及来源与上述一致且没有发现相关功能异常时省略重复提示。新增警告、其他模块的浏览器兼容问题、构建失败或相关查看器运行异常仍须报告；此约定不包含 Vue 路由注入警告。
+
 ## 系统约定
 
 ### 基本原则

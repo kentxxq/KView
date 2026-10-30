@@ -309,11 +309,11 @@ fn detect_remote_format(bytes: &[u8], extension: &str, mime_type: &str) -> Comma
     if bytes.starts_with(b"PK\x03\x04") {
         let archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
             .map_err(|error| format!("远程 Office 容器已损坏：{error}"))?;
-        let has_types = archive.file_names().any(|name| name == "[Content_Types].xml");
-        if has_types && archive.file_names().any(|name| name == "word/document.xml") {
+        let has_types = archive.index_for_name("[Content_Types].xml").is_some();
+        if has_types && archive.index_for_name("word/document.xml").is_some() {
             return Ok(remote_format_hint("docx", ""));
         }
-        if has_types && archive.file_names().any(|name| name == "xl/workbook.xml") {
+        if has_types && archive.index_for_name("xl/workbook.xml").is_some() {
             return Ok(remote_format_hint("xlsx", ""));
         }
         return Err("远程 ZIP 容器不是受支持的 DOCX 或 XLSX 文档".into());
@@ -1450,7 +1450,13 @@ fn save_text(
 }
 
 #[tauri::command]
-fn inspect_file(path: String) -> CommandResult<OpenedFile> {
+async fn inspect_file(path: String) -> CommandResult<OpenedFile> {
+    tauri::async_runtime::spawn_blocking(move || inspect_local_file(path))
+        .await
+        .map_err(|error| format!("无法检查文件：{error}"))?
+}
+
+fn inspect_local_file(path: String) -> CommandResult<OpenedFile> {
     let (canonical, metadata) = local_file_metadata(&path)?;
 
     let name = canonical
@@ -1477,7 +1483,7 @@ fn inspect_file(path: String) -> CommandResult<OpenedFile> {
         }
     }
     if matches!(extension.as_str(), "livp" | "jpg" | "jpeg" | "heic" | "heif")
-        && live_photo::is_live_photo(&canonical)
+        && live_photo::is_live_photo(&canonical)?
     {
         kind = "live-photo".into();
     }
@@ -1594,17 +1600,17 @@ async fn list_sibling_files(path: String) -> CommandResult<SiblingFileList> {
 }
 
 #[tauri::command]
-fn take_pending_paths(state: tauri::State<'_, DesktopState>) -> Vec<String> {
-    state
+fn take_pending_paths(state: tauri::State<'_, DesktopState>) -> CommandResult<Vec<String>> {
+    Ok(state
         .pending_paths
         .lock()
         .map(|mut paths| std::mem::take(&mut *paths))
-        .unwrap_or_default()
+        .map_err(|_| "待打开文件状态不可用")?)
 }
 
 #[tauri::command]
-fn take_pending_space_open(state: tauri::State<'_, DesktopState>) -> Option<SpaceOpenRequest> {
-    state.pending_space_open.lock().ok()?.take()
+fn take_pending_space_open(state: tauri::State<'_, DesktopState>) -> CommandResult<Option<SpaceOpenRequest>> {
+    Ok(state.pending_space_open.lock().map_err(|_| "空格预览状态不可用")?.take())
 }
 
 #[tauri::command]
@@ -1948,6 +1954,12 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app, event| {
+        #[cfg(target_os = "windows")]
+        if matches!(&event, tauri::RunEvent::Exit) {
+            if windows_space_open::uninstall().is_err() {
+                diagnostics::append(app, "space-open", "hook-uninstall-failed", None);
+            }
+        }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = &event {
             let paths = urls

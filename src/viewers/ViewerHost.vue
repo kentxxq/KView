@@ -11,6 +11,7 @@ const props = defineProps<{
   readOnly: boolean;
   largeTextSession: LargeTextSessionInfo | null;
   document: DocumentState;
+  htmlPreview?: boolean;
 }>();
 provide(textDocumentKey, props.document);
 
@@ -19,6 +20,7 @@ defineEmits<{
   "open-hex": [];
   "pdf-modified": [bytes: Uint8Array<ArrayBuffer>];
   "save-pdf": [bytes: Uint8Array<ArrayBuffer>];
+  "update-html-preview": [value: boolean];
 }>();
 
 const viewerComponents = new Map<string, Component>();
@@ -69,7 +71,9 @@ const viewer = computed(() => {
       :structured-content="structuredContent"
       :binary-content="binaryContent"
       :read-only="readOnly"
+      :preview-mode="htmlPreview"
       @update:content="$emit('update:content', $event)"
+      @update:preview-mode="$emit('update-html-preview', $event)"
       @open-hex="$emit('open-hex')"
       @pdf-modified="$emit('pdf-modified', $event)"
       @save-pdf="$emit('save-pdf', $event)"

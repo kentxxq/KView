@@ -2,6 +2,7 @@ import { desktopInvoke as invoke } from "./desktop-api";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { recordDiagnostic } from "./diagnostics";
 
 interface DesktopLifecycleHandlers {
   onPaths: (paths: string[]) => void | Promise<void>;
@@ -33,37 +34,46 @@ export async function initializeDesktopLifecycle(handlers: DesktopLifecycleHandl
     if (requested) await handlers.onOpenAbout();
   };
 
-  unlisteners.push(await listen("about-requested", consumePendingAbout));
-  unlisteners.push(await listen("open-requested", consumePendingPaths));
-  unlisteners.push(await listen("space-open-path-changed", consumePendingSpaceOpen));
-  unlisteners.push(await listen("space-open-close-requested", handlers.onWindowCloseRequested));
-  if (handlers.onOpenFile) unlisteners.push(await listen("menu-open-file", handlers.onOpenFile));
-  if (handlers.onCloseTab) unlisteners.push(await listen("menu-close-tab", handlers.onCloseTab));
-  if (handlers.onNextTab) unlisteners.push(await listen("menu-next-tab", handlers.onNextTab));
-  if (handlers.onPreviousTab)
-    unlisteners.push(await listen("menu-previous-tab", handlers.onPreviousTab));
-  unlisteners.push(
-    await getCurrentWebview().onDragDropEvent(async (event) => {
-      if (event.payload.type === "over") {
-        handlers.onDragStateChange(true);
-      } else if (event.payload.type === "drop") {
-        handlers.onDragStateChange(false);
-        await handlers.onPaths(event.payload.paths);
-      } else {
-        handlers.onDragStateChange(false);
-      }
-    }),
-  );
-  unlisteners.push(
-    await getCurrentWindow().onCloseRequested(async (event) => {
-      event.preventDefault();
-      await handlers.onWindowCloseRequested();
-    }),
-  );
+  const consumeEvent = (consume: () => Promise<void>) => () => {
+    void consume().catch(() => recordDiagnostic("lifecycle", "pending-request-failed"));
+  };
 
-  await consumePendingPaths();
-  await consumePendingSpaceOpen();
-  await consumePendingAbout();
+  try {
+    unlisteners.push(await listen("about-requested", consumeEvent(consumePendingAbout)));
+    unlisteners.push(await listen("open-requested", consumeEvent(consumePendingPaths)));
+    unlisteners.push(await listen("space-open-path-changed", consumeEvent(consumePendingSpaceOpen)));
+    unlisteners.push(await listen("space-open-close-requested", handlers.onWindowCloseRequested));
+    if (handlers.onOpenFile) unlisteners.push(await listen("menu-open-file", handlers.onOpenFile));
+    if (handlers.onCloseTab) unlisteners.push(await listen("menu-close-tab", handlers.onCloseTab));
+    if (handlers.onNextTab) unlisteners.push(await listen("menu-next-tab", handlers.onNextTab));
+    if (handlers.onPreviousTab)
+      unlisteners.push(await listen("menu-previous-tab", handlers.onPreviousTab));
+    unlisteners.push(
+      await getCurrentWebview().onDragDropEvent(async (event) => {
+        if (event.payload.type === "over") {
+          handlers.onDragStateChange(true);
+        } else if (event.payload.type === "drop") {
+          handlers.onDragStateChange(false);
+          await handlers.onPaths(event.payload.paths);
+        } else {
+          handlers.onDragStateChange(false);
+        }
+      }),
+    );
+    unlisteners.push(
+      await getCurrentWindow().onCloseRequested(async (event) => {
+        event.preventDefault();
+        await handlers.onWindowCloseRequested();
+      }),
+    );
+
+    await consumePendingPaths();
+    await consumePendingSpaceOpen();
+    await consumePendingAbout();
+  } catch (cause) {
+    for (const unlisten of unlisteners) unlisten();
+    throw cause;
+  }
 
   return () => {
     for (const unlisten of unlisteners) unlisten();

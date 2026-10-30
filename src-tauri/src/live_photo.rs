@@ -180,6 +180,9 @@ pub(crate) fn paired_video_for_still(still_path: &Path) -> Option<PathBuf> {
         return None;
     }
     let videos = candidate_videos(still_path);
+    if videos.is_empty() {
+        return None;
+    }
     let still_stem = media_stem(
         still_path
             .file_name()
@@ -245,6 +248,9 @@ pub(crate) fn paired_video_paths(paths: &[PathBuf]) -> HashSet<PathBuf> {
                 .or_default()
                 .push(video);
         }
+    }
+    if videos_by_identifier.is_empty() {
+        return paired;
     }
     for still in stills {
         for identifier in identifiers_from_path(still) {
@@ -334,6 +340,72 @@ fn motion_video(bytes: &[u8]) -> Option<(usize, &'static str)> {
     }
     let start = bytes.len() - length;
     video_mime(&bytes[start..]).map(|mime| (start, mime))
+}
+
+fn motion_video_length_from_file(file: &mut File, size: usize) -> Result<Option<usize>, String> {
+    const CHUNK_BYTES: usize = 64 * 1024;
+    const BEFORE: usize = 2048;
+    const AFTER: usize = 8192;
+    let markers = [b"MotionPhoto".as_slice(), b"MicroVideoOffset".as_slice()];
+    let mut lengths = [None, None];
+    let mut bytes = Vec::with_capacity(CHUNK_BYTES + BEFORE + AFTER);
+    let mut region_start = 0;
+    for start in (0..size).step_by(CHUNK_BYTES) {
+        let end = (start + CHUNK_BYTES).min(size);
+        let region_end = (end + AFTER).min(size);
+        let retained = bytes.len();
+        bytes.resize(region_end - region_start, 0);
+        file.read_exact(&mut bytes[retained..])
+            .map_err(|error| format!("无法读取动态照片元数据：{error}"))?;
+        for (index, marker) in markers.iter().enumerate() {
+            if lengths[index].is_some() {
+                continue;
+            }
+            let mut offset = start - region_start;
+            while let Some(position) = find_bytes(&bytes, marker, offset) {
+                if region_start + position >= end {
+                    break;
+                }
+                let window_start = position.saturating_sub(BEFORE);
+                let window_end = (position + AFTER).min(bytes.len());
+                let xmp = String::from_utf8_lossy(&bytes[window_start..window_end]);
+                if let Some(length) = motion_video_length_in_xmp(&xmp) {
+                    lengths[index] = Some(length);
+                    break;
+                }
+                offset = position + marker.len();
+            }
+        }
+        // 保持原有优先级：全文件中的 MotionPhoto 优先于 MicroVideoOffset。
+        if lengths[0].is_some() {
+            return Ok(lengths[0]);
+        }
+        let next_region_start = end.saturating_sub(BEFORE);
+        bytes.drain(..next_region_start - region_start);
+        region_start = next_region_start;
+    }
+    Ok(lengths[1])
+}
+
+fn has_motion_video(path: &Path) -> Result<bool, String> {
+    let mut file = File::open(path).map_err(|error| format!("无法读取图片：{error}"))?;
+    let metadata = file.metadata().map_err(|error| format!("无法读取图片信息：{error}"))?;
+    if !metadata.is_file() || metadata.len() > MAX_STILL_BYTES {
+        return Ok(false);
+    }
+    let size = metadata.len() as usize;
+    let Some(length) = motion_video_length_from_file(&mut file, size)? else {
+        return Ok(false);
+    };
+    if length < 12 || length > size || length as u64 > MAX_VIDEO_BYTES {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::Start((size - length) as u64))
+        .map_err(|error| format!("无法定位动态照片视频：{error}"))?;
+    let mut header = [0; 12];
+    file.read_exact(&mut header)
+        .map_err(|error| format!("无法读取动态照片视频头：{error}"))?;
+    Ok(video_mime(&header).is_some())
 }
 
 fn read_limited(path: &Path, limit: u64, description: &str) -> Result<Vec<u8>, String> {
@@ -617,15 +689,18 @@ fn livp_resources(path: &Path, include_bytes: bool) -> Result<Vec<MediaResource>
     let mut total_size = 0_u64;
     for index in 0..archive.len() {
         let entry = archive
-            .by_index(index)
+            .by_index_data(index)
             .map_err(|error| format!("无法读取 LIVP 条目：{error}"))?;
         if entry.is_dir() {
             continue;
         }
+        if entry.encrypted() {
+            return Err("不支持加密的 LIVP 媒体资源".into());
+        }
+        let name = entry.name().map_err(|error| format!("无法读取 LIVP 条目名称：{error}"))?.into_owned();
         if entry.enclosed_name().is_none() {
             return Err("LIVP 包含不安全的文件路径".into());
         }
-        let name = entry.name().to_string();
         let resource_extension = extension(Path::new(&name));
         let limit = if is_still_extension(&resource_extension) {
             MAX_STILL_BYTES
@@ -645,7 +720,8 @@ fn livp_resources(path: &Path, include_bytes: bool) -> Result<Vec<MediaResource>
         }
         let mut bytes = Vec::new();
         if include_bytes {
-            entry
+            archive.by_index(index)
+                .map_err(|error| format!("无法读取 LIVP 条目：{error}"))?
                 .take(limit + 1)
                 .read_to_end(&mut bytes)
                 .map_err(|error| format!("无法读取 LIVP 内的 {name}：{error}"))?;
@@ -714,17 +790,15 @@ fn livp_has_pair(path: &Path) -> bool {
         .is_ok()
 }
 
-pub(crate) fn is_live_photo(path: &Path) -> bool {
-    match extension(path).as_str() {
+pub(crate) fn is_live_photo(path: &Path) -> Result<bool, String> {
+    Ok(match extension(path).as_str() {
         "livp" => livp_has_pair(path),
         extension if is_still_extension(extension) => {
-            let has_motion_video = read_limited(path, MAX_STILL_BYTES, "图片")
-                .ok()
-                .is_some_and(|bytes| motion_video(&bytes).is_some());
+            let has_motion_video = has_motion_video(path)?;
             has_motion_video || paired_video_for_still(path).is_some()
         }
         _ => false,
-    }
+    })
 }
 
 pub(crate) fn read_live_photo(path: &Path) -> Result<Vec<u8>, String> {

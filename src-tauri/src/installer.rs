@@ -205,43 +205,53 @@ fn decode_xml(value: &str) -> String {
     value.replace("&amp;", "&").replace("&quot;", "\"").replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">")
 }
 
-fn read_zip_text<R: Read + Seek>(archive: &mut zip::ZipArchive<R>, suffix: &str) -> Option<String> {
-    let index = (0..archive.len()).find(|index| {
-        archive
-            .by_index(*index)
-            .map(|entry| entry.name().eq_ignore_ascii_case(suffix))
-            .unwrap_or(false)
-    })?;
-    let mut entry = archive.by_index(index).ok()?;
-    if entry.size() > 2 * 1024 * 1024 {
-        return None;
+fn zip_entry_index<R: Read + Seek>(
+    archive: &zip::ZipArchive<R>,
+    matches: impl Fn(&str) -> bool,
+) -> Result<Option<usize>, String> {
+    for (index, name) in archive.file_names().enumerate() {
+        let name = name.map_err(|error| format!("无法读取安装包条目名称：{error}"))?;
+        if matches(&name) {
+            return Ok(Some(index));
+        }
     }
-    let mut text = String::new();
-    entry.read_to_string(&mut text).ok()?;
-    Some(text)
+    Ok(None)
 }
 
-fn read_msix_logo<R: Read + Seek>(archive: &mut zip::ZipArchive<R>, manifest: &str) -> Option<String> {
-    let wanted = xml_text(manifest, "Logo")?.replace('\\', "/");
+fn read_zip_text<R: Read + Seek>(archive: &mut zip::ZipArchive<R>, suffix: &str) -> Result<String, String> {
+    let index = zip_entry_index(archive, |name| name.eq_ignore_ascii_case(suffix))?
+        .ok_or_else(|| format!("安装包缺少 {suffix}"))?;
+    let mut entry = archive.by_index(index).map_err(|error| format!("无法读取安装包清单：{error}"))?;
+    if entry.size() > 2 * 1024 * 1024 {
+        return Err("安装包清单超过 2 MiB 安全限制".into());
+    }
+    let mut text = String::new();
+    entry.read_to_string(&mut text).map_err(|error| format!("无法读取安装包清单：{error}"))?;
+    Ok(text)
+}
+
+fn read_msix_logo<R: Read + Seek>(archive: &mut zip::ZipArchive<R>, manifest: &str) -> Result<Option<String>, String> {
+    let Some(wanted) = xml_text(manifest, "Logo") else { return Ok(None) };
+    let wanted = wanted.replace('\\', "/");
     let wanted_lower = wanted.to_ascii_lowercase();
     let stem = wanted_lower.rsplit_once('.').map(|value| value.0).unwrap_or(&wanted_lower);
-    let index = (0..archive.len()).find(|index| {
-        let Ok(entry) = archive.by_index(*index) else { return false };
-        let name = entry.name().replace('\\', "/").to_ascii_lowercase();
+    let index = zip_entry_index(archive, |name| {
+        let name = name.replace('\\', "/").to_ascii_lowercase();
         name == wanted_lower || (name.starts_with(stem) && name.ends_with(".png"))
     })?;
-    let entry = archive.by_index(index).ok()?;
-    let entry_name = entry.name().to_string();
+    let Some(index) = index else { return Ok(None) };
+    let entry = archive.by_index(index).map_err(|error| format!("无法读取安装包图标：{error}"))?;
+    let entry_name = entry.name().map_err(|error| format!("无法读取安装包图标名称：{error}"))?.into_owned();
     let mut bytes = Vec::new();
-    entry.take((MAX_LOGO_BYTES + 1) as u64).read_to_end(&mut bytes).ok()?;
-    data_url(&bytes, &entry_name)
+    entry.take((MAX_LOGO_BYTES + 1) as u64).read_to_end(&mut bytes)
+        .map_err(|error| format!("无法读取安装包图标：{error}"))?;
+    Ok(data_url(&bytes, &entry_name))
 }
 
 fn msix_bundle_info(path: &Path) -> Result<InstallerDocument, String> {
     let file = File::open(path).map_err(|error| format!("无法打开 MSIX Bundle：{error}"))?;
     let mut bundle = zip::ZipArchive::new(file).map_err(|error| format!("无法解析 MSIX Bundle：{error}"))?;
-    let bundle_manifest = read_zip_text(&mut bundle, "AppxMetadata/AppxBundleManifest.xml")
-        .ok_or_else(|| "MSIX Bundle 缺少 AppxBundleManifest.xml".to_string())?;
+    let bundle_manifest = read_zip_text(&mut bundle, "AppxMetadata/AppxBundleManifest.xml")?;
     let version = xml_attribute(&bundle_manifest, "Identity", "Version");
     let publisher = xml_attribute(&bundle_manifest, "Identity", "Publisher");
     let bundle_name = xml_attribute(&bundle_manifest, "Identity", "Name");
@@ -258,11 +268,10 @@ fn msix_bundle_info(path: &Path) -> Result<InstallerDocument, String> {
         rest = &rest["<Package".len()..];
     }
 
-    let package_index = (0..bundle.len()).find(|index| {
-        let Ok(entry) = bundle.by_index(*index) else { return false };
-        let lower = entry.name().to_ascii_lowercase();
+    let package_index = zip_entry_index(&bundle, |name| {
+        let lower = name.to_ascii_lowercase();
         lower.ends_with(".msix") || lower.ends_with(".appx")
-    });
+    })?;
     let mut display_name = None;
     let mut description = None;
     let mut publisher_display_name = None;
@@ -273,11 +282,11 @@ fn msix_bundle_info(path: &Path) -> Result<InstallerDocument, String> {
             .map_err(|error| format!("无法读取内嵌 MSIX：{error}"))?;
         temporary.seek(SeekFrom::Start(0)).map_err(|error| error.to_string())?;
         if let Ok(mut package) = zip::ZipArchive::new(temporary) {
-            if let Some(manifest) = read_zip_text(&mut package, "AppxManifest.xml") {
+            if let Ok(manifest) = read_zip_text(&mut package, "AppxManifest.xml") {
                 display_name = xml_text(&manifest, "DisplayName");
                 description = xml_text(&manifest, "Description");
                 publisher_display_name = xml_text(&manifest, "PublisherDisplayName");
-                logo_data_url = read_msix_logo(&mut package, &manifest);
+                logo_data_url = read_msix_logo(&mut package, &manifest)?;
             }
         }
     }
@@ -294,7 +303,13 @@ fn msix_bundle_info(path: &Path) -> Result<InstallerDocument, String> {
 }
 
 #[tauri::command]
-pub fn read_installer(path: String) -> CommandResult<InstallerDocument> {
+pub async fn read_installer(path: String) -> CommandResult<InstallerDocument> {
+    tauri::async_runtime::spawn_blocking(move || read_installer_file(path))
+        .await
+        .map_err(|error| format!("无法解析安装包：{error}"))?
+}
+
+fn read_installer_file(path: String) -> CommandResult<InstallerDocument> {
     let canonical = Path::new(&path).canonicalize().map_err(|error| format!("无法访问文件：{error}"))?;
     let extension = canonical.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
     Ok(match extension.as_str() {

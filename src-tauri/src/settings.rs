@@ -160,8 +160,8 @@ pub(crate) fn sync_autostart(_app: &AppHandle, _enabled: bool) -> Result<(), Str
 }
 
 #[tauri::command]
-pub(crate) fn get_settings(state: State<'_, SettingsState>) -> AppSettings {
-    state.0.lock().map(|value| value.clone()).unwrap_or_default()
+pub(crate) fn get_settings(state: State<'_, SettingsState>) -> CommandResult<AppSettings> {
+    Ok(state.0.lock().map_err(|_| "设置状态不可用")?.clone())
 }
 
 #[tauri::command]

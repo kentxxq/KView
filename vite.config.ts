@@ -10,6 +10,7 @@ export default defineConfig(() => ({
   plugins: [
     vue(),
     ui({
+      router: false,
       icon: {
         mode: "svg",
         clientBundle: {

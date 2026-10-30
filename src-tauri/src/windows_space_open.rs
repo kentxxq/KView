@@ -3,7 +3,7 @@
 use std::{
     path::Path,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicIsize, Ordering},
         mpsc::{self, Sender},
         OnceLock,
     },
@@ -32,7 +32,7 @@ use windows::{
             },
             WindowsAndMessaging::{
                 CallNextHookEx, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
-                GetWindowThreadProcessId, IsChild, SetWindowsHookExW, GUITHREADINFO, HHOOK,
+                GetWindowThreadProcessId, IsChild, SetWindowsHookExW, UnhookWindowsHookEx, GUITHREADINFO, HHOOK,
                 KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
             },
         },
@@ -47,6 +47,7 @@ enum SpaceOpenCommand {
 }
 
 static COMMANDS: OnceLock<Sender<SpaceOpenCommand>> = OnceLock::new();
+static KEYBOARD_HOOK: AtomicIsize = AtomicIsize::new(0);
 static SPACE_OPEN_ACTIVE: AtomicBool = AtomicBool::new(false);
 static SPACE_DOWN: AtomicBool = AtomicBool::new(false);
 static SPACE_HANDLED: AtomicBool = AtomicBool::new(false);
@@ -74,11 +75,20 @@ pub fn install(app: AppHandle) -> Result<(), String> {
         }
     });
 
-    unsafe {
-        SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), None, 0)
-            .map(|_: HHOOK| ())
-            .map_err(|error| error.to_string())
+    let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), None, 0) }
+        .map_err(|error| error.to_string())?;
+    KEYBOARD_HOOK.store(hook.0 as isize, Ordering::SeqCst);
+    Ok(())
+}
+
+pub fn uninstall() -> Result<(), String> {
+    let hook = KEYBOARD_HOOK.load(Ordering::SeqCst);
+    if hook != 0 {
+        unsafe { UnhookWindowsHookEx(HHOOK(hook as *mut _)) }
+            .map_err(|error| error.to_string())?;
+        KEYBOARD_HOOK.store(0, Ordering::SeqCst);
     }
+    Ok(())
 }
 
 pub fn cancel(app: &AppHandle) {
@@ -92,52 +102,56 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 
     let event = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
     let key = event.vkCode as u16;
+    if key != VK_SPACE.0 && key != VK_ESCAPE.0 {
+        return unsafe { CallNextHookEx(None, code, wparam, lparam) };
+    }
     let is_down = wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN;
     let is_up = wparam.0 as u32 == WM_KEYUP || wparam.0 as u32 == WM_SYSKEYUP;
+    if is_up {
+        let handled = if key == VK_SPACE.0 {
+            SPACE_DOWN.store(false, Ordering::SeqCst);
+            SPACE_HANDLED.swap(false, Ordering::SeqCst)
+        } else {
+            ESCAPE_HANDLED.swap(false, Ordering::SeqCst)
+        };
+        return if handled { LRESULT(1) } else {
+            unsafe { CallNextHookEx(None, code, wparam, lparam) }
+        };
+    }
+    if !is_down {
+        return unsafe { CallNextHookEx(None, code, wparam, lparam) };
+    }
+    if key == VK_SPACE.0 && SPACE_DOWN.swap(true, Ordering::SeqCst) {
+        return if SPACE_HANDLED.load(Ordering::SeqCst) { LRESULT(1) } else {
+            unsafe { CallNextHookEx(None, code, wparam, lparam) }
+        };
+    }
+    if key == VK_ESCAPE.0 {
+        if ESCAPE_HANDLED.load(Ordering::SeqCst) {
+            return LRESULT(1);
+        }
+        if !SPACE_OPEN_ACTIVE.load(Ordering::SeqCst) {
+            return unsafe { CallNextHookEx(None, code, wparam, lparam) };
+        }
+    }
     let foreground = unsafe { GetForegroundWindow() }.0 as isize;
     let foreground_window = HWND(foreground as *mut _);
     let space_open_context = is_desktop_window(foreground_window)
         || (is_explorer_window(foreground_window)
             && !is_explorer_search_focused(foreground_window));
 
-    if key == VK_SPACE.0 {
-        if is_down {
-            if SPACE_DOWN.swap(true, Ordering::SeqCst) {
-                if SPACE_HANDLED.load(Ordering::SeqCst) {
-                    return LRESULT(1);
-                }
-            } else if space_open_context {
-                SPACE_HANDLED.store(true, Ordering::SeqCst);
-                let focused = explorer_focused_window(foreground_window)
-                    .map(|window| window.0 as isize)
-                    .unwrap_or_default();
-                send(SpaceOpenCommand::Open {
-                    source: foreground,
-                    focused,
-                });
-                return LRESULT(1);
-            }
-        } else if is_up {
-            SPACE_DOWN.store(false, Ordering::SeqCst);
-            if SPACE_HANDLED.swap(false, Ordering::SeqCst) {
-                return LRESULT(1);
-            }
-        }
-    }
-
-    if key == VK_ESCAPE.0 {
-        if is_down {
-            if ESCAPE_HANDLED.load(Ordering::SeqCst) {
-                return LRESULT(1);
-            }
-            if space_open_context && SPACE_OPEN_ACTIVE.load(Ordering::SeqCst) {
-                ESCAPE_HANDLED.store(true, Ordering::SeqCst);
-                send(SpaceOpenCommand::RequestWindowClose);
-                return LRESULT(1);
-            }
-        } else if is_up && ESCAPE_HANDLED.swap(false, Ordering::SeqCst) {
+    if space_open_context {
+        if key == VK_SPACE.0 {
+            SPACE_HANDLED.store(true, Ordering::SeqCst);
+            let focused = explorer_focused_window(foreground_window)
+                .map(|window| window.0 as isize)
+                .unwrap_or_default();
+            send(SpaceOpenCommand::Open { source: foreground, focused });
             return LRESULT(1);
         }
+        ESCAPE_HANDLED.store(true, Ordering::SeqCst);
+        send(SpaceOpenCommand::RequestWindowClose);
+        return LRESULT(1);
     }
 
     unsafe { CallNextHookEx(None, code, wparam, lparam) }

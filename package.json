@@ -1,6 +1,6 @@
 {
   "name": "kview",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,17 +18,17 @@
     "release:publish": "node scripts/release.mjs publish"
   },
   "dependencies": {
-    "@iconify-json/lucide": "^1.2.145",
+    "@iconify-json/lucide": "^1.2.149",
     "@lingo-reader/mobi-parser": "^0.4.6",
     "@nuxt/ui": "^4.12.0",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "~2.7.0",
-    "@tauri-apps/plugin-dialog": "~2.8.3",
+    "@tauri-apps/plugin-dialog": "~2.8.4",
     "artplayer": "^5.4.0",
     "docx-preview": "^0.4.1",
     "dompurify": "^3.4.17",
     "jszip": "^3.10.2",
-    "markdown-it": "^14.3.3",
+    "markdown-it": "^15.0.3",
     "monaco-editor": "^0.57.0",
     "pdfjs-dist": "^6.4.299",
     "pinia": "^4.1.0",
@@ -38,13 +38,12 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.3",
-    "@types/markdown-it": "^14.2.0",
+    "@tauri-apps/cli": "^2.12.4",
     "@vitejs/plugin-vue": "^6.0.10",
     "typescript": "~6.0.3",
-    "vite": "^8.3.4",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5",
-    "vue-tsc": "^3.3.13"
+    "vue-tsc": "^3.3.14"
   },
   "devEngines": {
     "packageManager": {

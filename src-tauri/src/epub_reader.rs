@@ -117,14 +117,15 @@ fn validate_epub(path: &str) -> Result<File, String> {
     let mut encrypted = false;
     for index in 0..archive.len() {
         let entry = archive
-            .by_index(index)
+            .by_index_data(index)
             .map_err(|error| format!("无法检查 EPUB 条目：{error}"))?;
         expanded_size = expanded_size
             .checked_add(entry.size())
             .filter(|size| *size <= MAX_EPUB_EXPANDED_BYTES)
             .ok_or_else(|| "EPUB 解压后内容超过 300 MiB 安全限制".to_string())?;
-        if entry
+        if entry.encrypted() || entry
             .name()
+            .map_err(|error| format!("无法读取 EPUB 条目名称：{error}"))?
             .trim_start_matches('/')
             .eq_ignore_ascii_case("META-INF/encryption.xml")
         {

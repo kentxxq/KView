@@ -185,6 +185,8 @@ function viewerShellFor(tabId: string) {
             key: tab.id === spaceOpenTabId.value ? `space-open:${resolveViewerKey(state.file)}:${state.file.path}` : tab.id,
             file: state.file, document: state, content: state.content,
             readOnly: state.readOnly || updateLocked.value, largeTextSession: state.largeTextSession,
+            htmlPreview: tab.htmlPreview ?? false,
+            onUpdateHtmlPreview: (value: boolean) => { tab.htmlPreview = value; },
             "onUpdate:content": (value: string) => updateStateContent(state, value),
             onOpenHex: () => { if (activeTabId.value === tab.id) void openCurrentAsHex(); },
             onPdfModified: pdfModified, onSavePdf: savePdf,
@@ -1255,19 +1257,23 @@ onMounted(async () => {
     const restored = tabs.find((tab) => tab.state.file?.path === libraryState.activePath);
     if (restored) activateTab(restored.id);
   }
-  disposeLifecycle = await initializeDesktopLifecycle({
-    onPaths: openPaths,
-    onSpaceOpenPath: startSpaceOpen,
-    onWindowCloseRequested: closeWindow,
-    onDragStateChange: (active) => {
-      dragActive.value = active;
-    },
-    onOpenFile: selectFile,
-    onOpenAbout: openAboutSettings,
-    onCloseTab: () => closeTab(),
-    onNextTab: () => cycleTab(1),
-    onPreviousTab: () => cycleTab(-1),
-  });
+  try {
+    disposeLifecycle = await initializeDesktopLifecycle({
+      onPaths: openPaths,
+      onSpaceOpenPath: startSpaceOpen,
+      onWindowCloseRequested: closeWindow,
+      onDragStateChange: (active) => {
+        dragActive.value = active;
+      },
+      onOpenFile: selectFile,
+      onOpenAbout: openAboutSettings,
+      onCloseTab: () => closeTab(),
+      onNextTab: () => cycleTab(1),
+      onPreviousTab: () => cycleTab(-1),
+    });
+  } catch {
+    recordDiagnostic("lifecycle", "initialize-failed");
+  }
   try {
     disposeUpdates = await updates.initialize();
     disposeUpdateFocus = await getCurrentWindow().onFocusChanged(({ payload }) => {

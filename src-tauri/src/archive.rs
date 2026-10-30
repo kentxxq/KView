@@ -55,21 +55,27 @@ fn read_tar_entries<R: Read>(reader: R) -> Result<(Vec<ArchiveEntry>, bool), Str
 }
 
 #[tauri::command]
-pub(crate) fn read_archive(path: String) -> CommandResult<ArchiveDocument> {
+pub(crate) async fn read_archive(path: String) -> CommandResult<ArchiveDocument> {
+    tauri::async_runtime::spawn_blocking(move || read_archive_file(path))
+        .await
+        .map_err(|error| format!("无法解析压缩包：{error}"))?
+}
+
+fn read_archive_file(path: String) -> CommandResult<ArchiveDocument> {
     const MAX_ARCHIVE_ENTRIES: usize = 5_000;
     let canonical = archive_path(&path)?;
     let name = canonical.file_name().and_then(|value| value.to_str())
         .unwrap_or_default().to_ascii_lowercase();
     if name.ends_with(".zip") {
         let file = File::open(&canonical).map_err(|error| format!("无法打开 ZIP：{error}"))?;
-        let mut archive = zip::ZipArchive::new(file)
+        let archive = zip::ZipArchive::new(file)
             .map_err(|error| format!("无法读取 ZIP 目录：{error}"))?;
         let mut entries = Vec::new();
         let truncated = archive.len() > MAX_ARCHIVE_ENTRIES;
         for index in 0..archive.len().min(MAX_ARCHIVE_ENTRIES) {
-            let entry = archive.by_index(index).map_err(|error| format!("无法读取 ZIP 条目：{error}"))?;
+            let entry = archive.by_index_data(index).map_err(|error| format!("无法读取 ZIP 条目：{error}"))?;
             entries.push(ArchiveEntry {
-                path: entry.name().to_string(),
+                path: entry.name().map_err(|error| format!("无法读取 ZIP 条目名称：{error}"))?.into_owned(),
                 size: entry.size(),
                 compressed_size: Some(entry.compressed_size()),
                 is_directory: entry.is_dir(),
