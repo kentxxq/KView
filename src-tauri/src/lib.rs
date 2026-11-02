@@ -1706,6 +1706,9 @@ pub(crate) fn ensure_main_window(app: &AppHandle, activate: bool) -> tauri::Resu
 
     log_reader::begin_window(app).map_err(|error| std::io::Error::other(error))?;
     let result = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .initialization_script_for_all_frames(
+            "window.addEventListener('contextmenu', (event) => event.preventDefault(), { capture: true });",
+        )
         .title(app_identity::APP_NAME)
         .decorations(false)
         .inner_size(default_width, default_height)
