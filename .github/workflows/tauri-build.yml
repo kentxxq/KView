@@ -49,9 +49,6 @@ jobs:
           - platform: macos-arm64
             runner: macos-15
             bundles: app,dmg
-          - platform: macos-x64
-            runner: macos-15-intel
-            bundles: app,dmg
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -127,7 +124,7 @@ jobs:
           fi
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" \
             --jq 'if .event == "push" and .path == ".github/workflows/tauri-build.yml" and (.head_branch | startswith("v")) then "RELEASE_TAG=\(.head_branch)\nRELEASE_SHA=\(.head_sha)" else error("必须选择本仓库由版本标签触发的构建运行") end' >> "$GITHUB_ENV"
-      - name: 下载三个平台的构建物
+      - name: 下载两个平台的构建物
         uses: actions/download-artifact@v4
         with:
           pattern: release-*

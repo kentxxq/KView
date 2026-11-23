@@ -182,12 +182,12 @@ vpr build
 
 ## 自动构建
 
-普通分支推送及 Actions 页面手动运行 `Tauri Build` 会构建 Windows x64、macOS Apple Silicon（arm64）和 Intel（x64）安装包，构建物保存为 Actions artifacts，不发布正式更新。
+普通分支推送及 Actions 页面手动运行 `Tauri Build` 会构建 Windows x64 和 macOS Apple Silicon（arm64）安装包，构建物保存为 Actions artifacts，不发布正式更新。
 
 正式版本从 [最新 Release](https://github.com/kentxxq/KView/releases/latest) 下载：
 
 - Windows：`KView-windows-x64.exe`。
-- macOS：`KView-macos-arm64.dmg` 或 `KView-macos-x64.dmg`。
+- macOS：`KView-macos-arm64.dmg`。
 - Windows 使用当前用户安装模式，覆盖升级保留设置及已有文件关联。
 - 当前没有配置系统代码签名证书或 macOS 公证，macOS 首次打开可能需要在系统设置中允许运行；更新包签名不替代系统代码签名。
 
@@ -229,17 +229,17 @@ Actions 仅在推送 `v*` 标签或手动运行时触发，普通分支推送不
 
 1. 同步修改 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 的版本，并更新 Cargo 锁文件中的根包版本及 `CHANGLOG.md` 中的对应版本说明。
 2. 将经过验证的提交合入 `main`，由维护者创建并推送对应 `vX.Y.Z` 标签。首次正式发布为 `v1.0.0`；新标签必须高于其他正式版，已公开版本的附件不能覆盖。
-3. Actions 校验版本和提交来源，然后构建三个平台。Windows 生成安装包和签名；macOS 同时生成 DMG、应用更新压缩包及签名。
-4. 全部成功后，发布任务创建或继续版本草稿，上传所有安装包、更新包、签名和包含三个平台的 `latest.json`，校验文件数量、大小和 SHA-256 摘要后公开对应的 `vX.Y.Z` Release。
+3. Actions 校验版本和提交来源，然后构建两个平台。Windows 生成安装包和签名；macOS 同时生成 DMG、应用更新压缩包及签名。
+4. 全部成功后，发布任务创建或继续版本草稿，上传所有安装包、更新包、签名和包含两个平台的 `latest.json`，校验文件数量、大小和 SHA-256 摘要后公开对应的 `vX.Y.Z` Release。
 5. 将 `latest` 标签移动到同一提交，将新版本 Release 标题设置为 `latest (vX.Y.Z)` 并标记为 GitHub 最新 Release；上一版本标题恢复为其 `vX.Y.Z` 版本号。每个正式版本只有一份 Release，所有历史版本标签、附件和说明持续保留。
 
 更新清单中的下载链接绑定对应版本标签，固定的“最新 Release”入口直接访问当前版本的同一份附件，不再复制第二份安装包。任何平台构建或版本附件上传失败时，不切换正式更新渠道。可以重跑失败的发布任务，未公开草稿允许重试，已公开版本仅校验内容一致性，不覆盖附件。手动运行标签只构建普通安装包，不发布。
 
 固定下载入口使用 [最新 Release](https://github.com/kentxxq/KView/releases/latest)，应用内更新继续使用 `/releases/latest/download/latest.json`，无需重新安装已发布的 `1.0.0`。`latest` Git 标签和最新版本标签指向同一提交；不再单独发布 `latest` 标签的重复 Release，原 `/releases/tag/latest` 或 `/releases/download/latest/...` 链接应改用固定入口。GitHub 没有强制置顶接口，因此采用最新版本标题显示 `latest (vX.Y.Z)` 的方式，不再让重复条目参与排序。
 
-发布仅使用 `Tauri Build` 工作流，正式发布流程会自动整理发布名称并同步 `latest`。发布前直接校验远端版本标签指向构建提交；Release 的 `target` 使用 `main`，不作为产物来源依据，避免构建期间工作流变更导致旧提交触发额外权限检查。迁移时先校验重复 `latest` 的每个附件都已完整保存在某个正式版本中，再清理重复 Release；不删除 Git 标签，不重建安装包，也不覆盖版本附件。正式发布前需分别人工验收 Windows x64、macOS arm64 和 x64 的安装升级、签名失败拦截、未保存修改保护与设置及本地会话恢复。
+发布仅使用 `Tauri Build` 工作流，正式发布流程会自动整理发布名称并同步 `latest`。发布前直接校验远端版本标签指向构建提交；Release 的 `target` 使用 `main`，不作为产物来源依据，避免构建期间工作流变更导致旧提交触发额外权限检查。迁移时先校验重复 `latest` 的每个附件都已完整保存在某个正式版本中，再清理重复 Release；不删除 Git 标签，不重建安装包，也不覆盖版本附件。正式发布前需分别人工验收 Windows x64 和 macOS arm64 的安装升级、签名失败拦截、未保存修改保护与设置及本地会话恢复。
 
-发布阶段失败但三个平台的签名产物均已上传时，可在 `main` 上手动运行 `Tauri Build`，将 `release_run_id` 填为原运行 ID，仅复用原产物重试发布。重试仍校验标签、提交、版本、签名文件和附件摘要，并与正式发布共用互斥锁；产物过期或版本不一致时会失败。留空该参数仍只执行普通构建。
+发布阶段失败但两个平台的签名产物均已上传时，可在 `main` 上手动运行 `Tauri Build`，将 `release_run_id` 填为原运行 ID，仅复用原产物重试发布。重试仍校验标签、提交、版本、签名文件和附件摘要，并与正式发布共用互斥锁；产物过期或版本不一致时会失败。留空该参数仍只执行普通构建。
 
 ## 变更日志
 

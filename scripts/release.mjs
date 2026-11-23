@@ -12,7 +12,6 @@ const releaseDirectory = process.env.RUNNER_TEMP ? join(process.env.RUNNER_TEMP,
 const platformFiles = {
   "windows-x64": { target: "windows-x86_64", installer: "KView-windows-x64.exe", bundle: "nsis", extension: ".exe" },
   "macos-arm64": { target: "darwin-aarch64", installer: "KView-macos-arm64.dmg", bundle: "dmg", extension: ".dmg" },
-  "macos-x64": { target: "darwin-x86_64", installer: "KView-macos-x64.dmg", bundle: "dmg", extension: ".dmg" },
 };
 
 function releaseNotesWithoutDownloads(body) {
@@ -28,7 +27,7 @@ function releaseDownloadFooter() {
     "### 下载",
     "",
     `- Windows：${downloadLink("windows-x64", "x64（常用）")}`,
-    `- macOS：${downloadLink("macos-arm64", "arm64（M 芯片系列）")}、${downloadLink("macos-x64", "x64（老款 Mac，Intel 芯片）")}`,
+    `- macOS：${downloadLink("macos-arm64", "arm64（M 芯片系列）")}`,
     "<!-- kview-downloads:end -->",
   ].join("\n");
 }
