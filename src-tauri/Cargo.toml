@@ -1,6 +1,6 @@
 [package]
 name = "kview"
-version = "1.0.11"
+version = "1.0.12"
 description = "快速、轻量的本地文件查看器"
 authors = ["KView Contributors"]
 edition = "2021"
@@ -15,11 +15,11 @@ name = "kview_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.7.4", features = [] }
+tauri-build = { version = "2.7.6", features = [] }
 serde_json = "1"
 
 [dependencies]
-tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri = { version = "2.12.7", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.13.5", features = ["stream"] }
@@ -28,11 +28,11 @@ base64 = "0.22"
 getrandom = "0.4"
 percent-encoding = "2"
 tempfile = "3"
-office_oxide = "0.1.16"
-flate2 = "1"
+office_oxide = "0.1.17"
+flate2 = "1.1.11"
 tar = "0.4"
-zip = { version = "9.1.3", default-features = false, features = ["deflate"] }
-rbook = { version = "0.7.12", default-features = false, features = ["threadsafe"] }
+zip = { version = "9.8.2", default-features = false, features = ["deflate"] }
+rbook = { version = "0.7.13", default-features = false, features = ["threadsafe"] }
 msi = "0.10"
 pelite = "0.10"
 hpvcd = "0.3.4"

@@ -14,7 +14,7 @@ export default defineConfig(() => ({
       icon: {
         mode: "svg",
         clientBundle: {
-          scan: true,
+          scan: { globInclude: ["src/**/*.{vue,ts,tsx}"] },
         },
       },
       ui: {
