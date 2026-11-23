@@ -448,34 +448,23 @@ async function openFileWith(path: string) {
   }
 }
 
-async function loadSpaceOpenPath(path: string | null) {
+async function loadSpaceOpenPath(tab: WorkspaceTab, path: string | null) {
   if (updateLocked.value) return;
   workspaceOperations++;
-  try { await loadSpaceOpenPathImpl(path); }
+  try { await loadSpaceOpenPathImpl(tab, path); }
   finally { workspaceOperations--; }
 }
 
-async function loadSpaceOpenPathImpl(path: string | null) {
-  let tab = tabs.find((item) => item.id === spaceOpenTabId.value);
-  if (!tab) {
-    persistTabs();
-    tab = reactive<WorkspaceTab>({
-      id: `space-open-${Date.now()}-${tabSequence++}`,
-      sourceKey: "space-open:",
-      state: createDocumentState(),
-      fallbackName: "空格打开",
-    });
-    tabs.push(tab);
-    spaceOpenTabId.value = tab.id;
-  }
+async function loadSpaceOpenPathImpl(tab: WorkspaceTab, path: string | null) {
   const loadToken = ++tabLoadSequence;
   tabLoadTokens.set(tab.id, loadToken);
+  const isCurrentLoad = () => tabLoadTokens.get(tab.id) === loadToken;
   tab.sourceKey = path ? `local:${path}` : "space-open:unavailable";
   tab.fallbackName = path?.split(/[\\/]/).pop() || "空格打开";
-  if (activeTabId.value === tab.id) void nextTick(scrollActiveTabIntoView);
-  else activateTab(tab.id);
+  void nextTick(scrollActiveTabIntoView);
   if (!path) {
     await closeDocumentResources(tab.state);
+    if (!isCurrentLoad()) return;
     Object.assign(tab.state, createDocumentState(), { status: "error" });
     tab.state.error = {
       code: "space-open-unavailable",
@@ -496,13 +485,14 @@ async function loadSpaceOpenPathImpl(path: string | null) {
     const file = await invoke<OpenedFile>("inspect_file", { path });
     const nextViewer = resolveViewer(file);
     if (!nextViewer) throw new Error(`暂不支持 .${file.extension || "未知"} 文件`);
-    if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) return;
+    if (!isCurrentLoad()) return;
 
     const currentViewerKey = tab.state.file ? resolveViewerKey(tab.state.file) : null;
     const nextViewerKey = nextViewer.componentKey ?? nextViewer.kind;
     const canReuseViewer = tab.state.status === "ready" && currentViewerKey === nextViewerKey;
     if (!canReuseViewer) {
       await closeDocumentResources(tab.state);
+      if (!isCurrentLoad()) return;
       Object.assign(tab.state, createDocumentState(), {
         file,
         status: "loading",
@@ -520,16 +510,15 @@ async function loadSpaceOpenPathImpl(path: string | null) {
       recoverable: true,
     };
   }
-  if (tabLoadTokens.get(tab.id) === loadToken && tabs.some((item) => item.id === tab.id)) {
-    await closeDocumentResources(tab.state);
-    transferDocumentResources(nextState, tab.state);
-    Object.assign(tab.state, nextState);
-    tab.sourceKey = `local:${path}`;
-    tab.fallbackName = nextState.file?.name ?? tab.fallbackName;
-    persistTabs();
-  } else {
+  if (isCurrentLoad()) await closeDocumentResources(tab.state);
+  if (!isCurrentLoad()) {
     await closeDocumentResources(nextState);
+    return;
   }
+  transferDocumentResources(nextState, tab.state);
+  Object.assign(tab.state, nextState);
+  tab.fallbackName = nextState.file?.name ?? tab.fallbackName;
+  persistTabs();
 }
 
 async function loadSpaceOpenDirectory(path: string, session: number) {
@@ -562,10 +551,28 @@ async function loadSpaceOpenDirectory(path: string, session: number) {
 
 async function startSpaceOpen(path: string | null) {
   if (updateLocked.value) return;
+  const sourceKey = path ? `local:${path}` : "space-open:unavailable";
+  const existing = path ? tabs.find((tab) => tab.sourceKey === sourceKey) : undefined;
+  if (existing) {
+    const cancellation = existing.id !== spaceOpenTabId.value ? cancelSpaceOpenLink() : undefined;
+    activateTab(existing.id);
+    await cancellation;
+    return;
+  }
+
+  const tab = reactive<WorkspaceTab>({
+    id: `space-open-${Date.now()}-${tabSequence++}`,
+    sourceKey,
+    state: createDocumentState(),
+    fallbackName: path?.split(/[\\/]/).pop() || "空格打开",
+  });
+  tabs.push(tab);
+  spaceOpenTabId.value = tab.id;
   const session = ++spaceOpenSessionSequence;
   spaceOpenPaths.value = path ? [path] : [];
   spaceOpenIndex.value = path ? 0 : -1;
-  const fileLoad = loadSpaceOpenPath(path);
+  activateTab(tab.id);
+  const fileLoad = loadSpaceOpenPath(tab, path);
   if (path) void loadSpaceOpenDirectory(path, session);
   await fileLoad;
 }
@@ -589,7 +596,7 @@ function switchSpaceOpenFile(direction: number) {
     spaceOpenIndex.value >= 0 && spaceOpenIndex.value < length ? spaceOpenIndex.value : 0;
   const nextIndex = (currentIndex + direction + length) % length;
   spaceOpenIndex.value = nextIndex;
-  void loadSpaceOpenPath(spaceOpenPaths.value[nextIndex]);
+  void loadSpaceOpenPath(tab, spaceOpenPaths.value[nextIndex]);
 }
 
 function resetSpaceOpenLink() {
@@ -600,9 +607,8 @@ function resetSpaceOpenLink() {
 }
 
 async function cancelSpaceOpenLink() {
-  const tabId = spaceOpenTabId.value;
+  resetSpaceOpenLink();
   await invoke("cancel_space_open");
-  if (tabId && spaceOpenTabId.value === tabId) resetSpaceOpenLink();
 }
 
 async function openCurrentAsHex() {
@@ -1079,17 +1085,16 @@ async function closeTabsImpl(targetIds: string[]) {
 
   const firstTargetIndex = tabs.findIndex((tab) => targetIdSet.has(tab.id));
   const activeTabClosed = targetIdSet.has(activeTabId.value);
+  for (const tab of targetTabs) tabLoadTokens.delete(tab.id);
+  const cancelPreview = targetIdSet.has(spaceOpenTabId.value) ? cancelSpaceOpenLink() : undefined;
   viewerCacheExclusions.value = targetTabs.map((tab) => viewerShellName(tab.id));
   await nextTick();
-  if (spaceOpenTabId.value && targetIdSet.has(spaceOpenTabId.value)) {
-    await cancelSpaceOpenLink();
-  }
+  await cancelPreview;
   await Promise.all(targetTabs.map((tab) => closeDocumentResources(tab.state)));
   for (let index = tabs.length - 1; index >= 0; index--) {
     if (targetIdSet.has(tabs[index].id)) tabs.splice(index, 1);
   }
   for (const tab of targetTabs) {
-    tabLoadTokens.delete(tab.id);
     viewerShells.delete(tab.id);
   }
   viewerCacheExclusions.value = [];
@@ -1139,9 +1144,9 @@ function toggleCurrentFavorite() {
 }
 
 async function clearWorkspace() {
+  tabLoadTokens.clear();
   await Promise.all(tabs.map((tab) => closeDocumentResources(tab.state)));
   tabs.splice(0);
-  tabLoadTokens.clear();
   activeTabId.value = "";
   Object.assign(emptyDocumentState, createDocumentState());
   persistTabs();
