@@ -48,9 +48,7 @@ const displayedWidth = computed(() => width.value * fitScale.value * zoom.value)
 const displayedHeight = computed(() => height.value * fitScale.value * zoom.value);
 const frameWidth = computed(() => (rotated.value ? displayedHeight.value : displayedWidth.value));
 const frameHeight = computed(() => (rotated.value ? displayedWidth.value : displayedHeight.value));
-const canPan = computed(
-  () => frameWidth.value > availableWidth.value || frameHeight.value > availableHeight.value,
-);
+const canPan = computed(() => frameWidth.value > availableWidth.value || frameHeight.value > availableHeight.value);
 const contentStyle = computed(() => ({
   width: `${Math.max(availableWidth.value, frameWidth.value)}px`,
   height: `${Math.max(availableHeight.value, frameHeight.value)}px`,
@@ -214,8 +212,7 @@ function prepareMedia() {
   if (props.file.kind === "live-photo") {
     try {
       const document =
-        props.structuredContent ??
-        (props.content ? (JSON.parse(props.content) as LivePhotoDocument) : null);
+        props.structuredContent ?? (props.content ? (JSON.parse(props.content) as LivePhotoDocument) : null);
       if (!document) throw new Error("动态照片数据无效");
       livePhoto.value = document;
       safeSource.value = document.imageUrl;
@@ -235,9 +232,7 @@ function prepareMedia() {
   safeSource.value = props.content;
   if (props.file.extension === "svg") {
     const encoded = props.content.split(",", 2)[1] ?? "";
-    const source = new TextDecoder().decode(
-      Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0)),
-    );
+    const source = new TextDecoder().decode(Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0)));
     const sanitized = DOMPurify.sanitize(source, {
       USE_PROFILES: { svg: true, svgFilters: true },
       FORBID_TAGS: ["script", "foreignObject"],

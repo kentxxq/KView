@@ -1,13 +1,28 @@
-import { defineConfig } from "vite";
+import { defineConfig, lazyPlugins } from "vite-plus";
 import vue from "@vitejs/plugin-vue";
 import ui from "@nuxt/ui/vite";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
+
 const host = process.env.TAURI_DEV_HOST;
 
+const ignorePatterns = [
+  "src-tauri/**",
+  "dist/**",
+  "debug/**",
+  ".agents/**",
+  "docs/**",
+  "AGENTS.md",
+  "README.md",
+  "CHANGLOG.md",
+  "plan.md",
+  "auto-imports.d.ts",
+  "components.d.ts",
+];
+
 // https://vite.dev/config/
-export default defineConfig(() => ({
-  plugins: [
+export default defineConfig({
+  plugins: lazyPlugins(() => [
     vue(),
     ui({
       router: false,
@@ -24,7 +39,7 @@ export default defineConfig(() => ({
         },
       },
     }),
-  ],
+  ]),
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -50,4 +65,33 @@ export default defineConfig(() => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+
+  test: {
+    include: ["tests/**/*.test.ts"],
+    environment: "node",
+  },
+
+  fmt: {
+    singleQuote: false,
+    semi: true,
+    trailingComma: "all",
+    printWidth: 120,
+    ignorePatterns,
+  },
+
+  lint: {
+    ignorePatterns,
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    rules: {
+      "vite-plus/prefer-vite-plus-imports": "error",
+    },
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
+  },
+
+  staged: {
+    "*": "vp check --fix",
+  },
+});

@@ -32,9 +32,7 @@ const matches = computed(() => {
 });
 
 function childPath(key: string) {
-  return Array.isArray(props.value)
-    ? `${props.path}[${key}]`
-    : `${props.path}[${JSON.stringify(key)}]`;
+  return Array.isArray(props.value) ? `${props.path}[${key}]` : `${props.path}[${JSON.stringify(key)}]`;
 }
 
 function primitiveLabel(value: unknown) {

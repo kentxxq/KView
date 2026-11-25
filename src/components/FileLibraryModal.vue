@@ -56,10 +56,7 @@ function openPath(path: string) {
               /></UTooltip>
             </div>
           </div>
-          <p
-            v-else
-            class="rounded-lg border border-dashed border-muted p-4 text-center text-sm text-muted"
-          >
+          <p v-else class="rounded-lg border border-dashed border-muted p-4 text-center text-sm text-muted">
             还没有收藏文件。
           </p>
         </section>
@@ -94,10 +91,7 @@ function openPath(path: string) {
               /></UTooltip>
             </div>
           </div>
-          <p
-            v-else
-            class="rounded-lg border border-dashed border-muted p-4 text-center text-sm text-muted"
-          >
+          <p v-else class="rounded-lg border border-dashed border-muted p-4 text-center text-sm text-muted">
             还没有最近打开记录。
           </p>
         </section>

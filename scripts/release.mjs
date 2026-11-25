@@ -8,7 +8,9 @@ const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 const tag = process.env.RELEASE_TAG ?? process.env.GITHUB_REF_NAME;
 const repository = process.env.GITHUB_REPOSITORY;
 const sha = process.env.RELEASE_SHA ?? process.env.GITHUB_SHA;
-const releaseDirectory = process.env.RUNNER_TEMP ? join(process.env.RUNNER_TEMP, "kview-release") : "debug/tmpfile-AI-release-stage";
+const releaseDirectory = process.env.RUNNER_TEMP
+  ? join(process.env.RUNNER_TEMP, "kview-release")
+  : "debug/tmpfile-AI-release-stage";
 const platformFiles = {
   "windows-x64": { target: "windows-x86_64", installer: "KView-windows-x64.exe", bundle: "nsis", extension: ".exe" },
   "macos-arm64": { target: "darwin-aarch64", installer: "KView-macos-arm64.dmg", bundle: "dmg", extension: ".dmg" },
@@ -19,7 +21,8 @@ function releaseNotesWithoutDownloads(body) {
 }
 
 function releaseDownloadFooter() {
-  const downloadLink = (platform, label) => `[${label}](https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(platformFiles[platform].installer)})`;
+  const downloadLink = (platform, label) =>
+    `[${label}](https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(platformFiles[platform].installer)})`;
   return [
     "<!-- kview-downloads:start -->",
     "---",
@@ -34,11 +37,13 @@ function releaseDownloadFooter() {
 
 function run(command, args) {
   // 不转发可能含认证信息的子进程错误输出。
-  try { return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch (error) {
-    const hint = command === "gh" && /workflow.*scope/i.test(String(error.stderr))
-      ? "：GitHub 要求 workflow 权限，请检查 Release 的 target 是否与默认分支的工作流不同"
-      : "";
+  try {
+    return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (error) {
+    const hint =
+      command === "gh" && /workflow.*scope/i.test(String(error.stderr))
+        ? "：GitHub 要求 workflow 权限，请检查 Release 的 target 是否与默认分支的工作流不同"
+        : "";
     throw new Error(`${command} ${args.slice(0, 2).join(" ")} 执行失败（退出码 ${error.status ?? "未知"}）${hint}`);
   }
 }
@@ -47,7 +52,11 @@ function validateVersion() {
   if (!stable.test(tag ?? "")) throw new Error("发布标签必须为 vX.Y.Z，不支持预发布版本");
   const version = tag.slice(1);
   const cargoVersion = readFileSync("src-tauri/Cargo.toml", "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-  if ([readJson("package.json").version, readJson("src-tauri/tauri.conf.json").version, cargoVersion].some((value) => value !== version)) {
+  if (
+    [readJson("package.json").version, readJson("src-tauri/tauri.conf.json").version, cargoVersion].some(
+      (value) => value !== version,
+    )
+  ) {
     throw new Error("标签与前端、Rust、Tauri 版本不一致");
   }
   return version;
@@ -65,7 +74,9 @@ function validate() {
   run("git", ["merge-base", "--is-ancestor", sha, "origin/main"]);
   const tagSha = run("gh", ["api", `repos/${repository}/commits/${encodeURIComponent(tag)}`, "--jq", ".sha"]);
   if (tagSha !== sha) throw new Error("远端版本标签与构建提交不一致，禁止发布");
-  const published = listReleases().filter((release) => !release.draft && !release.prerelease && stable.test(release.tag_name));
+  const published = listReleases().filter(
+    (release) => !release.draft && !release.prerelease && stable.test(release.tag_name),
+  );
   if (published.some((release) => compare(tag, release.tag_name) < 0)) {
     throw new Error("发布版本必须高于其他已发布正式版本");
   }
@@ -95,9 +106,22 @@ function stage() {
   if (!signature) throw new Error("缺少更新包签名");
   if (asset !== config.installer) copyFileSync(source, join(releaseDirectory, asset));
   copyFileSync(`${source}.sig`, join(releaseDirectory, `${asset}.sig`));
-  writeFileSync(join(releaseDirectory, `${platform}.json`), JSON.stringify({
-    version, tag, sha, target: config.target, asset, installer: config.installer, signature,
-  }, null, 2));
+  writeFileSync(
+    join(releaseDirectory, `${platform}.json`),
+    JSON.stringify(
+      {
+        version,
+        tag,
+        sha,
+        target: config.target,
+        asset,
+        installer: config.installer,
+        signature,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 function verifyAssets(releaseTag, assets) {
@@ -108,7 +132,11 @@ function verifyAssets(releaseTag, assets) {
   for (const path of assets) {
     const bytes = readFileSync(path);
     const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-    if (!release.assets.some((asset) => asset.name === basename(path) && asset.size === bytes.length && asset.digest === digest)) {
+    if (
+      !release.assets.some(
+        (asset) => asset.name === basename(path) && asset.size === bytes.length && asset.digest === digest,
+      )
+    ) {
       throw new Error(`${releaseTag} 发布附件内容不一致，停止同步`);
     }
   }
@@ -123,9 +151,16 @@ function markLatest(versionTag, versionSha) {
   const duplicate = releases.find((release) => release.tag_name === "latest");
   if (duplicate) {
     // 仅清理已经有完整版本存档的重复 Release，不删除 latest 标签。
-    const archived = versions.some((entry) => entry.assets.length === duplicate.assets.length
-      && duplicate.assets.every((asset) => entry.assets.some((saved) => saved.name === asset.name
-        && saved.size === asset.size && saved.digest && saved.digest === asset.digest)));
+    const archived = versions.some(
+      (entry) =>
+        entry.assets.length === duplicate.assets.length &&
+        duplicate.assets.every((asset) =>
+          entry.assets.some(
+            (saved) =>
+              saved.name === asset.name && saved.size === asset.size && saved.digest && saved.digest === asset.digest,
+          ),
+        ),
+    );
     if (!archived) throw new Error("latest 附件尚未完整存档，停止清理重复 Release");
   }
   for (const entry of versions) {
@@ -142,7 +177,17 @@ function markLatest(versionTag, versionSha) {
       run("gh", ["api", "--method", "PATCH", ref, "-f", `sha=${versionSha}`, "-F", "force=true", "--silent"]);
     }
   } else {
-    run("gh", ["api", "--method", "POST", `repos/${repository}/git/refs`, "-f", "ref=refs/tags/latest", "-f", `sha=${versionSha}`, "--silent"]);
+    run("gh", [
+      "api",
+      "--method",
+      "POST",
+      `repos/${repository}/git/refs`,
+      "-f",
+      "ref=refs/tags/latest",
+      "-f",
+      `sha=${versionSha}`,
+      "--silent",
+    ]);
   }
   if (duplicate) run("gh", ["release", "delete", "latest", "--yes"]);
   const latest = JSON.parse(run("gh", ["api", `repos/${repository}/releases/latest`]));
@@ -160,8 +205,14 @@ function publish() {
   for (const [platform, config] of Object.entries(platformFiles)) {
     const fragment = readJson(join(releaseDirectory, `${platform}.json`));
     const expectedAsset = platform === "windows-x64" ? config.installer : `KView-${platform}.app.tar.gz`;
-    if (fragment.version !== version || fragment.tag !== tag || fragment.sha !== sha || fragment.target !== config.target
-      || fragment.installer !== config.installer || fragment.asset !== expectedAsset) {
+    if (
+      fragment.version !== version ||
+      fragment.tag !== tag ||
+      fragment.sha !== sha ||
+      fragment.target !== config.target ||
+      fragment.installer !== config.installer ||
+      fragment.asset !== expectedAsset
+    ) {
       throw new Error("更新产物的版本、平台或提交不一致");
     }
     const signature = readFileSync(join(releaseDirectory, `${fragment.asset}.sig`), "utf8").trim();
@@ -181,7 +232,13 @@ function publish() {
     const heading = `### ${tag} (`;
     const start = changelog.indexOf(heading);
     const notesFile = join(releaseDirectory, "release-notes.md");
-    const section = start < 0 ? "" : changelog.slice(start).split(/\r?\n(?=#{1,3} )/)[0].trim();
+    const section =
+      start < 0
+        ? ""
+        : changelog
+            .slice(start)
+            .split(/\r?\n(?=#{1,3} )/)[0]
+            .trim();
     const noteArgs = section ? ["--notes-file", notesFile] : ["--generate-notes"];
     if (section) writeFileSync(notesFile, section);
     // 标签已校验为构建提交；target 仅用于 Release 元数据，避免旧 SHA 触发工作流权限检查。

@@ -19,8 +19,15 @@ export interface UpdateStatus {
 export const useUpdatesStore = defineStore("updates", {
   state: () => ({
     status: {
-      revision: -1, phase: "idle", currentVersion: "", version: null, notes: null,
-      downloadedBytes: 0, totalBytes: null, errorCode: null, errorMessage: null,
+      revision: -1,
+      phase: "idle",
+      currentVersion: "",
+      version: null,
+      notes: null,
+      downloadedBytes: 0,
+      totalBytes: null,
+      errorCode: null,
+      errorMessage: null,
       dismissedVersion: null,
     } as UpdateStatus,
   }),
@@ -34,12 +41,20 @@ export const useUpdatesStore = defineStore("updates", {
     async initialize() {
       if (!isTauri()) return () => {};
       const unlisten = await listen<UpdateStatus>("update-status-changed", ({ payload }) => this.apply(payload));
-      try { this.apply(await invoke<UpdateStatus>("get_update_status")); }
-      catch (error) { unlisten(); throw error; }
+      try {
+        this.apply(await invoke<UpdateStatus>("get_update_status"));
+      } catch (error) {
+        unlisten();
+        throw error;
+      }
       return unlisten;
     },
-    async check() { this.apply(await invoke<UpdateStatus>("check_for_updates")); },
-    async download() { this.apply(await invoke<UpdateStatus>("download_update")); },
+    async check() {
+      this.apply(await invoke<UpdateStatus>("check_for_updates"));
+    },
+    async download() {
+      this.apply(await invoke<UpdateStatus>("download_update"));
+    },
     async dismiss() {
       const version = this.status.version;
       if (version) await invoke("dismiss_update", { version });

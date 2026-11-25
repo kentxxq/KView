@@ -31,11 +31,7 @@ export function isCurrentDocumentLoad(state: DocumentState, generation: number) 
   return loadGenerations.get(state) === generation;
 }
 
-export function createDocumentObjectUrl(
-  state: DocumentState,
-  bytes: Uint8Array<ArrayBuffer>,
-  mimeType: string,
-) {
+export function createDocumentObjectUrl(state: DocumentState, bytes: Uint8Array<ArrayBuffer>, mimeType: string) {
   const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
   handlesFor(state).objectUrls.add(url);
   return url;
@@ -69,7 +65,9 @@ async function releaseHandles(state: DocumentState) {
   state.largeTextSession = null;
   await Promise.all([
     handles.logSessionId
-      ? desktopInvoke("close_log_session", { sessionId: handles.logSessionId }).catch(() => recordDiagnostic("viewer", "log-close-failed"))
+      ? desktopInvoke("close_log_session", { sessionId: handles.logSessionId }).catch(() =>
+          recordDiagnostic("viewer", "log-close-failed"),
+        )
       : Promise.resolve(),
     largeTextSessionId
       ? desktopInvoke("close_large_text_session", { sessionId: largeTextSessionId }).catch(() =>
@@ -96,11 +94,7 @@ export function transferDocumentResources(from: DocumentState, to: DocumentState
   resources.set(to, handles);
 }
 
-export async function commitDocumentLoad(
-  target: DocumentState,
-  loaded: DocumentState,
-  generation: number,
-) {
+export async function commitDocumentLoad(target: DocumentState, loaded: DocumentState, generation: number) {
   if (!isCurrentDocumentLoad(target, generation)) {
     await releaseHandles(loaded);
     return false;

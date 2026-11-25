@@ -57,10 +57,7 @@ interface EbookWorkerResponse {
 class WorkerMobiParser implements EbookParser {
   readonly format = "mobi" as const;
   private nextRequestId = 1;
-  private readonly pending = new Map<
-    number,
-    { resolve: (value: unknown) => void; reject: (cause: Error) => void }
-  >();
+  private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (cause: Error) => void }>();
   private spine: EbookSpineItem[] = [];
   private toc: EbookTocItem[] = [];
   private readonly resolvedLinks = new Map<string, EbookResolvedHref>();
@@ -99,11 +96,7 @@ class WorkerMobiParser implements EbookParser {
     }
   }
 
-  private request<T>(
-    type: string,
-    payload: Record<string, unknown> = {},
-    transfer: Transferable[] = [],
-  ) {
+  private request<T>(type: string, payload: Record<string, unknown> = {}, transfer: Transferable[] = []) {
     const id = this.nextRequestId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, {
@@ -124,8 +117,7 @@ class WorkerMobiParser implements EbookParser {
 
   async loadChapter(id: string) {
     const chapter = await this.request<EbookChapter | undefined>("load-chapter", { chapterId: id });
-    for (const [href, resolved] of chapter?.resolvedLinks ?? [])
-      this.resolvedLinks.set(href, resolved);
+    for (const [href, resolved] of chapter?.resolvedLinks ?? []) this.resolvedLinks.set(href, resolved);
     return chapter;
   }
 
@@ -298,11 +290,7 @@ function flattenToc(items: EbookTocItem[], result: EbookTocItem[] = []) {
   return result;
 }
 
-function createSections(
-  currentParser: EbookParser,
-  spineItems: EbookSpineItem[],
-  tocItems: EbookTocItem[],
-) {
+function createSections(currentParser: EbookParser, spineItems: EbookSpineItem[], tocItems: EbookTocItem[]) {
   const seen = new Set<string>();
   const tocSections: EbookSection[] = [];
   for (const item of flattenToc(tocItems)) {
@@ -403,9 +391,7 @@ function sanitizeChapter(value: string) {
 
 async function createParser(bytes: Uint8Array): Promise<EbookParser> {
   if (props.file.extension === "epub") {
-    const document =
-      props.structuredContent ??
-      (props.content ? (JSON.parse(props.content) as EpubDocument) : null);
+    const document = props.structuredContent ?? (props.content ? (JSON.parse(props.content) as EpubDocument) : null);
     if (!document || !document.sessionId || !Array.isArray(document.spine) || !Array.isArray(document.toc)) {
       throw new Error("EPUB 会话数据无效");
     }
@@ -419,13 +405,10 @@ async function hydrateChapterImages(value: string, chapterId: string, currentPar
   const template = document.createElement("template");
   template.innerHTML = value;
   const images = [...template.content.querySelectorAll("img[src]")];
-  const sources = [
-    ...new Set(images.map((image) => image.getAttribute("src") ?? "").filter(Boolean)),
-  ];
+  const sources = [...new Set(images.map((image) => image.getAttribute("src") ?? "").filter(Boolean))];
   const loaded = await Promise.all(
     sources.map(async (source) => {
-      if (source.startsWith("data:") || source.startsWith("blob:"))
-        return [source, source] as const;
+      if (source.startsWith("data:") || source.startsWith("blob:")) return [source, source] as const;
       try {
         const resource = await currentParser.loadResource?.(chapterId, source);
         if (!resource) return [source, ""] as const;
@@ -480,8 +463,7 @@ async function showChapter(index: number, selector = "", selectedId?: string) {
     if (!chapter) throw new Error("章节内容不存在");
     const targetSelector = item.renderSelector || selector || item.selector;
     const nextItem = sections.value[index + 1];
-    const endSelector =
-      item.renderSelector && nextItem?.id === item.id ? nextItem.renderSelector : "";
+    const endSelector = item.renderSelector && nextItem?.id === item.id ? nextItem.renderSelector : "";
     const sectionHtml = item.renderSelector
       ? extractSectionHtml(chapter.html, targetSelector, endSelector)
       : chapter.html;
@@ -517,9 +499,7 @@ async function navigateHref(href: string, selectedId?: string) {
   if (!resolved) return;
   const sectionedNavigation = sections.value.some((item) => item.renderSelector);
   const index = sectionedNavigation
-    ? sections.value.findIndex(
-        (item) => item.id === resolved.id && item.selector === resolved.selector,
-      )
+    ? sections.value.findIndex((item) => item.id === resolved.id && item.selector === resolved.selector)
     : sections.value.findIndex((item) => item.id === resolved.id);
   if (index >= 0) await showChapter(index, resolved.selector, selectedId);
 }
@@ -567,9 +547,7 @@ async function initialize() {
     const initialIndex = sections.value.some((section) => section.label)
       ? Math.max(
           0,
-          sections.value.findIndex(
-            (section) => !/^(?:目录|contents|table of contents)$/i.test(section.label.trim()),
-          ),
+          sections.value.findIndex((section) => !/^(?:目录|contents|table of contents)$/i.test(section.label.trim())),
         )
       : 0;
     await showChapter(initialIndex);
@@ -597,14 +575,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-muted/20">
-    <ChapterLayout :items="chapterDirectory.items" :active-id="activeId"
+    <ChapterLayout
+      :items="chapterDirectory.items"
+      :active-id="activeId"
       :document-id="JSON.stringify([file.path, file.modifiedAt])"
-      :loading="loading && !toc.length" @select="selectChapter">
-
+      :loading="loading && !toc.length"
+      @select="selectChapter"
+    >
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">
-          正在解析电子书…
-        </div>
+        <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">正在解析电子书…</div>
         <div v-else-if="error" class="grid flex-1 place-items-center p-8 text-center">
           <div>
             <p class="text-sm text-error">{{ error }}</p>
@@ -631,13 +610,9 @@ onBeforeUnmount(() => {
       </section>
     </ChapterLayout>
 
-    <ViewerFooter
-      :file-size="file.size"
-      notice="仅提供安全的基础排版预览；电子书脚本、外部资源和自定义样式不会加载。"
-    >
+    <ViewerFooter :file-size="file.size" notice="仅提供安全的基础排版预览；电子书脚本、外部资源和自定义样式不会加载。">
       <template #status
-        >{{ file.extension.toUpperCase() }} · {{ chapterIndex + 1 }}/{{ sections.length || "-" }} 章
-        · 只读</template
+        >{{ file.extension.toUpperCase() }} · {{ chapterIndex + 1 }}/{{ sections.length || "-" }} 章 · 只读</template
       >
       <template #actions>
         <UTooltip text="上一章" :delay-duration="500"

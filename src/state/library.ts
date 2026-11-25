@@ -29,11 +29,7 @@ const LEGACY_STORAGE_KEY = "kview-library-v1";
 function validEntry(value: unknown): value is LibraryEntry {
   if (!value || typeof value !== "object") return false;
   const entry = value as Partial<LibraryEntry>;
-  return (
-    typeof entry.path === "string" &&
-    typeof entry.name === "string" &&
-    typeof entry.timestamp === "number"
-  );
+  return typeof entry.path === "string" && typeof entry.name === "string" && typeof entry.timestamp === "number";
 }
 
 function parseStored(value: string | null): StoredLibraryV2 | null {

@@ -34,7 +34,7 @@ import "monaco-editor/languages/definitions/yaml/register";
 
 export async function loadMonaco() {
   self.MonacoEnvironment = {
-    getWorker: (_, label) => label === "json" ? new JsonWorker() : new EditorWorker(),
+    getWorker: (_, label) => (label === "json" ? new JsonWorker() : new EditorWorker()),
   };
   return import("monaco-editor/editor");
 }

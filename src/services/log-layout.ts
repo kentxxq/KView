@@ -1,9 +1,26 @@
 import type { LogColor, LogHighlightRule } from "../state/settings";
 
-export interface LogRow { id: number; raw: string; bytes: number; trimmed: boolean }
-const palette: Record<LogColor, string> = { red: "#f87171", orange: "#fb923c", yellow: "#facc15", green: "#4ade80", blue: "#60a5fa", purple: "#c084fc" };
+export interface LogRow {
+  id: number;
+  raw: string;
+  bytes: number;
+  trimmed: boolean;
+}
+const palette: Record<LogColor, string> = {
+  red: "#f87171",
+  orange: "#fb923c",
+  yellow: "#facc15",
+  green: "#4ade80",
+  blue: "#60a5fa",
+  purple: "#c084fc",
+};
 
-interface LayoutSegment { start: number; end: number; left: number; width: number }
+interface LayoutSegment {
+  start: number;
+  end: number;
+  left: number;
+  width: number;
+}
 interface LineLayout {
   row: LogRow;
   text: string;
@@ -12,7 +29,11 @@ interface LineLayout {
   width: number;
   iterator: IterableIterator<Intl.SegmentData>;
 }
-interface LogPart { text: string; color?: string; tabWidth?: number }
+interface LogPart {
+  text: string;
+  color?: string;
+  tabWidth?: number;
+}
 
 export function createLogLayout(context: CanvasRenderingContext2D) {
   const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -158,7 +179,10 @@ export function createLogLayout(context: CanvasRenderingContext2D) {
         }
         for (let index = low; index < glyphs.length && glyphs[index]!.start < b; index++) {
           const glyph = glyphs[index]!;
-          if (glyph.color === undefined) { glyph.color = palette[rule.color]; uncolored--; }
+          if (glyph.color === undefined) {
+            glyph.color = palette[rule.color];
+            uncolored--;
+          }
         }
         if (!uncolored) break;
       }
@@ -206,6 +230,16 @@ export function createLogLayout(context: CanvasRenderingContext2D) {
     return total ? Math.min(1, done / total) : 1;
   }
 
-  return { configure, retain, advance, render, progress, width: () => maximumWidth, clear: () => { cache.clear(); maximumWidth = 0; } };
+  return {
+    configure,
+    retain,
+    advance,
+    render,
+    progress,
+    width: () => maximumWidth,
+    clear: () => {
+      cache.clear();
+      maximumWidth = 0;
+    },
+  };
 }
-

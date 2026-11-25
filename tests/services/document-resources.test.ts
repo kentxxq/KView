@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { DocumentState } from "../../src/types/document";
 import { desktopInvoke } from "../../src/services/desktop-api";
 import {
@@ -139,7 +139,9 @@ describe("document-resources lifetime, handle tracking and generation guards", (
     await disposeDocumentResources(doc);
 
     expect(doc.largeTextSession).toBeNull();
-    expect(desktopInvoke).toHaveBeenCalledWith("close_large_text_session", { sessionId: "large-text-101" });
+    expect(desktopInvoke).toHaveBeenCalledWith("close_large_text_session", {
+      sessionId: "large-text-101",
+    });
     expect(desktopInvoke).toHaveBeenCalledWith("close_epub", { sessionId: "ebook-202" });
   });
 

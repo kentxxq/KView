@@ -8,7 +8,5 @@ export function recordDiagnostic(category: string, code: string, durationMs?: nu
 
 export function installGlobalDiagnostics() {
   window.addEventListener("error", () => recordDiagnostic("runtime", "unhandled-error"));
-  window.addEventListener("unhandledrejection", () =>
-    recordDiagnostic("runtime", "unhandled-rejection"),
-  );
+  window.addEventListener("unhandledrejection", () => recordDiagnostic("runtime", "unhandled-rejection"));
 }

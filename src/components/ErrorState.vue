@@ -8,9 +8,7 @@ defineEmits<{ dismiss: []; openHex: [] }>();
 <template>
   <section class="w-full max-w-lg text-center" role="alert" aria-labelledby="error-title">
     <div class="rounded-3xl border border-muted bg-elevated px-8 py-12 shadow-sm">
-      <div
-        class="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-error/10 text-error"
-      >
+      <div class="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-error/10 text-error">
         <UIcon name="i-lucide-file-search" class="size-7" />
       </div>
       <h1 id="error-title" class="text-xl font-semibold text-highlighted">
@@ -27,12 +25,7 @@ defineEmits<{ dismiss: []; openHex: [] }>();
           label="返回"
           @click="$emit('dismiss')"
         />
-        <UButton
-          v-if="canOpenHex"
-          icon="i-lucide-binary"
-          label="以 Hex 打开"
-          @click="$emit('openHex')"
-        />
+        <UButton v-if="canOpenHex" icon="i-lucide-binary" label="以 Hex 打开" @click="$emit('openHex')" />
       </div>
     </div>
   </section>

@@ -53,9 +53,7 @@ const details = computed(() => {
   </div>
   <section v-else class="flex size-full min-h-0 flex-col bg-muted">
     <div class="min-h-0 flex-1 overflow-auto p-6 sm:p-10">
-      <div
-        class="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-muted bg-elevated shadow-sm"
-      >
+      <div class="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-muted bg-elevated shadow-sm">
         <div
           class="flex flex-col items-center gap-5 border-b border-muted px-6 py-8 text-center sm:flex-row sm:px-9 sm:text-left"
         >
@@ -85,11 +83,7 @@ const details = computed(() => {
         </div>
 
         <dl class="grid gap-px bg-muted sm:grid-cols-2">
-          <div
-            v-for="item in details"
-            :key="item.label"
-            class="flex min-h-24 gap-3 bg-elevated px-6 py-5"
-          >
+          <div v-for="item in details" :key="item.label" class="flex min-h-24 gap-3 bg-elevated px-6 py-5">
             <UIcon :name="item.icon" class="mt-0.5 size-5 shrink-0 text-dimmed" />
             <div class="min-w-0">
               <dt class="text-xs text-muted">{{ item.label }}</dt>
@@ -102,9 +96,7 @@ const details = computed(() => {
       </div>
     </div>
     <ViewerFooter :file-size="file.size">
-      <template #status
-        >{{ installer.format }} · {{ installer.architecture || "未知架构" }} · 只读</template
-      >
+      <template #status>{{ installer.format }} · {{ installer.architecture || "未知架构" }} · 只读</template>
     </ViewerFooter>
   </section>
 </template>

@@ -73,20 +73,32 @@ const savingDocuments = new WeakSet<DocumentState>();
 
 async function notifyUpdate() {
   const { phase, version, dismissedVersion, notes } = updates.status;
-  if (!isTauri() || !version || version === dismissedVersion || notificationPending || !["available", "ready"].includes(phase)) return;
+  if (
+    !isTauri() ||
+    !version ||
+    version === dismissedVersion ||
+    notificationPending ||
+    !["available", "ready"].includes(phase)
+  )
+    return;
   notificationPending = true;
   try {
     const window = getCurrentWindow();
-    if (!(await window.isVisible()) || await window.isMinimized()) return;
+    if (!(await window.isVisible()) || (await window.isMinimized())) return;
     await updates.dismiss();
     toast.add({
-      id: "app-update", title: `KView ${version} 可用`,
+      id: "app-update",
+      title: `KView ${version} 可用`,
       description: notes?.slice(0, 300) || "可前往设置查看更新并下载安装。",
-      duration: 0, icon: "i-lucide-download",
+      duration: 0,
+      icon: "i-lucide-download",
       actions: [{ label: "查看更新", onClick: openAboutSettings }],
     });
-  } catch { recordDiagnostic("updater", "notification-failed"); }
-  finally { notificationPending = false; }
+  } catch {
+    recordDiagnostic("updater", "notification-failed");
+  } finally {
+    notificationPending = false;
+  }
 }
 
 async function requestUpdate() {
@@ -95,7 +107,12 @@ async function requestUpdate() {
   try {
     await updates.download();
     // 不允许在已有文件载入或关闭流程期间进入安装保护。
-    if (workspaceOperations || windowClosePending || resolveGuard || tabs.some((tab) => tab.state.status === "loading")) {
+    if (
+      workspaceOperations ||
+      windowClosePending ||
+      resolveGuard ||
+      tabs.some((tab) => tab.state.status === "loading")
+    ) {
       toast.add({ title: "更新已下载", description: "请等待当前文件操作完成后，再点击安装并重启。", color: "warning" });
       return;
     }
@@ -116,7 +133,12 @@ async function requestUpdate() {
   }
 }
 
-watch(() => updates.status.revision, () => { void notifyUpdate(); });
+watch(
+  () => updates.status.revision,
+  () => {
+    void notifyUpdate();
+  },
+);
 const addRecent = (path: string, name: string) => libraryState.addRecent(path, name);
 const removeRecent = (path: string) => libraryState.removeRecent(path);
 const toggleFavorite = (path: string, name: string) => libraryState.toggleFavorite(path, name);
@@ -173,23 +195,41 @@ function viewerShellFor(tabId: string) {
             const left = tabs.find((item) => item.id === comparison.leftId);
             const right = tabs.find((item) => item.id === comparison.rightId);
             if (!left || !right) return null;
-            return h(DiffViewer, { left: left.state, right: right.state, locked: updateLocked.value,
-              onFocus: (side: "left" | "right") => { comparison.focused = side; },
-              onSave: (side: "left" | "right") => { void saveState((side === "left" ? left : right).state, false); },
+            return h(DiffViewer, {
+              left: left.state,
+              right: right.state,
+              locked: updateLocked.value,
+              onFocus: (side: "left" | "right") => {
+                comparison.focused = side;
+              },
+              onSave: (side: "left" | "right") => {
+                void saveState((side === "left" ? left : right).state, false);
+              },
             });
           }
           const state = tab.state;
           if (!state.file || state.status !== "ready") return null;
           if (tab.logMode) return h(LogViewer, { file: state.file, document: state });
           return h(ViewerHost, {
-            key: tab.id === spaceOpenTabId.value ? `space-open:${resolveViewerKey(state.file)}:${state.file.path}` : tab.id,
-            file: state.file, document: state, content: state.content,
-            readOnly: state.readOnly || updateLocked.value, largeTextSession: state.largeTextSession,
+            key:
+              tab.id === spaceOpenTabId.value
+                ? `space-open:${resolveViewerKey(state.file)}:${state.file.path}`
+                : tab.id,
+            file: state.file,
+            document: state,
+            content: state.content,
+            readOnly: state.readOnly || updateLocked.value,
+            largeTextSession: state.largeTextSession,
             htmlPreview: tab.htmlPreview ?? false,
-            onUpdateHtmlPreview: (value: boolean) => { tab.htmlPreview = value; },
+            onUpdateHtmlPreview: (value: boolean) => {
+              tab.htmlPreview = value;
+            },
             "onUpdate:content": (value: string) => updateStateContent(state, value),
-            onOpenHex: () => { if (activeTabId.value === tab.id) void openCurrentAsHex(); },
-            onPdfModified: pdfModified, onSavePdf: savePdf,
+            onOpenHex: () => {
+              if (activeTabId.value === tab.id) void openCurrentAsHex();
+            },
+            onPdfModified: pdfModified,
+            onSavePdf: savePdf,
           });
         };
       },
@@ -199,9 +239,7 @@ function viewerShellFor(tabId: string) {
   return shell;
 }
 
-const activeViewerShell = computed(() =>
-  activeTab.value ? viewerShellFor(activeTab.value.id) : null,
-);
+const activeViewerShell = computed(() => (activeTab.value ? viewerShellFor(activeTab.value.id) : null));
 const comparisonSources = computed(() => {
   const comparison = activeTab.value?.comparison;
   if (!comparison) return null;
@@ -211,7 +249,7 @@ const comparisonSources = computed(() => {
 });
 const documentState = computed(() => {
   const sources = comparisonSources.value;
-  return sources ? sources[activeTab.value!.comparison!.focused].state : activeTab.value?.state ?? emptyDocumentState;
+  return sources ? sources[activeTab.value!.comparison!.focused].state : (activeTab.value?.state ?? emptyDocumentState);
 });
 function tabName(tab: WorkspaceTab) {
   if (!tab.comparison) return tab.state.file?.name ?? tab.fallbackName;
@@ -222,30 +260,63 @@ type ComparisonCandidate = WorkspaceTab & {
 };
 function isComparisonCandidate(tab: WorkspaceTab): tab is ComparisonCandidate {
   const state = tab.state;
-  return !tab.comparison && !tab.logMode && state.status === "ready" && state.file?.source === "local" && !state.readOnly && state.content.type === "text";
+  return (
+    !tab.comparison &&
+    !tab.logMode &&
+    state.status === "ready" &&
+    state.file?.source === "local" &&
+    !state.readOnly &&
+    state.content.type === "text"
+  );
 }
 async function compareTabs(leftId: string, rightId: string) {
   if (updateLocked.value) return;
   const left = tabs.find((tab) => tab.id === leftId);
   const right = tabs.find((tab) => tab.id === rightId);
-  if (!left || !right || !isComparisonCandidate(left) || !isComparisonCandidate(right) || left.id === right.id || left.state.file?.path === right.state.file?.path) {
-    toast.add({ title: "无法比较", description: "请选择两个不同的可编辑本地文本，且每侧均不超过当前编辑阈值；日志模式不可参与比较。", color: "warning" });
+  if (
+    !left ||
+    !right ||
+    !isComparisonCandidate(left) ||
+    !isComparisonCandidate(right) ||
+    left.id === right.id ||
+    left.state.file?.path === right.state.file?.path
+  ) {
+    toast.add({
+      title: "无法比较",
+      description: "请选择两个不同的可编辑本地文本，且每侧均不超过当前编辑阈值；日志模式不可参与比较。",
+      color: "warning",
+    });
     return;
   }
   for (const tab of [left, right]) {
     const state = tab.state;
-    const bytes = state.encoding?.startsWith("utf-16") ? state.content.value.length * 2 + (state.bom ? 2 : 0) : new TextEncoder().encode(state.content.value).length + (state.bom ? 3 : 0);
+    const bytes = state.encoding?.startsWith("utf-16")
+      ? state.content.value.length * 2 + (state.bom ? 2 : 0)
+      : new TextEncoder().encode(state.content.value).length + (state.bom ? 3 : 0);
     if (bytes > appSettings.largeFileThresholdMb * 1024 * 1024) {
-      toast.add({ title: "文本超过对比大小限制", description: `${state.file!.name} 超过当前 ${appSettings.largeFileThresholdMb} MiB 编辑阈值。`, color: "warning" });
+      toast.add({
+        title: "文本超过对比大小限制",
+        description: `${state.file!.name} 超过当前 ${appSettings.largeFileThresholdMb} MiB 编辑阈值。`,
+        color: "warning",
+      });
       return;
     }
   }
   if ([leftId, rightId].includes(spaceOpenTabId.value)) await cancelSpaceOpenLink();
   if (!tabs.includes(left) || !tabs.includes(right)) return;
   const existing = tabs.find((tab) => tab.comparison?.leftId === leftId && tab.comparison?.rightId === rightId);
-  if (existing) { activateTab(existing.id); return; }
+  if (existing) {
+    activateTab(existing.id);
+    return;
+  }
   const id = `diff-${Date.now()}-${tabSequence++}`;
-  tabs.push({ id, sourceKey: id, state: createDocumentState(), fallbackName: "文本对比", comparison: { leftId, rightId, focused: "right" } });
+  tabs.push({
+    id,
+    sourceKey: id,
+    state: createDocumentState(),
+    fallbackName: "文本对比",
+    comparison: { leftId, rightId, focused: "right" },
+  });
   activateTab(id);
 }
 async function compareWithFile(tab: WorkspaceTab) {
@@ -254,13 +325,23 @@ async function compareWithFile(tab: WorkspaceTab) {
   if (!path || Array.isArray(path)) return;
   try {
     await openPathAsTab(path);
-    const right = tabs.find((item) => !item.comparison && item.state.file?.path === path) ?? tabs.find((item) => item.sourceKey === `local:${path}`);
+    const right =
+      tabs.find((item) => !item.comparison && item.state.file?.path === path) ??
+      tabs.find((item) => item.sourceKey === `local:${path}`);
     if (right) await compareTabs(tab.id, right.id);
-  } catch (cause) { toast.add({ title: "无法打开对比文件", description: errorMessage(cause), color: "error" }); }
+  } catch (cause) {
+    toast.add({ title: "无法打开对比文件", description: errorMessage(cause), color: "error" });
+  }
 }
 const canUseLog = computed(() => {
   const tab = activeTab.value;
-  return !!tab && !tab.comparison && tab.state.status === "ready" && tab.state.file?.source === "local" && (tab.logMode || tab.state.content.type === "text" || !!tab.state.largeTextSession);
+  return (
+    !!tab &&
+    !tab.comparison &&
+    tab.state.status === "ready" &&
+    tab.state.file?.source === "local" &&
+    (tab.logMode || tab.state.content.type === "text" || !!tab.state.largeTextSession)
+  );
 });
 provide(logModeControlKey, {
   visible: canUseLog,
@@ -272,7 +353,11 @@ async function toggleLogMode(enabled: boolean) {
   const tab = activeTab.value;
   if (!tab || !canUseLog.value || updateLocked.value || logModePending.value) return;
   if (tabs.some((item) => item.comparison && [item.comparison.leftId, item.comparison.rightId].includes(tab.id))) {
-    toast.add({ title: "文件正在对比", description: "请先关闭引用此文件的对比标签，再进入日志模式。", color: "warning" });
+    toast.add({
+      title: "文件正在对比",
+      description: "请先关闭引用此文件的对比标签，再进入日志模式。",
+      color: "warning",
+    });
     return;
   }
   workspaceOperations++;
@@ -292,16 +377,18 @@ async function toggleLogMode(enabled: boolean) {
       await loadLocalDocument(tab.state, path, { onRecent: addRecent });
       tab.logMode = false;
     }
-  } catch (cause) { toast.add({ title: "无法切换日志模式", description: errorMessage(cause), color: "error" }); }
-  finally { workspaceOperations--; logModePending.value = false; }
+  } catch (cause) {
+    toast.add({ title: "无法切换日志模式", description: errorMessage(cause), color: "error" });
+  } finally {
+    workspaceOperations--;
+    logModePending.value = false;
+  }
 }
 const guardedDirtyTabs = computed(() => {
   const targetIds = new Set(guardTargetIds.value);
   return tabs.filter((tab) => targetIds.has(tab.id) && tab.state.dirty);
 });
-const hasViewer = computed(
-  () => !!documentState.value.file && !!resolveViewer(documentState.value.file),
-);
+const hasViewer = computed(() => !!documentState.value.file && !!resolveViewer(documentState.value.file));
 const currentFavorite = computed(() => {
   const file = documentState.value.file;
   return file?.source === "local" && libraryState.isFavorite(file.path);
@@ -355,8 +442,7 @@ function handleTabWheel(event: WheelEvent) {
   const element = tabStrip.value;
   if (!element || element.scrollWidth <= element.clientWidth) return;
   event.preventDefault();
-  element.scrollLeft +=
-    Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  element.scrollLeft += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
   updateTabScrollState();
 }
 
@@ -383,8 +469,19 @@ function tabContextItems(tab: WorkspaceTab) {
   ];
   if (!path) return closeItems;
   return [
-    { label: "选择以进行比较", icon: "i-lucide-git-compare", disabled: !candidate, onSelect: () => { comparisonBaseId.value = tab.id; } },
-    { label: "与所选文件比较", disabled: !candidate || !comparisonBaseId.value || comparisonBaseId.value === tab.id, onSelect: () => compareTabs(comparisonBaseId.value, tab.id) },
+    {
+      label: "选择以进行比较",
+      icon: "i-lucide-git-compare",
+      disabled: !candidate,
+      onSelect: () => {
+        comparisonBaseId.value = tab.id;
+      },
+    },
+    {
+      label: "与所选文件比较",
+      disabled: !candidate || !comparisonBaseId.value || comparisonBaseId.value === tab.id,
+      onSelect: () => compareTabs(comparisonBaseId.value, tab.id),
+    },
     { label: "与文件比较…", disabled: !candidate, onSelect: () => compareWithFile(tab) },
     { type: "separator" as const },
     {
@@ -451,8 +548,11 @@ async function openFileWith(path: string) {
 async function loadSpaceOpenPath(tab: WorkspaceTab, path: string | null) {
   if (updateLocked.value) return;
   workspaceOperations++;
-  try { await loadSpaceOpenPathImpl(tab, path); }
-  finally { workspaceOperations--; }
+  try {
+    await loadSpaceOpenPathImpl(tab, path);
+  } finally {
+    workspaceOperations--;
+  }
 }
 
 async function loadSpaceOpenPathImpl(tab: WorkspaceTab, path: string | null) {
@@ -525,11 +625,7 @@ async function loadSpaceOpenDirectory(path: string, session: number) {
   try {
     const directory = await invoke<SiblingFileList>("list_sibling_files", { path });
     if (session !== spaceOpenSessionSequence || !spaceOpenTabId.value) return;
-    if (
-      !directory.paths.length ||
-      directory.currentIndex < 0 ||
-      directory.currentIndex >= directory.paths.length
-    ) {
+    if (!directory.paths.length || directory.currentIndex < 0 || directory.currentIndex >= directory.paths.length) {
       throw new Error("文件列表为空或当前文件索引无效");
     }
     spaceOpenPaths.value = directory.paths;
@@ -592,8 +688,7 @@ function switchSpaceOpenFile(direction: number) {
   }
 
   const length = spaceOpenPaths.value.length;
-  const currentIndex =
-    spaceOpenIndex.value >= 0 && spaceOpenIndex.value < length ? spaceOpenIndex.value : 0;
+  const currentIndex = spaceOpenIndex.value >= 0 && spaceOpenIndex.value < length ? spaceOpenIndex.value : 0;
   const nextIndex = (currentIndex + direction + length) % length;
   spaceOpenIndex.value = nextIndex;
   void loadSpaceOpenPath(tab, spaceOpenPaths.value[nextIndex]);
@@ -614,8 +709,11 @@ async function cancelSpaceOpenLink() {
 async function openCurrentAsHex() {
   if (updateLocked.value) return;
   workspaceOperations++;
-  try { await openCurrentAsHexImpl(); }
-  finally { workspaceOperations--; }
+  try {
+    await openCurrentAsHexImpl();
+  } finally {
+    workspaceOperations--;
+  }
 }
 
 async function openCurrentAsHexImpl() {
@@ -676,7 +774,7 @@ async function openPathAsTab(path: string) {
 }
 
 async function openPaths(paths: string[]) {
-  for (const path of [...new Set(paths.filter(Boolean))]) await openPathAsTab(path);
+  for (const path of new Set(paths.filter(Boolean))) await openPathAsTab(path);
 }
 
 async function openPastedPath(path: string) {
@@ -751,11 +849,7 @@ async function openRemoteAsTab(url: string) {
     state.dirty = false;
     state.largeTextSession = null;
     state.status = "ready";
-    recordDiagnostic(
-      "performance",
-      `open-remote-${state.viewerKind}`,
-      performance.now() - startedAt,
-    );
+    recordDiagnostic("performance", `open-remote-${state.viewerKind}`, performance.now() - startedAt);
   } catch (error) {
     if (tabLoadTokens.get(tab.id) !== loadToken || !tabs.some((item) => item.id === tab.id)) {
       await closeDocumentResources(state);
@@ -777,9 +871,7 @@ function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () =>
-      typeof reader.result === "string"
-        ? resolve(reader.result)
-        : reject(new Error("无法读取剪贴板图片"));
+      typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("无法读取剪贴板图片"));
     reader.onerror = () => reject(reader.error ?? new Error("无法读取剪贴板图片"));
     reader.readAsDataURL(file);
   });
@@ -911,12 +1003,7 @@ async function selectFile() {
 
 function updateStateContent(state: DocumentState, value: string) {
   if (updateLocked.value) return;
-  if (
-    state.readOnly ||
-    state.content.type !== "text" ||
-    state.content.value === value
-  )
-    return;
+  if (state.readOnly || state.content.type !== "text" || state.content.value === value) return;
   state.content = { type: "text", value };
   state.dirty = true;
   persistTabs();
@@ -929,8 +1016,12 @@ async function saveState(state: DocumentState, saveAs: boolean) {
   }
   savingDocuments.add(state);
   workspaceOperations++;
-  try { return await saveStateImpl(state, saveAs); }
-  finally { workspaceOperations--; savingDocuments.delete(state); }
+  try {
+    return await saveStateImpl(state, saveAs);
+  } finally {
+    workspaceOperations--;
+    savingDocuments.delete(state);
+  }
 }
 
 async function saveStateImpl(state: DocumentState, saveAs: boolean) {
@@ -947,8 +1038,7 @@ async function saveStateImpl(state: DocumentState, saveAs: boolean) {
       return false;
     }
   }
-  if (!state.file || state.readOnly || state.content.type !== "text" || state.status !== "ready")
-    return false;
+  if (!state.file || state.readOnly || state.content.type !== "text" || state.status !== "ready") return false;
   const shouldSaveAs = saveAs || state.file.source === "clipboard";
   let targetPath = state.file.path;
   if (shouldSaveAs) {
@@ -960,9 +1050,7 @@ async function saveStateImpl(state: DocumentState, saveAs: boolean) {
     targetPath = selected;
   }
 
-  const duplicate = tabs.find(
-    (tab) => tab.state !== state && tab.sourceKey === `local:${targetPath}`,
-  );
+  const duplicate = tabs.find((tab) => tab.state !== state && tab.sourceKey === `local:${targetPath}`);
   if (duplicate) {
     toast.add({
       title: "目标文件已在其他标签页打开",
@@ -1061,24 +1149,30 @@ async function saveAllFromGuard() {
   if (guardSaving.value) return;
   guardSaving.value = true;
   try {
-    for (const tab of [...guardedDirtyTabs.value]) {
+    for (const tab of guardedDirtyTabs.value) {
       if (!(await saveState(tab.state, false))) return;
     }
-  } finally { guardSaving.value = false; }
+  } finally {
+    guardSaving.value = false;
+  }
   finishGuard(true);
 }
 
 async function closeTabs(targetIds: string[]) {
   if (updateLocked.value) return;
   workspaceOperations++;
-  try { await closeTabsImpl(targetIds); }
-  finally { workspaceOperations--; }
+  try {
+    await closeTabsImpl(targetIds);
+  } finally {
+    workspaceOperations--;
+  }
 }
 
 async function closeTabsImpl(targetIds: string[]) {
   const targetIdSet = new Set(targetIds);
   for (const tab of tabs) {
-    if (tab.comparison && (targetIdSet.has(tab.comparison.leftId) || targetIdSet.has(tab.comparison.rightId))) targetIdSet.add(tab.id);
+    if (tab.comparison && (targetIdSet.has(tab.comparison.leftId) || targetIdSet.has(tab.comparison.rightId)))
+      targetIdSet.add(tab.id);
   }
   const targetTabs = tabs.filter((tab) => targetIdSet.has(tab.id));
   if (!targetTabs.length || !(await requestDirtyDecision(targetTabs))) return;
@@ -1155,8 +1249,11 @@ async function clearWorkspace() {
 async function returnHome() {
   if (updateLocked.value) return;
   workspaceOperations++;
-  try { await returnHomeImpl(); }
-  finally { workspaceOperations--; }
+  try {
+    await returnHomeImpl();
+  } finally {
+    workspaceOperations--;
+  }
 }
 
 async function returnHomeImpl() {
@@ -1285,7 +1382,9 @@ onMounted(async () => {
       if (payload) void notifyUpdate();
     });
     await notifyUpdate();
-  } catch { recordDiagnostic("updater", "initialize-failed"); }
+  } catch {
+    recordDiagnostic("updater", "initialize-failed");
+  }
 });
 
 watch(
@@ -1315,11 +1414,7 @@ onBeforeUnmount(() => {
 <template>
   <AppShell :immersive="tabs.length > 0" @request-close="closeWindow">
     <template #title-content>
-      <div
-        v-if="tabs.length"
-        class="workspace-tab-viewport relative h-full max-w-full"
-        data-tauri-drag-region
-      >
+      <div v-if="tabs.length" class="workspace-tab-viewport relative h-full max-w-full" data-tauri-drag-region>
         <div
           ref="tabStrip"
           class="workspace-tab-strip flex h-full items-center gap-1 overflow-x-auto"
@@ -1328,12 +1423,7 @@ onBeforeUnmount(() => {
           @scroll="updateTabScrollState"
           @wheel="handleTabWheel"
         >
-          <UContextMenu
-            v-for="tab in tabs"
-            :key="tab.id"
-            :items="tabContextItems(tab)"
-            :content="{ alignOffset: -4 }"
-          >
+          <UContextMenu v-for="tab in tabs" :key="tab.id" :items="tabContextItems(tab)" :content="{ alignOffset: -4 }">
             <div
               :data-tab-id="tab.id"
               class="workspace-tab group flex h-7 max-w-52 shrink-0 items-center rounded-md border px-1 transition-colors"
@@ -1357,10 +1447,7 @@ onBeforeUnmount(() => {
                   :tabindex="tab.id === activeTabId ? 0 : -1"
                   @click="activateTab(tab.id)"
                 >
-                  <span
-                    v-if="tab.state.dirty"
-                    class="size-1.5 shrink-0 rounded-full bg-amber-500"
-                  />
+                  <span v-if="tab.state.dirty" class="size-1.5 shrink-0 rounded-full bg-amber-500" />
                   <span class="truncate">{{ tabName(tab) }}</span>
                 </button>
               </UTooltip>
@@ -1377,16 +1464,8 @@ onBeforeUnmount(() => {
             </div>
           </UContextMenu>
         </div>
-        <div
-          v-if="canScrollTabsLeft"
-          class="workspace-tab-fade workspace-tab-fade-left"
-          aria-hidden="true"
-        />
-        <div
-          v-if="canScrollTabsRight"
-          class="workspace-tab-fade workspace-tab-fade-right"
-          aria-hidden="true"
-        />
+        <div v-if="canScrollTabsLeft" class="workspace-tab-fade workspace-tab-fade-left" aria-hidden="true" />
+        <div v-if="canScrollTabsRight" class="workspace-tab-fade workspace-tab-fade-right" aria-hidden="true" />
       </div>
     </template>
 
@@ -1454,7 +1533,10 @@ onBeforeUnmount(() => {
           size="xs"
           icon="i-lucide-settings"
           aria-label="设置"
-          @click="settingsInitialSection = 'general'; settingsOpen = true"
+          @click="
+            settingsInitialSection = 'general';
+            settingsOpen = true;
+          "
       /></UTooltip>
     </template>
 
@@ -1492,9 +1574,7 @@ onBeforeUnmount(() => {
             <p class="mt-3 text-sm text-muted">正在加载文件…</p>
           </div>
         </div>
-        <ViewerFooter :file-size="documentState.file?.size"
-          ><template #status>正在加载</template></ViewerFooter
-        >
+        <ViewerFooter :file-size="documentState.file?.size"><template #status>正在加载</template></ViewerFooter>
       </div>
     </div>
     <EmptyState
@@ -1508,12 +1588,7 @@ onBeforeUnmount(() => {
       @paste-text="openClipboardText"
     />
 
-    <UModal
-      :open="guardOpen"
-      :dismissible="false"
-      title="保存修改？"
-      @update:open="handleGuardOpenChange"
-    >
+    <UModal :open="guardOpen" :dismissible="false" title="保存修改？" @update:open="handleGuardOpenChange">
       <template #body
         ><p class="text-sm leading-6 text-muted">
           本次操作涉及的标签页中，共有
@@ -1523,8 +1598,20 @@ onBeforeUnmount(() => {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" label="取消" :disabled="guardSaving" @click="finishGuard(false)" />
-          <UButton color="error" variant="soft" label="放弃修改并继续" :disabled="guardSaving" @click="finishGuard(true)" />
-          <UButton icon="i-lucide-save" label="保存全部" :loading="guardSaving" :disabled="guardSaving" @click="saveAllFromGuard" />
+          <UButton
+            color="error"
+            variant="soft"
+            label="放弃修改并继续"
+            :disabled="guardSaving"
+            @click="finishGuard(true)"
+          />
+          <UButton
+            icon="i-lucide-save"
+            label="保存全部"
+            :loading="guardSaving"
+            :disabled="guardSaving"
+            @click="saveAllFromGuard"
+          />
         </div>
       </template>
     </UModal>
@@ -1535,7 +1622,12 @@ onBeforeUnmount(() => {
       @remove-recent="removeRecent"
     />
     <OpenUrlModal v-model:open="openUrlModalOpen" @open-url="openRemoteAsTab" />
-    <SettingsModal ref="settingsModal" v-model:open="settingsOpen" :initial-section="settingsInitialSection" @request-update="requestUpdate" />
+    <SettingsModal
+      ref="settingsModal"
+      v-model:open="settingsOpen"
+      :initial-section="settingsInitialSection"
+      @request-update="requestUpdate"
+    />
     <UModal :open="updateLocked && updates.status.phase === 'installing'" :dismissible="false" title="正在安装更新">
       <template #body><p class="text-sm text-muted">正在安装并重启 KView，请稍候…</p></template>
     </UModal>

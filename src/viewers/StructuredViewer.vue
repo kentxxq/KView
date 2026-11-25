@@ -74,13 +74,7 @@ function updateMode(value: string | number) {
       />
       <template v-else>
         <div class="min-h-0 flex-1 overflow-auto p-4">
-          <TreeNode
-            :value="parsed.value"
-            name="$"
-            path="$"
-            :search="search"
-            @select-path="selectedPath = $event"
-          />
+          <TreeNode :value="parsed.value" name="$" path="$" :search="search" @select-path="selectedPath = $event" />
         </div>
       </template>
     </div>
@@ -125,17 +119,11 @@ function updateMode(value: string | number) {
           />
           <template #content>
             <div class="w-80 space-y-2">
-              <UInput
-                v-model="search"
-                icon="i-lucide-search"
-                placeholder="搜索节点或路径"
-                autofocus
-              />
+              <UInput v-model="search" icon="i-lucide-search" placeholder="搜索节点或路径" autofocus />
               <div class="flex items-center gap-2">
-                <code
-                  class="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs text-toned"
-                  >{{ selectedPath }}</code
-                >
+                <code class="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs text-toned">{{
+                  selectedPath
+                }}</code>
                 <UTooltip text="复制路径" :delay-duration="500"
                   ><UButton
                     color="neutral"

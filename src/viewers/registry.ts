@@ -1,9 +1,5 @@
 import type { OpenedFile, ViewerDefinition } from "../types/document";
-import {
-  capabilitiesForPlatform,
-  currentDesktopPlatform,
-  formatCapabilities,
-} from "../domain/formats";
+import { capabilitiesForPlatform, currentDesktopPlatform, formatCapabilities } from "../domain/formats";
 
 const definitions = new Map<string, ViewerDefinition>();
 const definitionsByFileName = new Map<string, ViewerDefinition>();
@@ -80,8 +76,7 @@ export function initializeViewerRegistry() {
 export function resolveViewer(file: Pick<OpenedFile, "extension" | "kind">) {
   initializeViewerRegistry();
   if (file.kind === "text" && htmlViewer.extensions.includes(file.extension.toLowerCase())) return htmlViewer;
-  const openedFile = file as Pick<OpenedFile, "extension" | "kind"> &
-    Partial<Pick<OpenedFile, "name">>;
+  const openedFile = file as Pick<OpenedFile, "extension" | "kind"> & Partial<Pick<OpenedFile, "name">>;
   return (
     definitionsByKind.get(file.kind) ??
     definitions.get(file.extension.toLowerCase()) ??

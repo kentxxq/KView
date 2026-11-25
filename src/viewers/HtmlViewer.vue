@@ -13,10 +13,16 @@ const emit = defineEmits<{
   "update:content": [value: string];
   "update:previewMode": [value: boolean];
 }>();
-interface PreviewHandle { sessionId: string; url: string }
-interface ResourceError { sessionId: string; message: string }
+interface PreviewHandle {
+  sessionId: string;
+  url: string;
+}
+interface ResourceError {
+  sessionId: string;
+  message: string;
+}
 
-const mode = computed(() => props.previewMode ? "preview" : "text");
+const mode = computed(() => (props.previewMode ? "preview" : "text"));
 const wordWrap = ref(true);
 const unicodeHighlight = ref(false);
 const active = ref(true);
@@ -60,8 +66,7 @@ function previewContent(file: OpenedFile, content: string) {
       recordDiagnostic("viewer", "html-invalid-base");
     }
     base.setAttribute("href", href);
-  }
-  else {
+  } else {
     const element = document.createElement("base");
     element.href = file.path;
     document.head.prepend(element);
@@ -77,40 +82,57 @@ function syncPreview() {
   previewUrl.value = "";
   error.value = "";
   // 串行处理会话，快速切换时也要关闭已经创建的旧会话。
-  pending = pending.then(async () => {
-    if (ticket !== generation) return;
-    if (!active.value || disposed) { await closeSession(); return; }
-    const documentId = JSON.stringify([file.source, file.path, file.modifiedAt]);
-    if (session && sessionDocument !== documentId) await closeSession();
-    if (!visible) return;
-    const html = previewContent(file, content);
-    if (session) {
-      await desktopInvoke("update_html_preview", { sessionId: session.sessionId, content: html });
-    } else {
-      session = await desktopInvoke<PreviewHandle>("create_html_preview", {
-        source: file.source, path: file.path, content: html,
-      });
-      sessionDocument = documentId;
-    }
-    if (ticket === generation) previewUrl.value = `${session.url}?revision=${ticket}`;
-  }).catch((cause: unknown) => {
-    if (ticket === generation && !disposed) reportError(cause);
-    else recordDiagnostic("viewer", "html-preview-cleanup-failed");
-  });
+  pending = pending
+    .then(async () => {
+      if (ticket !== generation) return;
+      if (!active.value || disposed) {
+        await closeSession();
+        return;
+      }
+      const documentId = JSON.stringify([file.source, file.path, file.modifiedAt]);
+      if (session && sessionDocument !== documentId) await closeSession();
+      if (!visible) return;
+      const html = previewContent(file, content);
+      if (session) {
+        await desktopInvoke("update_html_preview", { sessionId: session.sessionId, content: html });
+      } else {
+        session = await desktopInvoke<PreviewHandle>("create_html_preview", {
+          source: file.source,
+          path: file.path,
+          content: html,
+        });
+        sessionDocument = documentId;
+      }
+      if (ticket === generation) previewUrl.value = `${session.url}?revision=${ticket}`;
+    })
+    .catch((cause: unknown) => {
+      if (ticket === generation && !disposed) reportError(cause);
+      else recordDiagnostic("viewer", "html-preview-cleanup-failed");
+    });
 }
 
-watch([active, mode, () => props.file.source, () => props.file.path, () => props.file.modifiedAt, () => props.content], syncPreview, { immediate: true });
-onActivated(() => { active.value = true; });
-onDeactivated(() => { active.value = false; });
+watch(
+  [active, mode, () => props.file.source, () => props.file.path, () => props.file.modifiedAt, () => props.content],
+  syncPreview,
+  { immediate: true },
+);
+onActivated(() => {
+  active.value = true;
+});
+onDeactivated(() => {
+  active.value = false;
+});
 onMounted(() => {
   void listen<ResourceError>("html-preview-error", ({ payload }) => {
     if (payload.sessionId === session?.sessionId && active.value && mode.value === "preview") {
       error.value = payload.message;
     }
-  }).then((stop) => {
-    if (disposed) stop();
-    else unlisten = stop;
-  }).catch(reportError);
+  })
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch(reportError);
 });
 onBeforeUnmount(() => {
   disposed = true;
@@ -150,9 +172,7 @@ function updateMode(value: string | number) {
         class="min-h-0 w-full flex-1 border-0 bg-white"
         @error="reportError(new Error('无法加载 HTML 页面预览'))"
       />
-      <div v-else-if="!error" class="grid min-h-0 flex-1 place-items-center text-sm text-muted">
-        正在加载页面…
-      </div>
+      <div v-else-if="!error" class="grid min-h-0 flex-1 place-items-center text-sm text-muted">正在加载页面…</div>
     </div>
     <ViewerFooter :file-size="file.size">
       <template #status>

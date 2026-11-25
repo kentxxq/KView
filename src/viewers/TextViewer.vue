@@ -39,39 +39,46 @@ const document = inject(textDocumentKey);
 
 onMounted(async () => {
   try {
-  const monaco = await loadMonaco();
-  monacoApi = monaco;
-  if (!editorElement.value || disposed) return;
-  const model = document ? await textModelFor(document) : monaco.editor.createModel(props.content, resolveLanguage(props.file));
-  if (disposed) { if (!document) model.dispose(); return; }
+    const monaco = await loadMonaco();
+    monacoApi = monaco;
+    if (!editorElement.value || disposed) return;
+    const model = document
+      ? await textModelFor(document)
+      : monaco.editor.createModel(props.content, resolveLanguage(props.file));
+    if (disposed) {
+      if (!document) model.dispose();
+      return;
+    }
 
-  const instance = monaco.editor.create(editorElement.value, {
-    model,
-    theme: "vs-dark",
-    readOnly: props.readOnly,
-    automaticLayout: false,
-    minimap: { enabled: true },
-    folding: true,
-    fontFamily: "Cascadia Code, SFMono-Regular, Consolas, monospace",
-    fontSize: 13,
-    lineHeight: 21,
-    padding: { top: 12, bottom: 12 },
-    scrollBeyondLastLine: false,
-    smoothScrolling: true,
-    wordWrap: wordWrap.value ? "on" : "off",
-    unicodeHighlight: {
-      ambiguousCharacters: unicodeHighlight.value,
-      invisibleCharacters: unicodeHighlight.value,
-      nonBasicASCII: false,
-    },
-  });
-  editor = instance;
-  instance.onDidChangeModelContent(() => {
-    if (!document && !applyingExternalValue) emit("update:content", instance.getValue());
-  });
-  resizeObserver = new ResizeObserver(() => editor?.layout());
-  resizeObserver.observe(editorElement.value);
-  } catch (cause) { if (!disposed) loadError.value = errorMessage(cause); }
+    const instance = monaco.editor.create(editorElement.value, {
+      model,
+      theme: "vs-dark",
+      readOnly: props.readOnly,
+      automaticLayout: false,
+      minimap: { enabled: true },
+      folding: true,
+      fontFamily: "Cascadia Code, SFMono-Regular, Consolas, monospace",
+      fontSize: 13,
+      lineHeight: 21,
+      padding: { top: 12, bottom: 12 },
+      scrollBeyondLastLine: false,
+      smoothScrolling: true,
+      wordWrap: wordWrap.value ? "on" : "off",
+      unicodeHighlight: {
+        ambiguousCharacters: unicodeHighlight.value,
+        invisibleCharacters: unicodeHighlight.value,
+        nonBasicASCII: false,
+      },
+    });
+    editor = instance;
+    instance.onDidChangeModelContent(() => {
+      if (!document && !applyingExternalValue) emit("update:content", instance.getValue());
+    });
+    resizeObserver = new ResizeObserver(() => editor?.layout());
+    resizeObserver.observe(editorElement.value);
+  } catch (cause) {
+    if (!disposed) loadError.value = errorMessage(cause);
+  }
 });
 
 watch(
@@ -121,14 +128,16 @@ watch(
   () => props.file,
   async (file) => {
     try {
-    if (document && editor && document.content.type === "text") {
-      const shared = await textModelFor(document);
-      if (!disposed) editor.setModel(shared);
+      if (document && editor && document.content.type === "text") {
+        const shared = await textModelFor(document);
+        if (!disposed) editor.setModel(shared);
+      }
+      const model = editor?.getModel();
+      if (model) monacoApi?.editor.setModelLanguage(model, resolveLanguage(file));
+      if (props.wordWrap === undefined) wordWrap.value = file.extension !== "log";
+    } catch (cause) {
+      if (!disposed) loadError.value = errorMessage(cause);
     }
-    const model = editor?.getModel();
-    if (model) monacoApi?.editor.setModelLanguage(model, resolveLanguage(file));
-    if (props.wordWrap === undefined) wordWrap.value = file.extension !== "log";
-    } catch (cause) { if (!disposed) loadError.value = errorMessage(cause); }
   },
 );
 
@@ -164,12 +173,7 @@ onBeforeUnmount(() => {
       </template>
       <template #actions>
         <div class="flex items-center gap-3">
-          <USwitch
-            :model-value="wordWrap"
-            size="xs"
-            label="自动换行"
-            @update:model-value="updateWordWrap"
-          />
+          <USwitch :model-value="wordWrap" size="xs" label="自动换行" @update:model-value="updateWordWrap" />
           <USwitch
             :model-value="unicodeHighlight"
             size="xs"

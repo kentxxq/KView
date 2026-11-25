@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onDeactivated,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import { useToast } from "@nuxt/ui/composables";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
@@ -12,10 +22,7 @@ import ViewerFooter from "../components/ViewerFooter.vue";
 import ChapterLayout from "../components/ChapterLayout.vue";
 import type { ChapterItem } from "../types/chapter";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).href;
+pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
 
 const props = defineProps<{
   file: OpenedFile;
@@ -36,11 +43,18 @@ const canUndo = ref(false);
 const canRedo = ref(false);
 const hasSelection = ref(false);
 const editorColors = ref({ highlight: "#ffeb3b", ink: "#e53935", text: "#e53935" });
-const colorKey = computed(() => editorMode.value === pdfjs.AnnotationEditorType.HIGHLIGHT ? "highlight"
-  : editorMode.value === pdfjs.AnnotationEditorType.INK ? "ink" : "text");
+const colorKey = computed(() =>
+  editorMode.value === pdfjs.AnnotationEditorType.HIGHLIGHT
+    ? "highlight"
+    : editorMode.value === pdfjs.AnnotationEditorType.INK
+      ? "ink"
+      : "text",
+);
 const editorColor = computed({
   get: () => editorColors.value[colorKey.value],
-  set: (value: string) => { editorColors.value[colorKey.value] = value; },
+  set: (value: string) => {
+    editorColors.value[colorKey.value] = value;
+  },
 });
 const tools = [
   { mode: pdfjs.AnnotationEditorType.NONE, label: "选择", icon: "i-lucide-mouse-pointer-2" },
@@ -90,8 +104,12 @@ function selectTool(mode: number) {
 function updateColor() {
   if (editorMode.value === pdfjs.AnnotationEditorType.NONE) return;
   const params = pdfjs.AnnotationEditorParamsType;
-  const type = editorMode.value === pdfjs.AnnotationEditorType.HIGHLIGHT ? params.HIGHLIGHT_COLOR
-    : editorMode.value === pdfjs.AnnotationEditorType.INK ? params.INK_COLOR : params.FREETEXT_COLOR;
+  const type =
+    editorMode.value === pdfjs.AnnotationEditorType.HIGHLIGHT
+      ? params.HIGHLIGHT_COLOR
+      : editorMode.value === pdfjs.AnnotationEditorType.INK
+        ? params.INK_COLOR
+        : params.FREETEXT_COLOR;
   eventBus?.dispatch("switchannotationeditorparams", { source: pdfViewer, type, value: editorColor.value });
 }
 
@@ -115,7 +133,10 @@ async function search() {
   if (matches.value.length) pageNumber.value = matches.value[0];
 }
 
-function mapOutline(entries: NonNullable<Awaited<ReturnType<PDFDocumentProxy["getOutline"]>>>, prefix = "pdf"): ChapterItem[] {
+function mapOutline(
+  entries: NonNullable<Awaited<ReturnType<PDFDocumentProxy["getOutline"]>>>,
+  prefix = "pdf",
+): ChapterItem[] {
   return entries.map((entry, index) => {
     const id = `${prefix}-${index}`;
     outlineTargets.set(id, entry.dest);
@@ -129,11 +150,9 @@ async function goToOutline(id: string) {
   if (!currentDocument || !destination) return;
   const generation = ++navigationGeneration;
   try {
-    const resolved = typeof destination === "string"
-      ? await currentDocument.getDestination(destination) : destination;
+    const resolved = typeof destination === "string" ? await currentDocument.getDestination(destination) : destination;
     if (!Array.isArray(resolved) || resolved[0] == null) return;
-    const index = typeof resolved[0] === "number"
-      ? resolved[0] : await currentDocument.getPageIndex(resolved[0]);
+    const index = typeof resolved[0] === "number" ? resolved[0] : await currentDocument.getPageIndex(resolved[0]);
     if (document.value !== currentDocument || generation !== navigationGeneration) return;
     if (!Number.isInteger(index) || index < 0 || index >= currentDocument.numPages) return;
     pageNumber.value = index + 1;
@@ -211,26 +230,38 @@ async function loadPdf() {
     };
     const instance = new PDFViewer(options);
     let uiManager: AnnotationEditorUIManager | undefined;
-    bus.on("annotationeditoruimanager", ({ uiManager: manager }: { uiManager: AnnotationEditorUIManager }) => { uiManager = manager; });
+    bus.on("annotationeditoruimanager", ({ uiManager: manager }: { uiManager: AnnotationEditorUIManager }) => {
+      uiManager = manager;
+    });
     pdfViewer = instance;
     instance.scrollMode = ScrollMode.PAGE;
     linkService.setViewer(instance);
     linkService.setDocument(nextDocument);
     bus.on("annotationeditorlayerrendered", () => {
       // 此版本声明把 getter 误写成 setter 的参数类型，运行时返回数值模式。
-      editorReady.value = !nextDocument.isPureXfa && Number(instance.annotationEditorMode) !== pdfjs.AnnotationEditorType.DISABLE;
+      editorReady.value =
+        !nextDocument.isPureXfa && Number(instance.annotationEditorMode) !== pdfjs.AnnotationEditorType.DISABLE;
     });
     bus.on("annotationeditormodechanged", ({ mode }: { mode: number }) => {
       editorMode.value = mode;
       // 工具类型异步初始化完成后再设置颜色，避免被引擎默认值覆盖。
       updateColor();
     });
-    bus.on("editingstateschanged", ({ details }: { details: { hasSomethingToUndo: boolean; hasSomethingToRedo: boolean; hasSelectedEditor: boolean } }) => {
-      canUndo.value = details.hasSomethingToUndo;
-      canRedo.value = details.hasSomethingToRedo;
-      hasSelection.value = details.hasSelectedEditor;
+    bus.on(
+      "editingstateschanged",
+      ({
+        details,
+      }: {
+        details: { hasSomethingToUndo: boolean; hasSomethingToRedo: boolean; hasSelectedEditor: boolean };
+      }) => {
+        canUndo.value = details.hasSomethingToUndo;
+        canRedo.value = details.hasSomethingToRedo;
+        hasSelection.value = details.hasSelectedEditor;
+      },
+    );
+    bus.on("pagechanging", ({ pageNumber: page }: { pageNumber: number }) => {
+      pageNumber.value = page;
     });
-    bus.on("pagechanging", ({ pageNumber: page }: { pageNumber: number }) => { pageNumber.value = page; });
     bus.on("pagerendered", ({ error: cause }: { error?: Error }) => {
       if (cause) error.value = `PDF 页面渲染失败：${cause.message}`;
     });
@@ -278,7 +309,13 @@ watch(
   () => void loadPdf(),
 );
 
-watch(pageNumber, () => { activeId.value = ""; }, { flush: "sync" });
+watch(
+  pageNumber,
+  () => {
+    activeId.value = "";
+  },
+  { flush: "sync" },
+);
 watch([pageNumber, scale], () => void nextTick(renderPage));
 onBeforeUnmount(() => {
   loadGeneration++;
@@ -292,30 +329,79 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex size-full min-h-0 flex-col bg-muted/20">
-    <ChapterLayout :items="outline" :active-id="activeId"
-      :document-id="JSON.stringify([file.path, file.modifiedAt])" :loading="loading" @select="goToOutline">
+    <ChapterLayout
+      :items="outline"
+      :active-id="activeId"
+      :document-id="JSON.stringify([file.path, file.modifiedAt])"
+      :loading="loading"
+      @select="goToOutline"
+    >
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div v-if="!loading && !error" class="flex flex-wrap items-center gap-1 border-b border-default bg-default px-3 py-2">
-          <UButton v-for="tool in tools" :key="tool.mode" :icon="tool.icon" :label="tool.label"
-            size="xs" :color="editorMode === tool.mode ? 'primary' : 'neutral'"
-            :variant="editorMode === tool.mode ? 'soft' : 'ghost'" :disabled="!editorReady"
-            :aria-pressed="editorMode === tool.mode" @click="selectTool(tool.mode)" />
-          <label class="mx-2 flex items-center gap-1 text-xs text-muted">
-            颜色<input v-model="editorColor" type="color" aria-label="标注颜色" class="h-6 w-7 cursor-pointer"
-              :disabled="!editorReady || editorMode === pdfjs.AnnotationEditorType.NONE" @input="updateColor" />
-          </label>
-          <UButton icon="i-lucide-undo-2" aria-label="撤销标注" size="xs" color="neutral" variant="ghost" :disabled="!canUndo" @click="editingAction('undo')" />
-          <UButton icon="i-lucide-redo-2" aria-label="重做标注" size="xs" color="neutral" variant="ghost" :disabled="!canRedo" @click="editingAction('redo')" />
-          <UButton icon="i-lucide-trash-2" aria-label="删除所选标注" size="xs" color="neutral" variant="ghost" :disabled="!hasSelection" @click="editingAction('delete')" />
-          <UButton class="ml-auto" icon="i-lucide-save" label="另存为 PDF" size="xs" variant="soft" :disabled="!editorReady" @click="loadedBytes && emit('save-pdf', loadedBytes)" />
-        </div>
-        <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">
-          正在加载 PDF…
-        </div>
         <div
-          v-else-if="error"
-          class="grid flex-1 place-items-center p-8 text-center text-sm text-error"
+          v-if="!loading && !error"
+          class="flex flex-wrap items-center gap-1 border-b border-default bg-default px-3 py-2"
         >
+          <UButton
+            v-for="tool in tools"
+            :key="tool.mode"
+            :icon="tool.icon"
+            :label="tool.label"
+            size="xs"
+            :color="editorMode === tool.mode ? 'primary' : 'neutral'"
+            :variant="editorMode === tool.mode ? 'soft' : 'ghost'"
+            :disabled="!editorReady"
+            :aria-pressed="editorMode === tool.mode"
+            @click="selectTool(tool.mode)"
+          />
+          <label class="mx-2 flex items-center gap-1 text-xs text-muted">
+            颜色<input
+              v-model="editorColor"
+              type="color"
+              aria-label="标注颜色"
+              class="h-6 w-7 cursor-pointer"
+              :disabled="!editorReady || editorMode === pdfjs.AnnotationEditorType.NONE"
+              @input="updateColor"
+            />
+          </label>
+          <UButton
+            icon="i-lucide-undo-2"
+            aria-label="撤销标注"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            :disabled="!canUndo"
+            @click="editingAction('undo')"
+          />
+          <UButton
+            icon="i-lucide-redo-2"
+            aria-label="重做标注"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            :disabled="!canRedo"
+            @click="editingAction('redo')"
+          />
+          <UButton
+            icon="i-lucide-trash-2"
+            aria-label="删除所选标注"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            :disabled="!hasSelection"
+            @click="editingAction('delete')"
+          />
+          <UButton
+            class="ml-auto"
+            icon="i-lucide-save"
+            label="另存为 PDF"
+            size="xs"
+            variant="soft"
+            :disabled="!editorReady"
+            @click="loadedBytes && emit('save-pdf', loadedBytes)"
+          />
+        </div>
+        <div v-if="loading" class="grid flex-1 place-items-center text-sm text-muted">正在加载 PDF…</div>
+        <div v-else-if="error" class="grid flex-1 place-items-center p-8 text-center text-sm text-error">
           {{ error }}
         </div>
         <div v-show="!loading && !error" class="relative min-h-0 flex-1">
@@ -326,7 +412,9 @@ onBeforeUnmount(() => {
       </section>
     </ChapterLayout>
     <ViewerFooter :file-size="file.size">
-      <template #status>PDF · {{ pageNumber }}/{{ pageCount || "-" }} · {{ editorReady ? '支持标注 · 原文件只读' : '只读' }}</template>
+      <template #status
+        >PDF · {{ pageNumber }}/{{ pageCount || "-" }} · {{ editorReady ? "支持标注 · 原文件只读" : "只读" }}</template
+      >
       <template #actions>
         <UTooltip text="上一页" :delay-duration="500"
           ><UButton
@@ -373,10 +461,7 @@ onBeforeUnmount(() => {
             :disabled="scale >= 3"
             @click="scale = Math.min(3, scale + 0.2)"
         /></UTooltip>
-        <UPopover
-          :content="{ side: 'top', align: 'end', sideOffset: 8 }"
-          :ui="{ content: 'compatibility-popover' }"
-        >
+        <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">
           <UButton
             class="viewer-footer-button"
             color="neutral"
@@ -398,9 +483,7 @@ onBeforeUnmount(() => {
                 />
                 <UButton color="neutral" variant="soft" size="sm" label="搜索" @click="search" />
               </div>
-              <span class="text-xs text-muted">{{
-                query ? `找到 ${matches.length} 页` : "输入关键词搜索全文"
-              }}</span>
+              <span class="text-xs text-muted">{{ query ? `找到 ${matches.length} 页` : "输入关键词搜索全文" }}</span>
             </div>
           </template>
         </UPopover>

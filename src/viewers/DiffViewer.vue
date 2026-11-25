@@ -29,10 +29,17 @@ onMounted(async () => {
     const [original, modified] = await Promise.all([textModelFor(props.left), textModelFor(props.right)]);
     if (disposed || !container.value) return;
     diff = api.editor.createDiffEditor(container.value, {
-      theme: "vs-dark", originalEditable: !props.locked, readOnly: props.locked,
-      renderSideBySide: true, useInlineViewWhenSpaceIsLimited: false,
-      ignoreTrimWhitespace: false, renderIndicators: true, renderOverviewRuler: true,
-      automaticLayout: false, scrollBeyondLastLine: false, fontSize: 13,
+      theme: "vs-dark",
+      originalEditable: !props.locked,
+      readOnly: props.locked,
+      renderSideBySide: true,
+      useInlineViewWhenSpaceIsLimited: false,
+      ignoreTrimWhitespace: false,
+      renderIndicators: true,
+      renderOverviewRuler: true,
+      automaticLayout: false,
+      scrollBeyondLastLine: false,
+      fontSize: 13,
     });
     diff.setModel({ original, modified });
     diff.getOriginalEditor().onDidFocusEditorText(() => emit("focus", "left"));
@@ -48,7 +55,9 @@ onMounted(async () => {
     });
     resize.observe(container.value);
     nextTick(() => layout());
-  } catch (cause) { if (!disposed) error.value = errorMessage(cause); }
+  } catch (cause) {
+    if (!disposed) error.value = errorMessage(cause);
+  }
 });
 
 onActivated(() => {
@@ -58,16 +67,37 @@ onActivated(() => {
   });
 });
 
-watch(() => props.locked, (locked) => diff?.updateOptions({ readOnly: locked, originalEditable: !locked }));
-onBeforeUnmount(() => { disposed = true; resize?.disconnect(); diff?.dispose(); });
+watch(
+  () => props.locked,
+  (locked) => diff?.updateOptions({ readOnly: locked, originalEditable: !locked }),
+);
+onBeforeUnmount(() => {
+  disposed = true;
+  resize?.disconnect();
+  diff?.dispose();
+});
 </script>
 
 <template>
   <section class="flex size-full min-h-0 flex-col bg-inverted text-white/90">
     <div class="flex shrink-0 border-b border-muted text-sm">
-      <div v-for="side in (['left', 'right'] as const)" :key="side" class="flex min-w-0 flex-1 items-center gap-2 px-3 py-2">
-        <span class="min-w-0 flex-1 truncate" :title="props[side].file?.path">{{ props[side].file?.name }}{{ props[side].dirty ? ' ●' : '' }}</span>
-        <UButton v-if="props[side].dirty" size="xs" variant="ghost" icon="i-lucide-save" :disabled="locked" @click="emit('save', side)">保存</UButton>
+      <div
+        v-for="side in ['left', 'right'] as const"
+        :key="side"
+        class="flex min-w-0 flex-1 items-center gap-2 px-3 py-2"
+      >
+        <span class="min-w-0 flex-1 truncate" :title="props[side].file?.path"
+          >{{ props[side].file?.name }}{{ props[side].dirty ? " ●" : "" }}</span
+        >
+        <UButton
+          v-if="props[side].dirty"
+          size="xs"
+          variant="ghost"
+          icon="i-lucide-save"
+          :disabled="locked"
+          @click="emit('save', side)"
+          >保存</UButton
+        >
       </div>
     </div>
     <UAlert v-if="error" class="m-3" color="error" title="无法打开文本对比" :description="error" />

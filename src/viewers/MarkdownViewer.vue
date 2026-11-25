@@ -24,12 +24,14 @@ const activeId = ref("");
 const documentId = computed(() => JSON.stringify([props.file.path, props.file.modifiedAt]));
 
 function headingText(tokens: Token[]): string {
-  return tokens.map((token) => {
-    if (token.children?.length) return headingText(token.children);
-    if (["text", "code_inline"].includes(token.type)) return token.content;
-    if (["softbreak", "hardbreak"].includes(token.type)) return " ";
-    return "";
-  }).join("");
+  return tokens
+    .map((token) => {
+      if (token.children?.length) return headingText(token.children);
+      if (["text", "code_inline"].includes(token.type)) return token.content;
+      if (["softbreak", "hardbreak"].includes(token.type)) return " ";
+      return "";
+    })
+    .join("");
 }
 
 const parsed = computed(() => {
@@ -70,15 +72,21 @@ function selectChapter(id: string) {
   const container = preview.value;
   const heading = container?.querySelector<HTMLElement>(`#${id}`);
   if (!container || !heading) return;
-  container.scrollTo({ top: container.scrollTop + heading.getBoundingClientRect().top - container.getBoundingClientRect().top - 16 });
+  container.scrollTo({
+    top: container.scrollTop + heading.getBoundingClientRect().top - container.getBoundingClientRect().top - 16,
+  });
   activeId.value = id;
 }
 
-watch([parsed, mode, documentId], async (_value, oldValue) => {
-  await nextTick();
-  if (oldValue && oldValue[2] !== documentId.value) preview.value?.scrollTo({ top: 0 });
-  updateActiveHeading();
-}, { flush: "post", immediate: true });
+watch(
+  [parsed, mode, documentId],
+  async (_value, oldValue) => {
+    await nextTick();
+    if (oldValue && oldValue[2] !== documentId.value) preview.value?.scrollTo({ top: 0 });
+    updateActiveHeading();
+  },
+  { flush: "post", immediate: true },
+);
 
 function updateMode(value: string | number) {
   if (value === "text" || value === "preview") mode.value = value;
@@ -103,13 +111,7 @@ function preventEmbeddedNavigation(event: MouseEvent) {
       embedded
       @update:content="emit('update:content', $event)"
     />
-    <ChapterLayout
-      v-else
-      :items="parsed.items"
-      :active-id="activeId"
-      :document-id="documentId"
-      @select="selectChapter"
-    >
+    <ChapterLayout v-else :items="parsed.items" :active-id="activeId" :document-id="documentId" @select="selectChapter">
       <article
         ref="preview"
         class="markdown-preview min-h-0 w-full flex-1 overflow-auto px-8 py-10 text-default"

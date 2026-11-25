@@ -105,9 +105,7 @@ onBeforeUnmount(() => {
   <div class="flex size-full min-h-0 flex-col bg-muted/30">
     <!-- DOC 格式兼容预览 -->
     <div v-if="file.extension === 'doc'" class="min-h-0 flex-1 overflow-auto p-4 sm:p-8">
-      <div v-if="loading" class="grid h-full place-items-center text-sm text-muted">
-        正在解析 DOC…
-      </div>
+      <div v-if="loading" class="grid h-full place-items-center text-sm text-muted">正在解析 DOC…</div>
       <div v-else-if="error" class="grid h-full place-items-center p-8 text-center text-sm text-error">
         {{ error }}
       </div>
@@ -120,22 +118,13 @@ onBeforeUnmount(() => {
 
     <!-- DOCX 高保真分页视口：保持 containerRef 始终挂载，避免 v-if/v-else 切换导致 ref 为 null -->
     <div v-else class="relative min-h-0 flex-1 overflow-auto p-4 sm:p-8">
-      <div
-        v-if="loading"
-        class="absolute inset-0 z-10 grid place-items-center bg-muted/30 text-sm text-muted"
-      >
+      <div v-if="loading" class="absolute inset-0 z-10 grid place-items-center bg-muted/30 text-sm text-muted">
         正在渲染 DOCX…
       </div>
-      <div
-        v-else-if="error"
-        class="absolute inset-0 z-10 grid place-items-center p-8 text-center text-sm text-error"
-      >
+      <div v-else-if="error" class="absolute inset-0 z-10 grid place-items-center p-8 text-center text-sm text-error">
         {{ error }}
       </div>
-      <div
-        ref="containerRef"
-        class="docx-render-host mx-auto flex w-full flex-col items-center justify-start pb-12"
-      />
+      <div ref="containerRef" class="docx-render-host mx-auto flex w-full flex-col items-center justify-start pb-12" />
     </div>
 
     <ViewerFooter :file-size="file.size" :notice="notice">
@@ -153,7 +142,9 @@ onBeforeUnmount(() => {
   align-items: center !important;
 }
 :deep(.docx-wrapper > section.docx) {
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
   margin-bottom: 1.5rem !important;
   background-color: #ffffff !important;
   color: #1a1a1a !important;

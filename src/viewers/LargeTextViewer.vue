@@ -1,21 +1,7 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onActivated,
-  onBeforeUnmount,
-  onDeactivated,
-  onMounted,
-  reactive,
-  ref,
-} from "vue";
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref } from "vue";
 import { desktopInvoke as invoke } from "../services/desktop-api";
-import type {
-  LargeTextIndexStatus,
-  LargeTextLinesResult,
-  LargeTextSessionInfo,
-  OpenedFile,
-} from "../types/document";
+import type { LargeTextIndexStatus, LargeTextLinesResult, LargeTextSessionInfo, OpenedFile } from "../types/document";
 import ViewerFooter from "../components/ViewerFooter.vue";
 import { errorMessage } from "../utils/error";
 
@@ -29,8 +15,7 @@ const props = defineProps<{
   session: LargeTextSessionInfo;
 }>();
 
-const initialEndLine =
-  props.session.initialLines[props.session.initialLines.length - 1]?.lineNumber ?? 1;
+const initialEndLine = props.session.initialLines[props.session.initialLines.length - 1]?.lineNumber ?? 1;
 const indexStatus = reactive<LargeTextIndexStatus>({
   indexedBytes: props.session.indexedBytes,
   fileSize: props.session.fileSize,
@@ -63,18 +48,16 @@ for (const line of props.session.initialLines) lineCache.set(line.lineNumber, li
 const virtualLineCount = computed(() =>
   Math.max(
     1,
-    indexStatus.complete && indexStatus.totalLines !== null
-      ? indexStatus.totalLines
-      : indexStatus.indexedLineCount,
+    indexStatus.complete && indexStatus.totalLines !== null ? indexStatus.totalLines : indexStatus.indexedLineCount,
   ),
 );
+// 仅需稀疏数组提供虚拟列表长度，避免 Array.from 为大文件逐项分配元素。
+// oxlint-disable-next-line unicorn/no-new-array
 const virtualItems = computed(() => new Array(virtualLineCount.value));
 const reservedLineNumberDigits = Math.max(8, String(Math.floor(props.session.fileSize) + 1).length);
 const lineNumberWidth = `calc(${reservedLineNumberDigits}ch + 1.5rem + 1px)`;
 const progress = computed(() =>
-  indexStatus.fileSize > 0
-    ? Math.min(100, (indexStatus.indexedBytes / indexStatus.fileSize) * 100)
-    : 100,
+  indexStatus.fileSize > 0 ? Math.min(100, (indexStatus.indexedBytes / indexStatus.fileSize) * 100) : 100,
 );
 const notice = computed(() => {
   const total = indexStatus.totalLines === null ? "索引中" : `${indexStatus.totalLines} 行`;
@@ -91,10 +74,7 @@ const virtualizeOptions = {
   overscan: OVERSCAN_ROWS,
   skipMeasurement: true,
   getItemKey: (index: number) => index + 1,
-  onChange: (
-    virtualizer: { getVirtualItems: () => Array<{ index: number }> },
-    scrolling: boolean,
-  ) => {
+  onChange: (virtualizer: { getVirtualItems: () => Array<{ index: number }> }, scrolling: boolean) => {
     const items = virtualizer.getVirtualItems();
     if (!items.length) return;
     const start = items[0].index + 1;
@@ -140,9 +120,7 @@ function rebuildLineCache() {
 }
 
 function rememberBatch(batch: LargeTextLinesResult, focusLine: number) {
-  const remaining = batches.value.filter(
-    (item) => item.endLine < batch.startLine || item.startLine > batch.endLine,
-  );
+  const remaining = batches.value.filter((item) => item.endLine < batch.startLine || item.startLine > batch.endLine);
   remaining.push(batch);
   remaining.sort((left, right) => {
     const leftCenter = (left.startLine + left.endLine) / 2;
@@ -154,17 +132,10 @@ function rememberBatch(batch: LargeTextLinesResult, focusLine: number) {
 }
 
 function batchContaining(lineNumber: number) {
-  return batches.value.find(
-    (batch) => lineNumber >= batch.startLine && lineNumber <= batch.endLine,
-  );
+  return batches.value.find((batch) => lineNumber >= batch.startLine && lineNumber <= batch.endLine);
 }
 
-async function loadBatch(
-  startLine: number,
-  focusLine: number,
-  generation: number,
-  prefetch = false,
-) {
+async function loadBatch(startLine: number, focusLine: number, generation: number, prefetch = false) {
   if (generation !== loadGeneration) return;
   const safeStart = Math.max(1, Math.min(startLine, virtualLineCount.value));
   if (pendingStarts.get(safeStart) === generation || batchContaining(safeStart)) return;
@@ -300,10 +271,7 @@ onBeforeUnmount(() => {
       :style="{ overflow: 'scroll', overflowAnchor: 'none', scrollbarGutter: 'stable' }"
     >
       <template #default="{ index }">
-        <div
-          class="flex min-w-max whitespace-pre leading-[21px] text-white/90"
-          :style="{ height: `${ROW_HEIGHT}px` }"
-        >
+        <div class="flex min-w-max whitespace-pre leading-[21px] text-white/90" :style="{ height: `${ROW_HEIGHT}px` }">
           <span
             class="sticky left-0 z-10 shrink-0 select-none border-r border-white/10 bg-inverted px-3 text-right text-white/35"
             :style="{ width: lineNumberWidth, minWidth: lineNumberWidth }"

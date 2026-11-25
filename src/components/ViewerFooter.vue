@@ -17,9 +17,7 @@ const fileSizeLabel = computed(() => {
   return `${(props.fileSize / 1024 ** 3).toFixed(2)} GiB`;
 });
 
-const noticeLines = computed(() =>
-  Array.isArray(props.notice) ? props.notice : props.notice ? [props.notice] : [],
-);
+const noticeLines = computed(() => (Array.isArray(props.notice) ? props.notice : props.notice ? [props.notice] : []));
 </script>
 
 <template>
@@ -55,9 +53,19 @@ const noticeLines = computed(() =>
     <div class="flex shrink-0 items-center gap-0.5 whitespace-nowrap">
       <slot name="actions" />
     </div>
-    <div v-if="$slots.viewSwitch || logModeControl?.visible.value" class="flex shrink-0 items-center gap-3 border-l border-muted/70 pl-2">
+    <div
+      v-if="$slots.viewSwitch || logModeControl?.visible.value"
+      class="flex shrink-0 items-center gap-3 border-l border-muted/70 pl-2"
+    >
       <slot name="viewSwitch" />
-      <USwitch v-if="logModeControl?.visible.value" size="xs" label="日志模式" :model-value="logModeControl.enabled.value" :disabled="logModeControl.disabled.value" @update:model-value="logModeControl.toggle" />
+      <USwitch
+        v-if="logModeControl?.visible.value"
+        size="xs"
+        label="日志模式"
+        :model-value="logModeControl.enabled.value"
+        :disabled="logModeControl.disabled.value"
+        @update:model-value="logModeControl.toggle"
+      />
     </div>
   </footer>
 </template>

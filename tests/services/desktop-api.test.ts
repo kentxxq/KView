@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { invoke } from "@tauri-apps/api/core";
 import {
   DesktopCommandError,
@@ -66,7 +66,9 @@ describe("desktop-api IPC invocation and error handling", () => {
   it("returns parsed result when desktopInvoke succeeds", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ status: "ok", data: 42 });
 
-    const result = await desktopInvoke<{ status: string; data: number }>("test_command", { key: "value" });
+    const result = await desktopInvoke<{ status: string; data: number }>("test_command", {
+      key: "value",
+    });
 
     expect(invoke).toHaveBeenCalledWith("test_command", { key: "value" });
     expect(result).toEqual({ status: "ok", data: 42 });

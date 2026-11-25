@@ -33,12 +33,8 @@ const textContent = computed(() => {
   if (props.content.type !== "structured") return "";
   return typeof props.content.value === "string" ? props.content.value : "";
 });
-const structuredContent = computed(() =>
-  props.content.type === "structured" ? props.content.value : undefined,
-);
-const binaryContent = computed(() =>
-  props.content.type === "bytes" ? props.content.value : undefined,
-);
+const structuredContent = computed(() => (props.content.type === "structured" ? props.content.value : undefined));
+const binaryContent = computed(() => (props.content.type === "bytes" ? props.content.value : undefined));
 
 const viewer = computed(() => {
   const definition = resolveViewer(props.file);

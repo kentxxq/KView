@@ -24,13 +24,24 @@ export async function textModelFor(state: DocumentState) {
     state.content = { type: "text", value: model.getValue() };
     state.dirty = true;
   });
-  const stop = watch(() => state.content, (content) => {
-    if (content.type !== "text" || content.value === model.getValue()) return;
-    syncing = true;
-    model.setValue(content.value);
-    syncing = false;
-  }, { flush: "sync" });
-  models.set(state, { model, dispose: () => { stop(); listener.dispose(); model.dispose(); } });
+  const stop = watch(
+    () => state.content,
+    (content) => {
+      if (content.type !== "text" || content.value === model.getValue()) return;
+      syncing = true;
+      model.setValue(content.value);
+      syncing = false;
+    },
+    { flush: "sync" },
+  );
+  models.set(state, {
+    model,
+    dispose: () => {
+      stop();
+      listener.dispose();
+      model.dispose();
+    },
+  });
   return model;
 }
 

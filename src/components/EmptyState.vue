@@ -22,12 +22,8 @@ function handlePaste(event: ClipboardEvent) {
   const clipboard = event.clipboardData;
   if (!clipboard) return;
 
-  const imageItem = Array.from(clipboard.items).find(
-    (item) => item.kind === "file" && item.type.startsWith("image/"),
-  );
-  const image =
-    imageItem?.getAsFile() ??
-    Array.from(clipboard.files).find((file) => file.type.startsWith("image/"));
+  const imageItem = Array.from(clipboard.items).find((item) => item.kind === "file" && item.type.startsWith("image/"));
+  const image = imageItem?.getAsFile() ?? Array.from(clipboard.files).find((file) => file.type.startsWith("image/"));
   if (image) {
     event.preventDefault();
     emit("pasteImage", image);
@@ -37,8 +33,7 @@ function handlePaste(event: ClipboardEvent) {
   const text = clipboard.getData("text/plain");
   if (!text.trim()) return;
   const trimmed = text.trim();
-  const path =
-    trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1) : trimmed;
+  const path = trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1) : trimmed;
   if (!/[\r\n]/.test(path) && /^(?:[a-z]:[\\/]|\\\\|\/|%[^%]+%)/i.test(path)) {
     event.preventDefault();
     emit("pastePath", path);

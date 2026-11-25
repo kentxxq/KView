@@ -2,11 +2,11 @@ name: Tauri Build
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       release_run_id:
-        description: '仅重试发布：填写已有签名产物的运行 ID；留空执行普通构建'
+        description: "仅重试发布：填写已有签名产物的运行 ID；留空执行普通构建"
         type: string
         required: false
 
@@ -53,13 +53,17 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
       - name: 安装 Vite+ 和 Node.js
-        uses: voidzero-dev/setup-vp@v1.21.2
+        uses: voidzero-dev/setup-vp@v1.22.0
         with:
-          node-version: '24'
+          node-version: "24"
           cache: true
           run-install: false
       - name: 安装前端依赖
         run: vp install --frozen-lockfile
+      - name: 前端静态检查与单元测试
+        run: |
+          vp check
+          vp test run
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
       - name: 缓存 Rust 构建

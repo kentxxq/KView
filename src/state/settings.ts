@@ -6,7 +6,10 @@ export type ThemePreference = "system" | "light" | "dark";
 export type ResidencyMode = "fast" | "low-memory";
 export type CloseBehavior = "keep-tabs" | "close-tabs";
 export type LogColor = "red" | "orange" | "yellow" | "green" | "blue" | "purple";
-export interface LogHighlightRule { keyword: string; color: LogColor }
+export interface LogHighlightRule {
+  keyword: string;
+  color: LogColor;
+}
 
 export interface AppSettings {
   theme: ThemePreference;
@@ -49,9 +52,7 @@ export const useSettingsStore = defineStore("settings", {
       mediaQuery.addEventListener("change", mediaQueryListener);
     },
     async save(settings: AppSettings) {
-      const saved = isTauri()
-        ? await invoke<AppSettings>("update_settings", { settings })
-        : settings;
+      const saved = isTauri() ? await invoke<AppSettings>("update_settings", { settings }) : settings;
       this.$patch(saved);
       this.applyTheme();
     },

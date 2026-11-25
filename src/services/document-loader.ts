@@ -32,31 +32,16 @@ interface LoadDocumentOptions {
 async function loadLivePhoto(state: DocumentState, path: string): Promise<LivePhotoDocument> {
   const payload = await desktopInvokeBytes("read_live_photo", { path });
   if (payload.byteLength < 4) throw new Error("动态照片数据不完整");
-  const headerLength = new DataView(
-    payload.buffer,
-    payload.byteOffset,
-    payload.byteLength,
-  ).getUint32(0, true);
+  const headerLength = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(0, true);
   const contentStart = 4 + headerLength;
-  if (headerLength === 0 || contentStart > payload.byteLength)
-    throw new Error("动态照片数据头无效");
-  const header = JSON.parse(
-    new TextDecoder().decode(payload.subarray(4, contentStart)),
-  ) as LivePhotoBinaryHeader;
+  if (headerLength === 0 || contentStart > payload.byteLength) throw new Error("动态照片数据头无效");
+  const header = JSON.parse(new TextDecoder().decode(payload.subarray(4, contentStart))) as LivePhotoBinaryHeader;
   const videoStart = contentStart + header.imageLength;
-  if (
-    !Number.isSafeInteger(header.imageLength) ||
-    header.imageLength <= 0 ||
-    videoStart >= payload.byteLength
-  ) {
+  if (!Number.isSafeInteger(header.imageLength) || header.imageLength <= 0 || videoStart >= payload.byteLength) {
     throw new Error("动态照片媒体长度无效");
   }
   return {
-    imageUrl: createDocumentObjectUrl(
-      state,
-      payload.subarray(contentStart, videoStart),
-      header.imageMimeType,
-    ),
+    imageUrl: createDocumentObjectUrl(state, payload.subarray(contentStart, videoStart), header.imageMimeType),
     imageMimeType: header.imageMimeType,
     videoUrl: createDocumentObjectUrl(state, payload.subarray(videoStart), header.videoMimeType),
     videoMimeType: header.videoMimeType,
@@ -64,17 +49,12 @@ async function loadLivePhoto(state: DocumentState, path: string): Promise<LivePh
   };
 }
 
-export async function loadLocalDocument(
-  target: DocumentState,
-  path: string,
-  options: LoadDocumentOptions = {},
-) {
+export async function loadLocalDocument(target: DocumentState, path: string, options: LoadDocumentOptions = {}) {
   const generation = beginDocumentLoad(target);
   const state = createDocumentState();
   state.status = "loading";
   try {
-    const file =
-      options.inspectedFile ?? (await desktopInvoke<OpenedFile>("inspect_file", { path }));
+    const file = options.inspectedFile ?? (await desktopInvoke<OpenedFile>("inspect_file", { path }));
     if (!resolveViewer(file)) throw new Error(`暂不支持 .${file.extension || "未知"} 文件`);
     state.file = file;
     state.viewerKind = file.kind;
@@ -167,8 +147,7 @@ export async function loadLocalDocument(
     }
     state.readOnly = file.readOnly;
     state.status = "ready";
-    if (await commitDocumentLoad(target, state, generation))
-      options.onRecent?.(file.path, file.name);
+    if (await commitDocumentLoad(target, state, generation)) options.onRecent?.(file.path, file.name);
   } catch (error) {
     await disposeDocumentResources(state);
     throw error;

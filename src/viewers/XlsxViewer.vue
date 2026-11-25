@@ -21,9 +21,7 @@ const error = ref("");
 const rowHeight = 34;
 const overscan = 8;
 
-const columnCount = computed(() =>
-  Math.min(100, Math.max(1, ...rows.value.map((row) => row.length))),
-);
+const columnCount = computed(() => Math.min(100, Math.max(1, ...rows.value.map((row) => row.length))));
 const filteredRows = computed(() => {
   const term = query.value.trim().toLocaleLowerCase();
   if (!term) return rows.value.map((row, index) => ({ row, index }));
@@ -39,9 +37,7 @@ const filteredRows = computed(() => {
 });
 const start = computed(() => Math.max(0, Math.floor(scrollTop.value / rowHeight) - overscan));
 const visibleCount = computed(() => Math.ceil(viewportHeight.value / rowHeight) + overscan * 2);
-const visibleRows = computed(() =>
-  filteredRows.value.slice(start.value, start.value + visibleCount.value),
-);
+const visibleRows = computed(() => filteredRows.value.slice(start.value, start.value + visibleCount.value));
 
 function selectSheet(name: string) {
   if (!workbook.value) return;
@@ -122,9 +118,7 @@ watch(() => [props.file.path, props.file.modifiedAt], loadWorkbook);
               gridTemplateColumns: `48px repeat(${columnCount}, minmax(140px, 1fr))`,
             }"
           >
-            <div
-              class="sticky left-0 z-10 border-r border-muted bg-muted/90 px-2 py-2 text-xs text-muted"
-            >
+            <div class="sticky left-0 z-10 border-r border-muted bg-muted/90 px-2 py-2 text-xs text-muted">
               {{ item.index + 1 }}
             </div>
             <button
@@ -145,8 +139,7 @@ watch(() => [props.file.path, props.file.modifiedAt], loadWorkbook);
       </div>
       <div class="flex h-9 shrink-0 items-center border-t border-muted px-3 text-xs text-muted">
         <span v-if="selected"
-          ><strong class="text-highlighted">{{ selected.address }}</strong> ·
-          {{ selected.value || "空单元格" }}</span
+          ><strong class="text-highlighted">{{ selected.address }}</strong> · {{ selected.value || "空单元格" }}</span
         >
         <span v-else>选择单元格以查看地址和值</span>
       </div>
@@ -157,8 +150,7 @@ watch(() => [props.file.path, props.file.modifiedAt], loadWorkbook);
     >
       <template #status>
         {{ file.extension.toUpperCase()
-        }}<template v-if="sheetName"> · {{ sheetName }} · {{ filteredRows.length }} 行</template> ·
-        只读
+        }}<template v-if="sheetName"> · {{ sheetName }} · {{ filteredRows.length }} 行</template> · 只读
       </template>
       <template v-if="!error" #actions>
         <USelect
@@ -169,10 +161,7 @@ watch(() => [props.file.path, props.file.modifiedAt], loadWorkbook);
           aria-label="切换工作表"
           @update:model-value="handleSheetChange"
         />
-        <UPopover
-          :content="{ side: 'top', align: 'end', sideOffset: 8 }"
-          :ui="{ content: 'compatibility-popover' }"
-        >
+        <UPopover :content="{ side: 'top', align: 'end', sideOffset: 8 }" :ui="{ content: 'compatibility-popover' }">
           <UButton
             class="viewer-footer-button"
             color="neutral"
@@ -183,13 +172,7 @@ watch(() => [props.file.path, props.file.modifiedAt], loadWorkbook);
           />
           <template #content>
             <div class="w-72 space-y-2">
-              <UInput
-                v-model="query"
-                icon="i-lucide-search"
-                size="sm"
-                placeholder="搜索当前 Sheet"
-                autofocus
-              />
+              <UInput v-model="query" icon="i-lucide-search" size="sm" placeholder="搜索当前 Sheet" autofocus />
               <p class="text-xs text-muted">当前显示 {{ filteredRows.length }} 行</p>
             </div>
           </template>

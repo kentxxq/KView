@@ -1,9 +1,5 @@
-import { describe, expect, it } from "vitest";
-import {
-  associationGroupsForPlatform,
-  capabilitiesForPlatform,
-  formatCapabilities,
-} from "../../src/domain/formats";
+import { describe, expect, it } from "vite-plus/test";
+import { associationGroupsForPlatform, capabilitiesForPlatform, formatCapabilities } from "../../src/domain/formats";
 
 describe("formats and platform capabilities", () => {
   it("loads non-empty catalog of format capabilities", () => {
@@ -48,9 +44,7 @@ describe("formats and platform capabilities", () => {
 
   it("excludes non-associable capabilities from association groups", () => {
     const winGroups = associationGroupsForPlatform("windows");
-    const nonAssociableLabels = new Set(
-      formatCapabilities.filter((c) => !c.associable).map((c) => c.label),
-    );
+    const nonAssociableLabels = new Set(formatCapabilities.filter((c) => !c.associable).map((c) => c.label));
 
     for (const group of winGroups) {
       expect(nonAssociableLabels.has(group.label)).toBe(false);

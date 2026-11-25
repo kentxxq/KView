@@ -28,9 +28,12 @@ defineExpose({
     activeSection.value = "about";
   },
 });
-watch(() => props.initialSection, (section) => {
-  if (props.open && section) activeSection.value = section;
-});
+watch(
+  () => props.initialSection,
+  (section) => {
+    if (props.open && section) activeSection.value = section;
+  },
+);
 const appVersion = ref(packageJson.version);
 const isWindows = /windows/i.test(navigator.userAgent);
 const autostartAvailable = !import.meta.env.DEV;
@@ -38,9 +41,7 @@ const autostartAvailable = !import.meta.env.DEV;
 const settingsSections = computed(() => [
   { label: "常规", value: "general" as const, icon: "i-lucide-settings-2" },
   { label: "文本查看", value: "text" as const, icon: "i-lucide-file-text" },
-  ...(isWindows
-    ? [{ label: "文件关联", value: "associations" as const, icon: "i-lucide-files" }]
-    : []),
+  ...(isWindows ? [{ label: "文件关联", value: "associations" as const, icon: "i-lucide-files" }] : []),
   { label: "诊断", value: "diagnostics" as const, icon: "i-lucide-stethoscope" },
   { label: "关于", value: "about" as const, icon: "i-lucide-info" },
 ]);
@@ -57,9 +58,7 @@ function settingsSnapshot(settings: AppSettings): AppSettings {
 
 const form = reactive<AppSettings>(settingsSnapshot(appSettings));
 const largeFileThresholdError = computed(() =>
-  Number.isInteger(form.largeFileThresholdMb) &&
-  form.largeFileThresholdMb >= 1 &&
-  form.largeFileThresholdMb <= 1024
+  Number.isInteger(form.largeFileThresholdMb) && form.largeFileThresholdMb >= 1 && form.largeFileThresholdMb <= 1024
     ? undefined
     : "请输入 1–1024 之间的整数。",
 );
@@ -171,9 +170,10 @@ async function changeFileAssociations(action: "register" | "unregister") {
     await invoke(action === "register" ? "register_file_associations" : "unregister_file_associations");
     toast.add({
       title: action === "register" ? "文件关联已注册" : "文件关联注册已取消",
-      description: action === "register"
-        ? "可前往 Windows 默认应用设置，选择由 KView 打开的格式。"
-        : "若此前已将 KView 设为默认应用，请前往 Windows 设置选择其他应用。",
+      description:
+        action === "register"
+          ? "可前往 Windows 默认应用设置，选择由 KView 打开的格式。"
+          : "若此前已将 KView 设为默认应用，请前往 Windows 设置选择其他应用。",
       color: "success",
     });
   } catch (error) {
@@ -247,12 +247,7 @@ async function openLogDirectory() {
                 <p class="mt-1 text-sm text-muted">调整应用外观和窗口行为。</p>
               </div>
               <UFormField name="theme" label="外观主题">
-                <USelect
-                  v-model="form.theme"
-                  class="w-full"
-                  :items="themeOptions"
-                  value-key="value"
-                />
+                <USelect v-model="form.theme" class="w-full" :items="themeOptions" value-key="value" />
               </UFormField>
               <div class="space-y-5 rounded-xl border border-muted p-4">
                 <UFormField name="residencyMode" label="驻留模式">
@@ -260,10 +255,7 @@ async function openLogDirectory() {
                 </UFormField>
                 <UFormField name="closeBehavior" label="关闭窗口时">
                   <URadioGroup v-model="form.closeBehavior" :items="closeBehaviorOptions" />
-                  <p
-                    v-if="form.residencyMode === 'low-memory'"
-                    class="mt-2 text-xs leading-5 text-muted"
-                  >
+                  <p v-if="form.residencyMode === 'low-memory'" class="mt-2 text-xs leading-5 text-muted">
                     低内存模式会销毁窗口，因此必须关闭所有标签页。
                   </p>
                 </UFormField>
@@ -287,21 +279,10 @@ async function openLogDirectory() {
                 <h2 class="text-base font-semibold text-highlighted">文本查看</h2>
                 <p class="mt-1 text-sm text-muted">配置本地文本文件的载入方式。</p>
               </div>
-              <UFormField
-                name="largeFileThresholdMb"
-                label="大文件阈值（MiB）"
-                :error="largeFileThresholdError"
-              >
-                <UInputNumber
-                  v-model="form.largeFileThresholdMb"
-                  class="w-full"
-                  :min="1"
-                  :max="1024"
-                  :step="1"
-                />
+              <UFormField name="largeFileThresholdMb" label="大文件阈值（MiB）" :error="largeFileThresholdError">
+                <UInputNumber v-model="form.largeFileThresholdMb" class="w-full" :min="1" :max="1024" :step="1" />
                 <p class="mt-2 text-xs leading-5 text-muted">
-                  阈值以内的本地文本会完整载入内存并使用 Monaco
-                  编辑器；设置过高可能显著增加内存占用。
+                  阈值以内的本地文本会完整载入内存并使用 Monaco 编辑器；设置过高可能显著增加内存占用。
                 </p>
               </UFormField>
             </section>
@@ -311,20 +292,18 @@ async function openLogDirectory() {
                 <h2 class="text-base font-semibold text-highlighted">文件关联</h2>
                 <p class="mt-1 text-sm text-muted">按需将 KView 添加到系统的文件打开方式中。</p>
               </div>
-              <div
-                class="space-y-4 rounded-xl border border-muted p-4"
-              >
+              <div class="space-y-4 rounded-xl border border-muted p-4">
                 <div class="min-w-0">
                   <p class="text-sm text-muted">
-                    安装时不会自动注册。点击“注册文件关联”后，KView 会出现在支持格式的打开方式中，默认应用仍由你在 Windows 设置中选择。
+                    安装时不会自动注册。点击“注册文件关联”后，KView 会出现在支持格式的打开方式中，默认应用仍由你在
+                    Windows 设置中选择。
                   </p>
                   <p class="mt-2 text-sm text-muted">
-                    “取消注册”会清理 KView 的注册记录；若此前已设为默认应用，请前往系统设置选择其他应用。这些操作立即生效。
+                    “取消注册”会清理 KView
+                    的注册记录；若此前已设为默认应用，请前往系统设置选择其他应用。这些操作立即生效。
                   </p>
                   <details class="mt-3 text-xs text-muted">
-                    <summary class="cursor-pointer select-none text-primary">
-                      查看支持注册的格式
-                    </summary>
+                    <summary class="cursor-pointer select-none text-primary">查看支持注册的格式</summary>
                     <div class="mt-2 space-y-1.5 leading-5">
                       <p v-for="group in associationGroups" :key="group.label">
                         <span class="font-medium text-default">{{ group.label }}：</span>
@@ -369,12 +348,8 @@ async function openLogDirectory() {
                 <h2 class="text-base font-semibold text-highlighted">诊断</h2>
                 <p class="mt-1 text-sm text-muted">查看用于排查问题的本地日志。</p>
               </div>
-              <div
-                class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4"
-              >
-                <p class="text-sm leading-6 text-muted">
-                  仅记录错误类别、错误代码和耗时，不记录文件路径或文件内容。
-                </p>
+              <div class="flex items-center justify-between gap-6 rounded-xl border border-muted p-4">
+                <p class="text-sm leading-6 text-muted">仅记录错误类别、错误代码和耗时，不记录文件路径或文件内容。</p>
                 <UButton
                   class="shrink-0"
                   color="neutral"
@@ -403,18 +378,8 @@ async function openLogDirectory() {
             v-if="activeSection === 'general' || activeSection === 'text'"
             class="flex shrink-0 justify-end gap-2 border-t border-default px-6 py-3"
           >
-            <UButton
-              color="neutral"
-              variant="ghost"
-              label="取消"
-              @click="emit('update:open', false)"
-            />
-            <UButton
-              label="保存设置"
-              :loading="saving"
-              :disabled="!!largeFileThresholdError"
-              @click="submit"
-            />
+            <UButton color="neutral" variant="ghost" label="取消" @click="emit('update:open', false)" />
+            <UButton label="保存设置" :loading="saving" :disabled="!!largeFileThresholdError" @click="submit" />
           </div>
         </div>
       </div>
