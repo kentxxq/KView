@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: 检出完整历史
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: 校验版本及发布来源
@@ -51,7 +51,7 @@ jobs:
             bundles: app,dmg
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: 安装 Vite+ 和 Node.js
         uses: voidzero-dev/setup-vp@v1.22.0
         with:
@@ -92,7 +92,7 @@ jobs:
           RELEASE_SIGNED: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
         run: vpr release:stage
       - name: 暂存构建物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.platform }}
           path: ${{ runner.temp }}/kview-release/*
@@ -113,7 +113,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: 检出完整历史
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: 读取原发布运行的标签和提交
@@ -129,7 +129,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" \
             --jq 'if .event == "push" and .path == ".github/workflows/tauri-build.yml" and (.head_branch | startswith("v")) then "RELEASE_TAG=\(.head_branch)\nRELEASE_SHA=\(.head_sha)" else error("必须选择本仓库由版本标签触发的构建运行") end' >> "$GITHUB_ENV"
       - name: 下载两个平台的构建物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           merge-multiple: true
