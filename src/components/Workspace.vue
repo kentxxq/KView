@@ -1311,43 +1311,58 @@ const canCloseWithSpace = computed(
     activeTab.value?.state.file?.kind !== "live-photo",
 );
 
-function isInputFocused(): boolean {
-  const element = document.activeElement;
-  if (!element) return false;
-  const tag = element.tagName.toLowerCase();
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const tag = target.tagName.toLowerCase();
   if (tag === "input" || tag === "textarea" || tag === "select") return true;
-  if ((element as HTMLElement).isContentEditable) return true;
-  if (element.closest(".monaco-editor") || element.closest(".inputarea")) return true;
-  return false;
+  if (target instanceof HTMLElement) {
+    if (target.isContentEditable) return true;
+    // 识别 Monaco 0.57+ 等原生 EditContext 宿主节点，避免提前拦截文本输入与方向键
+    if ("editContext" in target && Boolean((target as HTMLElement & { editContext?: unknown }).editContext)) {
+      return true;
+    }
+  }
+  return Boolean(target.closest(".monaco-editor, .inputarea"));
+}
+
+function handleSpaceOpenKeyDown(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.key === "Process") return;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+  if (isEditableKeyboardTarget(event.target) || isEditableKeyboardTarget(document.activeElement)) return;
+
+  if (event.key === " ") {
+    if (event.repeat || !canCloseWithSpace.value) return;
+    event.preventDefault();
+    void closeWindow();
+    return;
+  }
+
+  if (!canSwitchSpaceOpen.value) return;
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    event.preventDefault();
+    switchSpaceOpenFile(-1);
+  } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    event.preventDefault();
+    switchSpaceOpenFile(1);
+  }
 }
 
 defineShortcuts(
   computed(() => ({
     escape: { handler: closeWindow, usingInput: true },
-    " ": canCloseWithSpace.value
-      ? {
-          handler: () => {
-            if (isInputFocused()) return;
-            void closeWindow();
-          },
-        }
-      : false,
     meta_o: selectFile,
     meta_s: { handler: () => saveDocument(false), usingInput: true },
     meta_shift_s: { handler: () => saveDocument(true), usingInput: true },
     meta_w: () => closeTab(),
     meta_tab: () => cycleTab(1),
     meta_shift_tab: () => cycleTab(-1),
-    arrowleft: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(-1) : false,
-    arrowup: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(-1) : false,
-    arrowright: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(1) : false,
-    arrowdown: canSwitchSpaceOpen.value ? () => switchSpaceOpenFile(1) : false,
   })),
 );
 
 onMounted(async () => {
   tabResizeObserver = new ResizeObserver(updateTabScrollState);
   if (tabStrip.value) tabResizeObserver.observe(tabStrip.value);
+  window.addEventListener("keydown", handleSpaceOpenKeyDown);
   if (!isTauri()) return;
   try {
     await Promise.all([appSettings.load(), libraryState.load()]);
@@ -1403,6 +1418,7 @@ watch(tabStrip, (element, previousElement) => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleSpaceOpenKeyDown);
   disposeUpdates?.();
   disposeUpdateFocus?.();
   tabResizeObserver?.disconnect();
